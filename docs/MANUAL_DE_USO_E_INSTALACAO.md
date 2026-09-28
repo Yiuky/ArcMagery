@@ -1,11 +1,11 @@
-# Manual de Instalação e Operação | CGMA ArcGEE Explorer
+# Manual de Instalação e Operação | ArcMagery
 
 <p align="center">
-  <img src="docs/images/logo.png" alt="CGMA ArcGEE Explorer Logo" width="160" />
+  <img src="images/logo.png" alt="ArcMagery" width="160" />
 </p>
 
 <p align="center">
-  <strong>Google Earth Engine integrado ao ArcGIS Desktop (ArcMap 10.8 / 10.8.2)</strong><br>
+  <strong>Google Earth Engine, Google Earth e CBERS/INPE no ArcGIS Desktop (ArcMap 10.8 / 10.8.2)</strong><br>
   <em>Desenvolvido para operações de Sensoriamento Remoto, Geoprocessamento e Fiscalização Ambiental</em><br>
   <strong>Coordenadoria de Geoprocessamento e Monitoramento Ambiental (CGMA / SEMA-MT)</strong>
 </p>
@@ -38,7 +38,7 @@
 
 ## 1. Apresentação e Visão Geral
 
-O **CGMA ArcGEE Explorer** é uma extensão oficial (Python Add-In) para **ArcGIS Desktop 10.8 e 10.8.2 (ArcMap)** que integra diretamente o poder de processamento em nuvem do **Google Earth Engine (GEE)** ao ambiente cartográfico da ESRI.
+O **ArcMagery** é uma extensão oficial (Python Add-In) para **ArcGIS Desktop 10.8 e 10.8.2 (ArcMap)** que integra diretamente o poder de processamento em nuvem do **Google Earth Engine (GEE)** ao ambiente cartográfico da ESRI.
 
 Projetado especialmente para fluxos intensivos de sensoriamento remoto, perícias ambientais e monitoramento de cobertura vegetal da **SEMA-MT**, o plugin elimina a necessidade de exportar imagens para o Google Drive ou baixar gigabytes de cenas completas manualmente. 
 
@@ -82,7 +82,7 @@ Para utilizar a API do Google Earth Engine, é necessário ter uma conta de aces
 ## 4. Guia de Instalação Passo a Passo
 
 <p align="center">
-  <img src="docs/images/interface_arcmap.png" alt="Interface Integrada ao ArcMap" width="90%" />
+  <img src="images/interface_arcmap.png" alt="Interface Integrada ao ArcMap" width="90%" />
 </p>
 
 ### 4.1 Instalação Automatizada (Recomendada - 1 Clique)
@@ -93,13 +93,13 @@ O repositório conta com um instalador completo para Windows (`install.bat`) que
    ```cmd
    git clone https://github.com/Yiuky/arcgis-google-earth-engine-explorer.git
    ```
-   *(Caso tenha baixado em formato `.zip`, extraia o conteúdo em uma pasta de sua escolha, por exemplo `C:\ArcGEE_Explorer`)*.
+   *(Caso tenha baixado em formato `.zip`, extraia o conteúdo em uma pasta de sua escolha, por exemplo `C:\ArcMagery`)*.
 2. Certifique-se de que o **ArcMap esteja fechado**.
 3. Dê um duplo clique no arquivo **`install.bat`**.
 4. O script executará as seguintes ações:
    - Detectará a instalação do ArcGIS Desktop 10.8 e seu Python 2.7.
-   - Detectará automaticamente o interpretador Python 3 da sua máquina (procurando no Python padrão, QGIS ou Conda).
-   - Instalará ou atualizará a biblioteca `earthengine-api` e requisitos necessários.
+   - Criará um ambiente Python 3 **isolado** em `%LOCALAPPDATA%\ArcMagery\venv`, a partir do Python do QGIS 3.x (preferido, pois já traz o GDAL usado no CBERS) ou de um Python 3.10+ oficial. O QGIS e outros projetos não são alterados.
+   - Instalará `earthengine-api`, Pillow e numpy nesse ambiente e conferirá se o GDAL está disponível.
    - Empacotará o Add-In `.esriaddin` e o registrará no utilitário ESRI oficial (`ESRIRegAddIn.exe`).
    - Limpará caches de bytecode residuais (`AssemblyCache`), garantindo inicialização limpa.
    - Copiará os templates de simbologia e disponibilizará a caixa de ferramentas `GEE_Tools.pyt`.
@@ -145,14 +145,14 @@ Antes de fazer a primeira consulta, é preciso vincular o token do Google Earth 
 1. Abra o **ArcMap 10.8** ou **10.8.2**.
 2. Caso a barra de ferramentas não apareça na inicialização:
    - Vá ao menu superior do ArcMap: **Customize** > **Toolbars**.
-   - Marque a opção **`CGMA ArcGEE Explorer`** (ou `GEE Image Selector`).
+   - Marque a opção **`ArcMagery`** (ou `GEE Image Selector`).
 3. Uma barra flutuante será exibida contendo o botão oficial do plugin com o ícone do satélite:
    
    <p align="center">
-     <strong>[ 🛰️ ArcGEE Explorer ]</strong>
+     <strong>[ 🛰️ ArcMagery ]</strong>
    </p>
 
-4. Clique no botão. A interface do **CGMA ArcGEE Explorer** abrirá instantaneamente em uma janela moderna independente.
+4. Clique no botão. A interface do **ArcMagery** abrirá instantaneamente em uma janela moderna independente.
 5. **Configurar o Projeto GEE:**
    - No cabeçalho da janela, verifique o status de conexão.
    - Caso esteja em amarelo solicitando o projeto, clique em **`[ Configurar Projeto GEE ]`**.
@@ -165,7 +165,7 @@ Antes de fazer a primeira consulta, é preciso vincular o token do Google Earth 
 ## 6. Guia Prático de Operação
 
 <p align="center">
-  <img src="docs/images/sobre_dialog.png" alt="Janela Sobre do ArcGEE Explorer" width="500" />
+  <img src="images/sobre_dialog.png" alt="Janela Sobre do ArcMagery" width="500" />
 </p>
 
 ### 6.1 Satélites, Sensores e Períodos Disponíveis
@@ -201,7 +201,7 @@ O plugin disponibiliza as combinações de bandas mais utilizadas internacionalm
 
 ### 6.3 Índices Espectrais (NDVI, NDWI, NBR, etc.) e Matemática de Bandas
 
-Além das composições multiespectrais, o ArcGEE Explorer calcula índices biofísicos diretamente nos servidores do Google Earth Engine, baixando uma camada monocamada Float32 pronta com rampa de cores automática:
+Além das composições multiespectrais, o ArcMagery calcula índices biofísicos diretamente nos servidores do Google Earth Engine, baixando uma camada monocamada Float32 pronta com rampa de cores automática:
 
 * **NDVI (Normalized Difference Vegetation Index):** Mede o vigor fotossintético e biomassa vegetal:
   $$\text{NDVI} = \frac{\text{NIR} - \text{RED}}{\text{NIR} + \text{RED}}$$
@@ -223,7 +223,7 @@ Selecione a opção **"Fórmula Personalizada (Band Math)"** e digite qualquer e
 ### 6.4 Filtros Espaciais e Garantia Estrita de Qualidade Nativa 100%
 
 <p align="center">
-  <img src="docs/images/interface_arcmap.png" alt="Filtro Espacial e Visualização ArcMap" width="80%" />
+  <img src="images/interface_arcmap.png" alt="Filtro Espacial e Visualização ArcMap" width="80%" />
 </p>
 
 O plugin disponibiliza dois métodos principais para definir a região de interesse:
@@ -240,7 +240,7 @@ O plugin disponibiliza dois métodos principais para definir a região de intere
 
 > [!TIP]
 > **Suporte a Downloads de Áreas Extensas (> 48 MB - Novidade v1.6):**
-> O Google Earth Engine possui um teto unitário de 48 MB por requisição. A partir da versão 1.6, o ArcGEE Explorer particiona automaticamente áreas extensas (em escalas de até 1:500.000 ou grandes polígonos AOI) em uma grade de quadrantes seguros, baixados em paralelo multithread e mesclados continuamente via GDAL, garantindo **100% da resolução espacial nativa** (10m no Sentinel-2, 30m no Landsat) sem cancelamentos ou perdas de dados.
+> O Google Earth Engine possui um teto unitário de 48 MB por requisição. A partir da versão 1.6, o ArcMagery particiona automaticamente áreas extensas (em escalas de até 1:500.000 ou grandes polígonos AOI) em uma grade de quadrantes seguros, baixados em paralelo multithread e mesclados continuamente via GDAL, garantindo **100% da resolução espacial nativa** (10m no Sentinel-2, 30m no Landsat) sem cancelamentos ou perdas de dados.
 
 ---
 
@@ -318,12 +318,60 @@ Clique no botão **`[ ⚙ Configurações ]`** no canto superior direito para ac
 
 ---
 
+### 6.10 Google Earth / Mosaicos XYZ e CBERS / Amazônia-1 (v2.0)
+
+Clique em **`[ Google Earth / CBERS ]`** na barra superior. A janela tem uma área comum
+(**Área de interesse**: extensão atual do ArcMap ou camada vetorial AOI; **Pasta de saída**)
+e duas abas.
+
+#### Aba *Google Earth / Mosaicos XYZ*
+1. Escolha a **Fonte**: Google Earth / Satélite, Google Híbrido, Esri World Imagery, Esri Clarity ou Bing Aerial.
+2. Ajuste o **Zoom**. A estimativa aparece na hora: quantidade de tiles, dimensões, m/pixel no
+   terreno e volume de download (zoom 18 ≈ 0,57 m/pixel; zoom 19 ≈ 0,29 m/pixel em MT).
+3. Opcional: compressão LZW (sem perdas) e reprojeção para SIRGAS 2000 (EPSG:4674). Por padrão
+   o mosaico fica em Web Mercator (EPSG:3857) nativo, sem reamostragem.
+4. Clique em **Baixar mosaico e carregar no ArcMap**. A camada entra no grupo
+   `ArcMagery - Google Earth / XYZ`.
+
+* **Limite de segurança:** 20.000 tiles por download. Reduza a área ou o zoom se ele for atingido.
+* **Retomada:** se a rede cair, os tiles já baixados ficam em `<arquivo>_tiles`. Repita o
+  download e só os tiles que faltam serão buscados.
+* **Termos de Uso:** para Google e Bing, um aviso é exibido antes do primeiro download. O uso em
+  massa fora das APIs oficiais viola os Termos de Serviço desses provedores. Prefira a Esri ou o
+  CBERS para uso institucional.
+
+#### Aba *CBERS / Amazônia-1 (INPE)*
+1. Escolha a **Coleção**:
+
+   | Coleção | Resolução | Produtos |
+   |---|---|---|
+   | CBERS-4A WPM | 8 m (MS) e 2 m (PAN) | cor natural, falsa cor, multibanda, pancromática |
+   | CBERS-4A WPM fusionada (PCA) | 2 m | RGB fusionado |
+   | CBERS-4/4A MUX | 16–20 m | cor natural, falsa cor, multibanda |
+   | CBERS-4/4A WFI e Amazônia-1 WFI | 55–64 m | cor natural, falsa cor, multibanda |
+   | CBERS-4 PAN 10 m / 5 m | 10 m / 5 m | falsa cor e multibanda / pancromática |
+
+2. Informe o **Período** (DD/MM/AAAA) e, se quiser, o limite de **nuvens**. Coleções DN não
+   informam nuvens e sempre aparecem.
+3. Clique em **Buscar cenas**. A coluna **Cobertura da AOI %** mostra quanto da área cada cena
+   cobre de fato; cenas que não cobrem a área são omitidas.
+4. Selecione uma ou mais cenas. Use **Miniatura** para inspecionar a cena, escolha o **Produto**
+   e clique em **Baixar recorte e carregar no ArcMap**.
+
+* **Somente o recorte é transferido:** o ArcMagery lê por HTTP apenas a janela de pixels da
+  área, na grade e resolução **nativas** da cena (UTM/WGS84), sem reamostragem.
+* Os valores são DN ou refletância de superfície (SR), conforme a coleção. O multibanda mantém
+  a ordem espectral (azul, verde, vermelho, NIR) e é exibido em cor natural.
+* **Requisito:** GDAL no Python 3 do backend. O `install.bat` o obtém do QGIS 3.x.
+
+---
+
 ## 7. Atualizações e Manutenção
 
-O CGMA ArcGEE Explorer conta com uma arquitetura de atualização **transacional e à prova de falhas** (módulo `gee_updater.py`):
+O ArcMagery conta com uma arquitetura de atualização **transacional e à prova de falhas** (módulo `gee_updater.py`):
 
 <p align="center">
-  <img src="docs/images/sobre_dialog.png" alt="Assistente de Atualizações" width="450" />
+  <img src="images/sobre_dialog.png" alt="Assistente de Atualizações" width="450" />
 </p>
 
 ### 🛡️ Princípios de Confiabilidade do Atualizador:
@@ -343,7 +391,7 @@ O CGMA ArcGEE Explorer conta com uma arquitetura de atualização **transacional
 ### Formas de Atualizar:
 1. **Pela Interface Gráfica:**
    - Acesse **Configurações (⚙)** > clique em **`[ 🔄 Abrir Assistente de Atualização (GitHub / ZIP) ]`**.
-   - Escolha **"Atualizar Diretamente via GitHub"** (detecta repositório Git ou faz download do pacote oficial com barra de progresso, valida e instala).
+   - Escolha **"Atualizar Diretamente via GitHub"**. O pacote vem da **última Release publicada** e só é instalado se o hash SHA-256 conferir com o `SHA256SUMS.txt` da Release. Se ainda não houver Release, o assistente pergunta se você aceita baixar a versão de desenvolvimento do branch `main` **sem verificação**. Downgrades também exigem confirmação.
    - Ou escolha **"Selecionar Arquivo ZIP e Atualizar"** para pacotes manuais offline.
 2. **Por Linha de Comando:**
    - Feche o ArcMap e execute o arquivo **`install.bat`** ou **`deploy.ps1`** na raiz da pasta do plugin.
@@ -378,6 +426,18 @@ O CGMA ArcGEE Explorer conta com uma arquitetura de atualização **transacional
   ```cmd
   setx GEE_PYTHON3 "C:\MeuPython3\python.exe"
   ```
+* Por padrão o plugin usa, nesta ordem: `GEE_PYTHON3`, o caminho salvo nas configurações, o venv
+  `%LOCALAPPDATA%\ArcMagery\venv` e, por fim, outros Pythons 3 que tenham o `earthengine-api`. Para CBERS
+  e Google Earth, é escolhido um Python 3 com GDAL (venv do ArcMagery ou QGIS).
+
+### 6. CBERS: "Erro SSL" ou "HTTP response code 0" em rede corporativa
+* O ArcMagery exporta os certificados do Windows (incluindo a CA do proxy corporativo) para
+  `%TEMP%\arcmagery_ca_bundle.pem` e os entrega ao GDAL. Se ainda falhar, defina a variável
+  `CURL_CA_BUNDLE` apontando para o arquivo `.pem` fornecido pela equipe de TI.
+
+### 7. CBERS: "A área de interesse cai fora da parte imageada da cena"
+* A cena cobre o retângulo, mas não a parte com imagem (bordas NoData de cenas inclinadas).
+  Escolha outra cena com **Cobertura da AOI %** próxima de 100.
 
 ---
 

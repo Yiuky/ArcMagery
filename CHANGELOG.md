@@ -4,6 +4,54 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.0.0] - 2026-09-28
+
+O projeto passa a se chamar **ArcMagery**. O identificador do Add-In (`AddInID`), os nomes internos dos módulos e as pastas de dados (`%APPDATA%\ArcGEE`, `%LOCALAPPDATA%\CGMA_ArcGEE`) foram mantidos para que as instalações existentes continuem atualizando e preservem configurações e backups.
+
+### 🌟 Adicionado
+- **Google Earth / Mosaicos XYZ** (botão `Google Earth / CBERS` → aba *Google Earth / Mosaicos XYZ*):
+  - Fontes: Google Earth / Satélite, Google Híbrido, Esri World Imagery, Esri Clarity e Bing Aerial.
+  - Estimativa instantânea (tiles, pixels, m/pixel e MB) antes de baixar, com limite de segurança de 20.000 tiles.
+  - Download paralelo com retentativas, cache em disco e **retomada** após falhas.
+  - GeoTIFF gravado tile a tile via GDAL (BigTIFF, compressão JPEG ou LZW), recortado exatamente à área em EPSG:3857 nativo. Reprojeção opcional para SIRGAS 2000 (EPSG:4674).
+  - Aviso de Termos de Uso antes do primeiro download do Google ou do Bing.
+- **CBERS-4/4A e Amazônia-1 via STAC do INPE** (aba *CBERS / Amazônia-1*):
+  - 12 coleções: WPM 2 m/8 m, WPM fusionada 2 m, MUX 16/20 m, WFI 55/64 m, PAN 5/10 m e Amazônia-1 WFI.
+  - Busca por período, nuvens e área, com **cobertura real da AOI (%)** calculada sobre o footprint de cada cena.
+  - Miniaturas das cenas.
+  - Recorte por leitura parcial HTTP (`/vsicurl/`): só a janela da área é transferida, na **grade e resolução nativas** (sem reamostragem).
+  - Produtos: cor natural, falsa cor, multibanda e pancromática.
+- Suítes de testes automatizados (`run_tests.bat`):
+  - `tests/backend` (Python 3) com servidores HTTP locais que simulam o provedor XYZ e o STAC.
+  - `tests/arcmap` (Python 2.7), cobrindo ponte, interface, atualizador e regressão do `pythonw`.
+  - Testes ao vivo opcionais (`ARCMAGERY_LIVE=1`).
+- `build_release.py`: gera `ArcMagery-<versão>.zip` + `SHA256SUMS.txt` para publicação como GitHub Release.
+- `BACKLOG.md` e `AGENTS.md`: backlog priorizado e guia de contribuição para outros desenvolvedores e modelos de IA.
+
+### 🛡️ Corrigido
+- **Máscara de nuvem dos mosaicos nunca era aplicada:** `mask_clouds_and_shadows` chamava `getInfo()` dentro de `ImageCollection.map()`, que o Earth Engine rejeita; o `except` engolia o erro. A máscara agora é 100% server-side (SCL no S2 e QA_PIXEL no Landsat).
+- **Mosaicos Landsat truncados:** `toInt16()` sobre valores L2 uint16 cortava a refletância acima de 0,70 e a banda térmica ST_B10 (~45.000 DN). A mediana volta ao tipo nativo (uint16/uint8).
+- **Worker de download morria sob `pythonw`:** o redirecionamento de `stdout` da v1.12 nunca era ativado, porque `write("")` funciona com o descritor inválido (`fileno() == -2`). Um `print` grande gerava `IOError(9)`. A detecção agora usa `fileno()`.
+- **Interface acessando o Tk fora da thread principal:** a validação de escala/AOI, que roda em threads de trabalho, lia widgets e abria diálogos diretamente. Agora usa `ui_call`/`_mb`.
+- **Comunicação entre processos:** arquivos por sessão (PID do ArcMap), escrita atômica (`MoveFileEx`) e **instância única** da interface por ArcMap.
+- **Seleção do Python 3:** o Python do backend deve ter `earthengine-api`; o alias da Microsoft Store é ignorado. Um interpretador com GDAL é escolhido para CBERS/XYZ, e o `pythonw` da interface é obtido do próprio ArcGIS (`sys.prefix`).
+- `PYTHONIOENCODING=utf-8` no backend: os acentos não somem mais das mensagens de progresso.
+- Miniatura do GEE com timeout, e o arquivo de imagem passa a ser fechado.
+- **Bloqueio de downgrade no atualizador nunca era ativado:** a versão do pacote ZIP era lida como "Desconhecida", porque o `config.xml` usa namespace XML.
+- O erro real do recorte CBERS não era mais mascarado por uma falha no `gdal.Unlink` do `finally`.
+
+### 🔐 Segurança
+- **Atualizador:** o canal padrão passa a ser a **GitHub Release**, com `SHA256SUMS.txt` conferido antes de qualquer extração. Instalar do branch `main` sem verificação exige confirmação explícita, downgrade exige confirmação, e o download incompleto é detectado.
+
+### 🔧 Instalação e manutenção
+- `install.bat` cria um **venv próprio** (`%LOCALAPPDATA%\ArcMagery\venv`, com `--system-site-packages` sobre o Python do QGIS). O QGIS não é alterado, outros projetos não são afetados, e o venv tem `earthengine-api` e GDAL juntos. Os erros agora são verificados em cada etapa.
+- `autenticar_gee.bat` usa o venv do ArcMagery (sem caminhos fixos da máquina do desenvolvedor).
+- `deploy.ps1`: sem caminhos fixos; encerra só a interface do ArcMagery, não todos os `pythonw.exe`; falha com código de saída.
+- Removida a cópia duplicada `backend/` da raiz: a fonte única é `arcgis_addin/Install/backend`.
+- `requirements.txt` declara Pillow e numpy e documenta a dependência de GDAL.
+
+---
+
 ## [1.12.0] - 2026-09-28
 
 ### 🌟 Adicionado & Aprimorado
