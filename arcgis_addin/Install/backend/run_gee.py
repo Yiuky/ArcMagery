@@ -198,7 +198,37 @@ def main():
     p_dl.add_argument("--crs", default="EPSG:4674")
     p_dl.add_argument("--project", default=None)
 
-    args = parser.parse_args()
+    # Suporte a passagem de argumentos via arquivo JSON UTF-8 (--params-file)
+    parser.add_argument("--params-file", default=None, help="Caminho para arquivo JSON UTF-8 com argumentos")
+
+    for p in [p_check, p_auth, p_comp, p_search, p_thumb, p_dl]:
+        p.add_argument("--params-file", default=None, help="Caminho para arquivo JSON UTF-8 com argumentos")
+
+    params_file = None
+    for i, a in enumerate(sys.argv):
+        if a.startswith("--params-file="):
+            params_file = a.split("=", 1)[1]
+            break
+        elif a == "--params-file" and i + 1 < len(sys.argv):
+            params_file = sys.argv[i + 1]
+            break
+
+    if params_file and os.path.exists(params_file):
+        with open(params_file, "r", encoding="utf-8") as pf:
+            data = json.load(pf)
+        cmd_name = data.get("command")
+        if not cmd_name and len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
+            cmd_name = sys.argv[1]
+        
+        cli_tokens = [cmd_name] if cmd_name else []
+        for k, v in data.items():
+            if k == "command" or v is None:
+                continue
+            flag = "--" + k.replace("_", "-")
+            cli_tokens.append("%s=%s" % (flag, str(v)))
+        args = parser.parse_args(cli_tokens)
+    else:
+        args = parser.parse_args()
 
     if args.command == "check":
         cmd_check(args)

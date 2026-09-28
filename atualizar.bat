@@ -15,17 +15,17 @@ cd /d "%SCRIPT_DIR%"
 echo [1/3] Verificando conexao e buscando atualizacoes no GitHub...
 if exist ".git" (
     git pull origin main
-    if %errorlevel% neq 0 (
-        echo [AVISO] Falha no git pull. Tentando download direto via PowerShell...
-        goto download_zip
-    )
-    goto compile_deploy
 )
+if errorlevel 1 (
+    echo [AVISO] Falha no git pull. Tentando download direto via PowerShell...
+    goto download_zip
+)
+if exist ".git" goto compile_deploy
 
 :download_zip
 echo Baixando versao mais recente via GitHub ZIP...
 powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://github.com/Yiuky/arcgis-google-earth-engine-explorer/archive/refs/heads/main.zip' -OutFile '%TEMP%\gee_plugin_update.zip'"
-if %errorlevel% neq 0 (
+if errorlevel 1 (
     echo [ERRO] Nao foi possivel baixar o arquivo do GitHub. Verifique sua conexao.
     pause
     exit /b 1
@@ -42,10 +42,20 @@ if exist "C:\Python27\ArcGIS10.8\python.exe" (
 ) else (
     python arcgis_addin\makeaddin.py
 )
+if errorlevel 1 (
+    echo [ERRO] Falha ao recompilar o pacote Add-In.
+    pause
+    exit /b 1
+)
 
 echo.
 echo [3/3] Atualizando AssemblyCache e instalando Add-In...
 powershell -ExecutionPolicy Bypass -File deploy.ps1
+if errorlevel 1 (
+    echo [ERRO] Falha ao implantar Add-In no AssemblyCache.
+    pause
+    exit /b 1
+)
 
 echo.
 echo ==============================================================================

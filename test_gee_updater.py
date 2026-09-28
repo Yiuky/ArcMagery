@@ -138,13 +138,28 @@ def run_tests():
         safe_print("\n[TESTE 7] Staging isolado montado e verificado com sucesso.")
         passed += 1
 
-        # TESTE 8: Snapshot de Backup e Retenção
+        # TESTE 8: Snapshot de Backup e Retenção (Isolado em temp_test_dir para não tocar backups do sistema)
         total += 1
-        backup_meta = gee_updater.create_snapshot_backup(current_version="1.8")
+        mock_backups_dir = os.path.join(temp_test_dir, "mock_backups")
+        mock_addin_dir = os.path.join(temp_test_dir, "mock_addin")
+        mock_cache_dir = os.path.join(temp_test_dir, "mock_cache")
+        os.makedirs(mock_backups_dir)
+        os.makedirs(mock_addin_dir)
+        os.makedirs(mock_cache_dir)
+        with open(os.path.join(mock_addin_dir, "GEE_Image_Selector.esriaddin"), "w") as f:
+            f.write("mock addin content")
+        with open(os.path.join(mock_cache_dir, "config.xml"), "w") as f:
+            f.write("<Config></Config>")
+
+        backup_meta = gee_updater.create_snapshot_backup(
+            current_version="1.8",
+            backups_root=mock_backups_dir,
+            custom_sys_dirs={"addin_dir": mock_addin_dir, "cache_dir": mock_cache_dir}
+        )
         assert os.path.exists(backup_meta["snapshot_dir"]), "Diretório de snapshot deve existir"
         manifest_p = os.path.join(backup_meta["snapshot_dir"], "backup_manifest.json")
         assert os.path.exists(manifest_p), "Manifesto do backup deve existir"
-        safe_print(u"\n[TESTE 8] Snapshot de segurança gerado em: %s" % backup_meta["snapshot_dir"])
+        safe_print(u"\n[TESTE 8] Snapshot de segurança gerado isoladamente em: %s" % backup_meta["snapshot_dir"])
         passed += 1
 
         # TESTE 9: Validação Git no repositório atual

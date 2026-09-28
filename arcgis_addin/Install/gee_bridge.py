@@ -17,6 +17,98 @@ try:
 except ImportError:
     arcpy = None
 
+class SafeStream(object):
+    def __init__(self, log_path=None):
+        self.log_path = log_path
+    def write(self, s):
+        if not self.log_path:
+            return
+        try:
+            if os.path.exists(self.log_path) and os.path.getsize(self.log_path) > 3 * 1024 * 1024:
+                try:
+                    bak = self.log_path + ".bak"
+                    if os.path.exists(bak): os.remove(bak)
+                    os.rename(self.log_path, bak)
+                except Exception:
+                    pass
+            with open(self.log_path, "a") as f:
+                if isinstance(s, unicode):
+                    s = s.encode("utf-8", "replace")
+                f.write(s)
+        except Exception:
+            pass
+    def flush(self):
+        pass
+
+# Redirecionar sys.stdout e sys.stderr para evitar IOError silencioso em pythonw
+try:
+    if sys.stdout is None or not hasattr(sys.stdout, 'write'):
+        sys.stdout = SafeStream(os.path.join(tempfile.gettempdir(), "arcgee_bridge_stdout.log"))
+    else:
+        sys.stdout.write("")
+except Exception:
+    sys.stdout = SafeStream(os.path.join(tempfile.gettempdir(), "arcgee_bridge_stdout.log"))
+
+try:
+    if sys.stderr is None or not hasattr(sys.stderr, 'write'):
+        sys.stderr = SafeStream(os.path.join(tempfile.gettempdir(), "arcgee_bridge_stderr.log"))
+    else:
+        sys.stderr.write("")
+except Exception:
+    sys.stderr = SafeStream(os.path.join(tempfile.gettempdir(), "arcgee_bridge_stderr.log"))
+
+def get_user_gee_config_file():
+    appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
+    arcgee_dir = os.path.join(appdata, 'ArcGEE')
+    if not os.path.exists(arcgee_dir):
+        try:
+            os.makedirs(arcgee_dir)
+        except Exception:
+            pass
+    return os.path.join(arcgee_dir, 'gee_config.json')
+
+def load_user_gee_project():
+    cfg_file = get_user_gee_config_file()
+    if os.path.exists(cfg_file):
+        try:
+            with open(cfg_file, 'r') as f:
+                return json.load(f).get('project', '')
+        except Exception:
+            pass
+    return ""
+
+def save_user_gee_project(project):
+    cfg_file = get_user_gee_config_file()
+    try:
+        with open(cfg_file, 'w') as f:
+            json.dump({"project": str(project).strip()}, f, indent=2)
+        return True
+    except Exception:
+        return False
+
+def get_esricarto_olb_path():
+    """Descobre o caminho de esriCarto.olb dinamicamente a partir da instalacao do ArcGIS"""
+    if arcpy:
+        try:
+            inst = arcpy.GetInstallInfo()
+            idir = inst.get('InstallDir')
+            if idir:
+                p = os.path.join(idir, "com", "esriCarto.olb")
+                if os.path.exists(p):
+                    return p
+        except Exception:
+            pass
+    defaults = [
+        r"C:\Program Files (x86)\ArcGIS\Desktop10.8\com\esriCarto.olb",
+        r"C:\Program Files\ArcGIS\Desktop10.8\com\esriCarto.olb",
+        r"C:\Program Files (x86)\ArcGIS\Desktop10.7\com\esriCarto.olb",
+        r"C:\Program Files (x86)\ArcGIS\Desktop10.6\com\esriCarto.olb",
+    ]
+    for d in defaults:
+        if os.path.exists(d):
+            return d
+    return r"C:\Program Files (x86)\ArcGIS\Desktop10.8\com\esriCarto.olb"
+
 def find_python3():
     # 1. Variavel de ambiente explicita
     env_py = os.environ.get('GEE_PYTHON3')
@@ -32,25 +124,23 @@ def find_python3():
     except Exception:
         pass
 
-    # 3. Lista de caminhos comuns no Windows
+    # 3. Lista de caminhos dinamicos no Windows
+    import glob
     candidates = [
         os.environ.get("GEE_PYTHON3", ""),
         r"C:\CGMA_GEE_PLUGIN\venv\Scripts\python.exe",
-        r"C:\Program Files\QGIS 3.44.10\apps\Python312\python.exe",
-        r"C:\Program Files\QGIS 3.34.10\apps\Python312\python.exe",
-        r"C:\Program Files\QGIS 3.28\apps\Python39\python.exe",
-        r"C:\PRODUTIVIDADE_SIMCAR_DIGITAL\venv_p3\Scripts\python.exe",
-        r"C:\Python312\python.exe",
-        r"C:\Python311\python.exe",
-        r"C:\Python310\python.exe",
-        os.path.expanduser(r"~\AppData\Local\Programs\Python\Python312\python.exe"),
-        os.path.expanduser(r"~\AppData\Local\Programs\Python\Python311\python.exe"),
-        os.path.expanduser(r"~\AppData\Local\Programs\Python\Python310\python.exe"),
-        r"python.exe"
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), r"ArcGEE\venv\Scripts\python.exe"),
     ]
+    candidates += glob.glob(r"C:\Program Files\QGIS *\apps\Python3*\python.exe")
+    candidates += glob.glob(r"C:\Program Files (x86)\QGIS *\apps\Python3*\python.exe")
+    candidates += glob.glob(r"C:\OSGeo4W*\apps\Python3*\python.exe")
+    candidates += glob.glob(r"C:\Python3*\python.exe")
+    candidates += glob.glob(os.path.expanduser(r"~\AppData\Local\Programs\Python\Python3*\python.exe"))
+    candidates.append("python.exe")
+
     for c in candidates:
-        if os.path.exists(c):
-            return c
+        if c and os.path.exists(c):
+            return os.path.abspath(c)
     return "python.exe"
 
 def get_backend_script():
@@ -196,19 +286,52 @@ COMPOSITIONS['L4'] = COMPOSITIONS['L5']
 COMPOSITIONS['L3'] = COMPOSITIONS['L1']
 COMPOSITIONS['L2'] = COMPOSITIONS['L1']
 
+MULTIBAND_DEFAULT_BANDS = {
+    'S2': ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B8A', 'B9', 'B11', 'B12'],
+    'L8': ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7', 'ST_B10'],
+    'L7': ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'ST_B6'],
+    'L5': ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'ST_B6'],
+    'L4': ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'ST_B6'],
+    'L3': ['B4', 'B5', 'B6', 'B7'],
+    'L2': ['B4', 'B5', 'B6', 'B7'],
+    'L1': ['B4', 'B5', 'B6', 'B7']
+}
+
 def run_backend_cmd(subcmd, args_dict, on_progress=None):
     py3 = find_python3()
     script = get_backend_script()
     if not os.path.exists(script):
         return {'success': False, 'message': u"Script backend nao encontrado: " + unicode(script)}
 
-    cmd = [py3, script, subcmd]
-    for k, v in args_dict.items():
-        if v is not None and unicode(v).strip() != u"":
-            flag = "--" + k.replace("_", "-")
-            cmd.append("%s=%s" % (flag, unicode(v)))
+    # Passagem de parametros via arquivo JSON UTF-8 com caminho 8.3 puro ASCII
+    # para imunidade absoluta contra erros de encoding e caminhos com acentos (ex: C:\Users\José)
+    params_payload = dict(args_dict)
+    params_payload['command'] = subcmd
+
+    import io
+    temp_json = tempfile.NamedTemporaryFile(suffix='.json', prefix='gee_params_', delete=False)
+    temp_json_path = temp_json.name
+    temp_json.close()
 
     try:
+        with io.open(temp_json_path, 'w', encoding='utf-8') as f_json:
+            json_str = json.dumps(params_payload, ensure_ascii=False)
+            if not isinstance(json_str, unicode):
+                json_str = unicode(json_str, 'utf-8', 'replace')
+            f_json.write(json_str)
+
+        safe_json_path = temp_json_path
+        if os.name == 'nt':
+            try:
+                import ctypes
+                buf = ctypes.create_unicode_buffer(500)
+                if ctypes.windll.kernel32.GetShortPathNameW(unicode(temp_json_path), buf, 500) > 0:
+                    safe_json_path = str(buf.value)
+            except Exception:
+                safe_json_path = temp_json_path.encode('ascii', 'ignore') if isinstance(temp_json_path, unicode) else temp_json_path
+
+        cmd = [str(py3), str(script), str(subcmd), "--params-file=" + str(safe_json_path)]
+
         # Sanitizar variaveis de ambiente para isolar Python 3 do ambiente Python 2 do ArcMap
         clean_env = dict(os.environ)
         clean_env.pop('PYTHONPATH', None)
@@ -230,49 +353,120 @@ def run_backend_cmd(subcmd, args_dict, on_progress=None):
             env=clean_env
         )
 
+        out_chunks = []
         err_chunks = []
-        if on_progress:
-            import threading
-            def _stream_err():
+
+        def _stream_out():
+            try:
+                for raw_line in iter(proc.stdout.readline, b''):
+                    out_chunks.append(raw_line)
+            except Exception:
+                pass
+            finally:
                 try:
-                    for raw_line in iter(proc.stderr.readline, b''):
-                        try:
-                            s = raw_line.decode('utf-8', 'ignore') if hasattr(raw_line, 'decode') else raw_line
-                            err_chunks.append(s)
-                            if '[ArcGEE]' in s and on_progress:
-                                on_progress(s.strip())
-                        except Exception:
-                            pass
+                    proc.stdout.close()
                 except Exception:
                     pass
 
-            t_err = threading.Thread(target=_stream_err)
-            t_err.daemon = True
-            t_err.start()
+        def _stream_err():
+            try:
+                for raw_line in iter(proc.stderr.readline, b''):
+                    err_chunks.append(raw_line)
+                    try:
+                        s = raw_line.decode('utf-8', 'ignore') if hasattr(raw_line, 'decode') else raw_line
+                        if '[ArcGEE]' in s and on_progress:
+                            on_progress(s.strip())
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            finally:
+                try:
+                    proc.stderr.close()
+                except Exception:
+                    pass
 
-            out = proc.stdout.read()
-            proc.wait()
-            t_err.join(timeout=2.0)
-            err = "".join(err_chunks)
+        t_out = threading.Thread(target=_stream_out)
+        t_out.daemon = True
+        t_out.start()
+
+        t_err = threading.Thread(target=_stream_err)
+        t_err.daemon = True
+        t_err.start()
+
+        # Timeout adaptativo por operacao para evitar travamentos silenciosos
+        if subcmd == 'download':
+            timeout_seconds = 600  # 10 minutos para download e processamento de grandes rasters
+        elif subcmd in ('check', 'auth', 'compositions'):
+            timeout_seconds = 30   # 30 segundos para checagens basicas
+        elif subcmd == 'search':
+            timeout_seconds = 90   # 90 segundos para busca no catalogo GEE
+        elif subcmd == 'thumb':
+            timeout_seconds = 60   # 60 segundos para miniaturas
         else:
-            out, err = proc.communicate()
+            timeout_seconds = 120
 
-        if proc.returncode != 0 and not out:
+        start_time = time.time()
+        timed_out = False
+        while proc.poll() is None:
+            time.sleep(0.1)
+            if time.time() - start_time > timeout_seconds:
+                timed_out = True
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                break
+
+        t_out.join(timeout=2.0)
+        t_err.join(timeout=2.0)
+
+        out = b"".join(out_chunks)
+        err = b"".join(err_chunks)
+
+        if timed_out:
+            return {'success': False, 'message': u"Tempo limite excedido na operacao '%s' (%d s)." % (subcmd, timeout_seconds)}
+
+        if proc.returncode != 0 and not out.strip():
             err_msg = err if isinstance(err, unicode) else unicode(str(err), errors='ignore') if hasattr(str, 'decode') else str(err)
             return {'success': False, 'message': u"Erro executando backend (codigo %d): %s" % (proc.returncode, err_msg)}
 
-        # Filtrar saida para encontrar a linha JSON
+        # Filtrar saida para encontrar a linha JSON valida (procura de tras para frente)
         lines = out.strip().splitlines()
-        json_line = lines[-1] if lines else "{}"
-        data = json.loads(json_line)
+        data = None
+        for line in reversed(lines):
+            line_str = line.decode('utf-8', 'ignore') if hasattr(line, 'decode') else str(line)
+            line_str = line_str.strip()
+            if line_str.startswith('{') and line_str.endswith('}'):
+                try:
+                    data = json.loads(line_str)
+                    break
+                except Exception:
+                    pass
+
+        if data is None:
+            raw_preview = out[:300].decode('utf-8', 'ignore') if hasattr(out, 'decode') else str(out[:300])
+            err_preview = err[:300].decode('utf-8', 'ignore') if hasattr(err, 'decode') else str(err[:300])
+            return {'success': False, 'message': u"Resposta invalida do backend GEE: %s (stderr: %s)" % (raw_preview, err_preview)}
+
         return data
     except Exception as e:
         return {'success': False, 'message': u"Excecao na execucao do backend: " + unicode(e)}
+    finally:
+        try:
+            if os.path.exists(temp_json_path):
+                os.remove(temp_json_path)
+        except Exception:
+            pass
 
 def check_gee(project=None):
+    if not project:
+        project = load_user_gee_project()
     return run_backend_cmd("check", {"project": project})
 
 def authenticate_gee(project=None):
+    if not project:
+        project = load_user_gee_project()
     return run_backend_cmd("auth", {"project": project})
 
 def launch_auth_console(project=None):
@@ -283,15 +477,9 @@ def launch_auth_console(project=None):
     if not os.path.exists(ee_exe):
         ee_exe = "earthengine"
 
-    # Salvar projeto na config se fornecido
+    # Salvar projeto na config isolada de usuario (%APPDATA%\ArcGEE) se fornecido
     if project:
-        script = get_backend_script()
-        cfg_file = os.path.join(os.path.dirname(script), "gee_config.json")
-        try:
-            with open(cfg_file, 'w') as f:
-                json.dump({"project": project}, f, indent=2)
-        except Exception:
-            pass
+        save_user_gee_project(project)
 
     cmd = 'start "Google Earth Engine - Autenticacao" cmd /k ""%s" authenticate --auth_mode=localhost && echo. && echo ======================================================== && echo [SUCESSO] Autenticacao salva! && echo Voce ja pode fechar esta janela e voltar ao ArcMap. && echo ======================================================== && pause"' % ee_exe
     try:
@@ -529,7 +717,7 @@ def get_empty_group_lyr_path():
     candidates = [
         os.path.join(current_dir, "empty_group_template.lyr"),
         os.path.join(current_dir, "Install", "empty_group_template.lyr"),
-        r"C:\Users\joberthgambati\.gemini\antigravity\scratch\gee_arcgis_plugin\arcgis_addin\Install\empty_group_template.lyr"
+        os.path.abspath(os.path.join(current_dir, "..", "Install", "empty_group_template.lyr"))
     ]
     for c in candidates:
         if os.path.exists(c):
@@ -551,7 +739,7 @@ def ensure_pure_group_template():
     if need_create:
         try:
             import comtypes.client
-            esriCarto = comtypes.client.GetModule(r'C:\Program Files (x86)\ArcGIS\Desktop10.8\com\esriCarto.olb')
+            esriCarto = comtypes.client.GetModule(get_esricarto_olb_path())
             gl = comtypes.client.CreateObject(esriCarto.GroupLayer, interface=esriCarto.IGroupLayer)
             out_p = tmpl_path or os.path.join(os.path.dirname(os.path.abspath(__file__)), "empty_group_template.lyr")
             lf = comtypes.client.CreateObject(esriCarto.LayerFile, interface=esriCarto.ILayerFile)
@@ -795,14 +983,10 @@ def resolve_rgb_band_indices(sensor, comp_code, custom_bands=None, band_count=No
     
     comp_info = COMPOSITIONS.get(sensor, {}).get(comp_code, {})
     if not raster_bands:
-        if comp_info.get('bands'):
+        if band_count and band_count > 3:
+            raster_bands = MULTIBAND_DEFAULT_BANDS.get(sensor, [])
+        if not raster_bands and comp_info.get('bands'):
             raster_bands = comp_info['bands']
-        elif band_count and band_count > 3:
-            try:
-                from backend.gee_core import MULTIBAND_DEFAULT_BANDS
-                raster_bands = MULTIBAND_DEFAULT_BANDS.get(sensor, [])
-            except Exception:
-                raster_bands = []
 
     target_comp_bands = comp_info.get('bands', [])
     if comp_info.get('multiband', False) or len(target_comp_bands) < 3:
@@ -849,15 +1033,18 @@ def apply_stretch_and_stats(lyr_file_path, settings=None, rgb_bands=None):
         settings = load_plugin_settings()
     try:
         import comtypes.client
-        esriCarto = comtypes.client.GetModule(r'C:\Program Files (x86)\ArcGIS\Desktop10.8\com\esriCarto.olb')
+        esriCarto = comtypes.client.GetModule(get_esricarto_olb_path())
         lf = comtypes.client.CreateObject(esriCarto.LayerFile, interface=esriCarto.ILayerFile)
         lf.Open(lyr_file_path)
         layer = lf.Layer
         raster_layer = layer.QueryInterface(esriCarto.IRasterLayer)
         renderer = raster_layer.Renderer
 
-        # Se rgb_bands fornecido (raster com 3 ou mais bandas), GARANTIR RasterRGBRenderer!
-        if rgb_bands and len(rgb_bands) >= 3:
+        # Se raster com 3 ou mais bandas, GARANTIR RasterRGBRenderer!
+        total_b = getattr(raster_layer, 'BandCount', 1)
+        if (rgb_bands and len(rgb_bands) >= 3) or total_b >= 3:
+            if not rgb_bands or len(rgb_bands) < 3:
+                rgb_bands = (0, 1, 2)
             rgb_rend = None
             try:
                 rgb_rend = renderer.QueryInterface(esriCarto.IRasterRGBRenderer)
@@ -938,6 +1125,318 @@ def apply_stretch_and_stats(lyr_file_path, settings=None, rgb_bands=None):
     except Exception as ex:
         print("Erro em apply_stretch_and_stats:", ex)
         return False
+
+def _refresh_arcmap_views(mx_doc=None):
+    """Atualiza o Table of Contents (TOC) e a visualizacao do mapa (ActiveView) tanto via ArcObjects quanto ArcPy."""
+    try:
+        if arcpy:
+            arcpy.RefreshTOC()
+            arcpy.RefreshActiveView()
+    except Exception:
+        pass
+    try:
+        if mx_doc:
+            if hasattr(mx_doc, 'UpdateContents'):
+                mx_doc.UpdateContents()
+            if hasattr(mx_doc, 'ActiveView') and hasattr(mx_doc.ActiveView, 'Refresh'):
+                mx_doc.ActiveView.Refresh()
+    except Exception:
+        pass
+
+def find_live_raster_layer(layer_name=None):
+    """Localiza a camada raster ativa no ArcMap atraves de ArcObjects (AppRef / FocusMap).
+    Retorna uma tupla: (mx_doc, focus_map, com_layer, com_raster_layer) ou (None, None, None, None)."""
+    try:
+        import comtypes.client
+        esriCarto = comtypes.client.GetModule(get_esricarto_olb_path())
+        app = comtypes.client.CreateObject("esriFramework.AppRef")
+        mx_doc = getattr(app, 'Document', None)
+        if not mx_doc:
+            return None, None, None, None
+        focus_map = getattr(mx_doc, 'FocusMap', None)
+        if not focus_map:
+            return None, None, None, None
+
+        # 1. Se layer_name foi fornecido, buscar na arvore recursiva do mapa
+        if layer_name and unicode(layer_name).strip():
+            clean_target = unicode(layer_name).strip().lower()
+            p_enum = focus_map.Layers(None, True)
+            p_enum.Reset()
+            lyr = p_enum.Next()
+            while lyr:
+                try:
+                    c_name = unicode(lyr.Name).strip().lower()
+                    if c_name == clean_target or c_name == (clean_target + ".tif") or (clean_target in c_name):
+                        rl = lyr.QueryInterface(esriCarto.IRasterLayer)
+                        return mx_doc, focus_map, lyr, rl
+                except Exception:
+                    pass
+                lyr = p_enum.Next()
+
+        # 2. Se nao encontrou por nome, tentar a camada selecionada no TOC (SelectedLayer)
+        try:
+            sel = getattr(mx_doc, 'SelectedLayer', None)
+            if sel:
+                rl = sel.QueryInterface(esriCarto.IRasterLayer)
+                return mx_doc, focus_map, sel, rl
+        except Exception:
+            pass
+
+        # 3. Fallback: primeira camada raster encontrada no mapa
+        p_enum = focus_map.Layers(None, True)
+        p_enum.Reset()
+        lyr = p_enum.Next()
+        while lyr:
+            try:
+                rl = lyr.QueryInterface(esriCarto.IRasterLayer)
+                return mx_doc, focus_map, lyr, rl
+            except Exception:
+                pass
+            lyr = p_enum.Next()
+
+        return mx_doc, focus_map, None, None
+    except Exception as e:
+        _log_debug("find_live_raster_layer falhou: " + str(e))
+        return None, None, None, None
+
+def _apply_rgb_to_com_layer(rl, r_idx, g_idx, b_idx, settings=None):
+    """Configura e aplica IRasterRGBRenderer diretamente no objeto IRasterLayer COM ao vivo."""
+    import comtypes.client
+    esriCarto = comtypes.client.GetModule(get_esricarto_olb_path())
+    if not settings:
+        settings = load_plugin_settings()
+
+    rgb_rend = comtypes.client.CreateObject(esriCarto.RasterRGBRenderer, interface=esriCarto.IRasterRGBRenderer)
+    rend_base = rgb_rend.QueryInterface(esriCarto.IRasterRenderer)
+    rend_base.Raster = rl.Raster
+    rend_base.Update()
+
+    rgb_rend.RedBandIndex = int(r_idx)
+    rgb_rend.GreenBandIndex = int(g_idx)
+    rgb_rend.BlueBandIndex = int(b_idx)
+
+    # 1. Configurar Stretch
+    st_map = {
+        'Standard Deviations': esriCarto.esriRasterStretch_StandardDeviations,
+        'Standard Deviation': esriCarto.esriRasterStretch_StandardDeviations,
+        'Percent Clip': esriCarto.esriRasterStretch_PercentMinimumMaximum,
+        'Minimum-Maximum': esriCarto.esriRasterStretch_MinimumMaximum,
+        'Histogram Equalize': esriCarto.esriRasterStretch_HistogramEqualize,
+        'None': esriCarto.esriRasterStretch_NONE,
+        'Esri': esriCarto.esriRasterStretch_ESRI,
+        'Sigmoid': esriCarto.esriRasterStretch_Sigmoid
+    }
+    st_choice = settings.get('stretch_type', 'Standard Deviations')
+    st_val = st_map.get(st_choice, esriCarto.esriRasterStretch_StandardDeviations)
+    try:
+        stretch = rend_base.QueryInterface(esriCarto.IRasterStretch)
+        stretch.StretchType = st_val
+        if st_val == esriCarto.esriRasterStretch_StandardDeviations:
+            std_param = float(settings.get('stretch_std_param', 2.0))
+            stretch.StandardDeviationsParam = std_param
+    except Exception as e_st:
+        _log_debug("_apply_rgb_to_com_layer stretch: " + str(e_st))
+
+    # 2. Configurar Statistics Type
+    stats_map = {
+        'From Current Display Extent': esriCarto.esriRasterStretchStats_AreaOfView,
+        'From Each Raster Dataset': esriCarto.esriRasterStretchStats_Dataset,
+        'From Custom Settings': esriCarto.esriRasterStretchStats_GlobalStats
+    }
+    stats_choice = settings.get('statistics_type', 'From Current Display Extent')
+    stats_val = stats_map.get(stats_choice, esriCarto.esriRasterStretchStats_AreaOfView)
+    try:
+        stretch2 = rend_base.QueryInterface(esriCarto.IRasterStretch2)
+        stretch2.StretchStatsType = stats_val
+    except Exception as e_stats:
+        _log_debug("_apply_rgb_to_com_layer stats: " + str(e_stats))
+
+    rend_base.Update()
+    rl.Renderer = rend_base
+    return rgb_rend
+
+def _interrogate_and_verify_rgb(rl, exp_r=None, exp_g=None, exp_b=None):
+    """Interroga a camada raster do TOC para verificar se o renderizador ativo e realmente
+    RGB Composite (IRasterRGBRenderer) e se as bandas estao atribuidas a canais distintos."""
+    import comtypes.client
+    esriCarto = comtypes.client.GetModule(get_esricarto_olb_path())
+    try:
+        active_rend = rl.Renderer
+        if not active_rend:
+            return False, u"Nenhum renderizador ativo na camada."
+
+        # Checar se ainda e Stretched
+        try:
+            stretch_rend = active_rend.QueryInterface(esriCarto.IRasterStretchColorRampRenderer)
+            if stretch_rend:
+                return False, u"A camada ainda esta no modo 'Stretched' (RasterStretchColorRampRenderer)."
+        except Exception:
+            pass
+
+        # Checar se implementa IRasterRGBRenderer
+        try:
+            rgb_rend = active_rend.QueryInterface(esriCarto.IRasterRGBRenderer)
+        except Exception:
+            rgb_rend = None
+
+        if not rgb_rend:
+            return False, u"Renderizador ativo nao e 'RGB Composite' (IRasterRGBRenderer ausente)."
+
+        r = rgb_rend.RedBandIndex
+        g = rgb_rend.GreenBandIndex
+        b = rgb_rend.BlueBandIndex
+
+        # Validacao estrita: bandas devem ser distintas
+        if r == g or r == b or g == b:
+            return False, u"Bandas RGB nao sao distintas (R=%d, G=%d, B=%d)." % (r, g, b)
+
+        if exp_r is not None and exp_g is not None and exp_b is not None:
+            if (r, g, b) != (exp_r, exp_g, exp_b):
+                return False, u"Bandas configuradas (R=%d, G=%d, B=%d) diferem das solicitadas (R=%d, G=%d, B=%d)." % (
+                    r, g, b, exp_r, exp_g, exp_b
+                )
+
+        return True, (r, g, b)
+    except Exception as e:
+        return False, u"Excecao durante interrogacao da camada: " + str(e)
+
+def force_and_validate_rgb_composite(
+    layer_name=None,
+    rgb_bands=None,
+    settings=None,
+    tif_path=None,
+    group_name=None,
+    comp_code=None,
+    sensor=None,
+    custom_bands=None,
+    max_retries=2
+):
+    """Forca e valida que a camada raster no TOC do ArcMap utilize renderizador 'RGB Composite'
+    com bandas R, G e B distintas, com verificacao automatizada imediata e acao corretiva (re-aplicacao/re-adicao).
+    
+    Retorna (sucesso, mensagem_formatada)."""
+    if not settings:
+        settings = load_plugin_settings()
+
+    _log_debug("force_and_validate_rgb_composite iniciado para layer '%s'" % str(layer_name))
+
+    # 1. Localizar camada viva no ArcMap via ArcObjects
+    mx_doc, focus_map, lyr, rl = find_live_raster_layer(layer_name)
+    if not rl:
+        return False, u"Camada raster '%s' nao encontrada no TOC do ArcMap." % (layer_name or "")
+
+    # 2. Verificar quantidade de bandas disponiveis
+    total_bands = getattr(rl, 'BandCount', 1)
+    if total_bands < 3:
+        return False, u"A camada possui apenas %d banda(s); renderizacao RGB Composite exige no minimo 3 bandas." % total_bands
+
+    # 3. Determinar indices das bandas R, G, B garantindo que sejam distintos
+    if not rgb_bands or len(rgb_bands) < 3:
+        rgb_bands = resolve_rgb_band_indices(sensor, comp_code, custom_bands, total_bands)
+
+    r_idx = max(0, min(int(rgb_bands[0]), total_bands - 1))
+    g_idx = max(0, min(int(rgb_bands[1]), total_bands - 1))
+    b_idx = max(0, min(int(rgb_bands[2]), total_bands - 1))
+
+    # Garantir bandas estritamente distintas
+    if r_idx == g_idx:
+        g_idx = (r_idx + 1) % total_bands
+    if b_idx == r_idx or b_idx == g_idx:
+        for cand in range(total_bands):
+            if cand != r_idx and cand != g_idx:
+                b_idx = cand
+                break
+
+    # Tentativa 1: Aplicacao direta da simbologia RGB
+    try:
+        _apply_rgb_to_com_layer(rl, r_idx, g_idx, b_idx, settings)
+    except Exception as e_app1:
+        _log_debug("Tentativa 1 falhou ao aplicar RGB: " + str(e_app1))
+
+    # Verificacao Automatizada Imediata (Tentativa 1)
+    ok_v1, res_v1 = _interrogate_and_verify_rgb(rl, r_idx, g_idx, b_idx)
+    if ok_v1:
+        _refresh_arcmap_views(mx_doc)
+        msg_ok = u"Simbologia corrigida com sucesso para RGB Composite (Red: Banda %d, Green: Banda %d, Blue: Banda %d)!" % (
+            r_idx + 1, g_idx + 1, b_idx + 1
+        )
+        _log_debug("force_and_validate_rgb_composite: " + msg_ok)
+        return True, msg_ok
+
+    _log_debug(u"Aviso: Verificacao da Tentativa 1 falhou (%s). Iniciando Acao Corretiva..." % unicode(res_v1))
+
+    # Tentativa 2: Reaplicacao forcada (Acao Corretiva 1)
+    try:
+        _apply_rgb_to_com_layer(rl, r_idx, g_idx, b_idx, settings)
+    except Exception as e_app2:
+        _log_debug("Tentativa 2 falhou: " + str(e_app2))
+
+    ok_v2, res_v2 = _interrogate_and_verify_rgb(rl, r_idx, g_idx, b_idx)
+    if ok_v2:
+        _refresh_arcmap_views(mx_doc)
+        msg_ok = u"Simbologia corrigida com sucesso para RGB Composite apos reaplicacao (Red: Banda %d, Green: Banda %d, Blue: Banda %d)!" % (
+            r_idx + 1, g_idx + 1, b_idx + 1
+        )
+        _log_debug("force_and_validate_rgb_composite: " + msg_ok)
+        return True, msg_ok
+
+    _log_debug(u"Aviso: Tentativa 2 falhou (%s). Iniciando Acao Corretiva Avancada (remocao e readicao)..." % unicode(res_v2))
+
+    # Tentativa 3: Acao Corretiva Avancada (Remover e Readicionar com template RGB)
+    try:
+        mxd_curr = arcpy.mapping.MapDocument("CURRENT")
+        df_curr = arcpy.mapping.ListDataFrames(mxd_curr)[0]
+        actual_name = getattr(lyr, 'Name', layer_name)
+        target_lyr_obj = None
+        for l_chk in arcpy.mapping.ListLayers(mxd_curr, "", df_curr):
+            if not l_chk.isGroupLayer and (l_chk.name == actual_name or (layer_name and layer_name in l_chk.name)):
+                target_lyr_obj = l_chk
+                break
+
+        if target_lyr_obj:
+            if not tif_path:
+                tif_path = getattr(target_lyr_obj, 'dataSource', None)
+            is_visible = getattr(target_lyr_obj, 'visible', True)
+            arcpy.mapping.RemoveLayer(df_curr, target_lyr_obj)
+
+            if tif_path and os.path.exists(tif_path):
+                cache_dir = os.path.join(tempfile.gettempdir(), 'arcgee_lyr_cache')
+                if not os.path.exists(cache_dir):
+                    try: os.makedirs(cache_dir)
+                    except Exception: pass
+                
+                readd_lyr = os.path.join(cache_dir, "readd_" + str(int(time.time())) + ".lyr")
+                raw_readd = arcpy.mapping.Layer(tif_path)
+                raw_readd.saveACopy(readd_lyr)
+                apply_stretch_and_stats(readd_lyr, settings, rgb_bands=(r_idx, g_idx, b_idx))
+
+                new_obj = arcpy.mapping.Layer(readd_lyr)
+                new_obj.name = actual_name
+                new_obj.visible = is_visible
+
+                target_grp = get_or_create_group_layer(group_name) if group_name else None
+                if target_grp:
+                    arcpy.mapping.AddLayerToGroup(df_curr, target_grp, new_obj, "BOTTOM")
+                else:
+                    arcpy.mapping.AddLayer(df_curr, new_obj, "TOP")
+
+                # Localizar camada readicionada e reaplicar/verificar
+                _mx, _fm, _l, rl_new = find_live_raster_layer(actual_name)
+                if rl_new:
+                    _apply_rgb_to_com_layer(rl_new, r_idx, g_idx, b_idx, settings)
+                    ok_v3, res_v3 = _interrogate_and_verify_rgb(rl_new, r_idx, g_idx, b_idx)
+                    _refresh_arcmap_views(mx_doc)
+                    if ok_v3:
+                        msg_ok = u"Simbologia corrigida com sucesso para RGB Composite apos readicao da camada!"
+                        _log_debug("force_and_validate_rgb_composite: " + msg_ok)
+                        return True, msg_ok
+                    else:
+                        return False, u"Erro ao corrigir simbologia apos readicao: " + unicode(res_v3)
+    except Exception as e_readd:
+        _log_debug("Erro na acao corretiva de readicao: " + str(e_readd))
+
+    _refresh_arcmap_views(mx_doc)
+    return False, u"Erro ao corrigir simbologia: A camada permaneceu no estado invalido (%s)." % unicode(res_v2)
 
 def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_code=None, sensor=None, custom_bands=None):
     """Adiciona o arquivo GeoTIFF baixado diretamente no TOC do ArcMap sem duplicar,
@@ -1033,6 +1532,23 @@ def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_c
             else:
                 arcpy.mapping.AddLayer(df, layer_obj, "TOP")
 
+            # 6.0 Forcar e Validar Simbologia RGB Composite imediatamente na camada viva do TOC
+            rgb_feedback_msg = ""
+            if band_count >= 3:
+                rgb_indices = resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
+                ok_rgb, msg_rgb = force_and_validate_rgb_composite(
+                    layer_name=layer_name,
+                    rgb_bands=rgb_indices,
+                    settings=settings,
+                    tif_path=tif_path,
+                    group_name=group_name,
+                    comp_code=comp_code,
+                    sensor=sensor,
+                    custom_bands=custom_bands
+                )
+                rgb_feedback_msg = (" | " + msg_rgb) if msg_rgb else ""
+                _log_debug("load_into_toc: force_and_validate_rgb_composite -> %s (%s)" % (str(ok_rgb), msg_rgb))
+
             # Garantir visibilidade configurada no TOC (inclusive quando inserido em grupo)
             try:
                 for lyr in arcpy.mapping.ListLayers(mxd, "", df):
@@ -1078,7 +1594,7 @@ def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_c
         arcpy.RefreshTOC()
         arcpy.RefreshActiveView()
 
-        return True, "Camada '%s' adicionada com sucesso ao grupo '%s'!" % (layer_name, group_name or "TOC")
+        return True, ("Camada '%s' adicionada com sucesso ao grupo '%s'!%s" % (layer_name, group_name or "TOC", rgb_feedback_msg)).strip()
     except Exception as e:
         return False, "Erro ao adicionar camada ao TOC: " + str(e)
 
@@ -1166,6 +1682,22 @@ def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=No
             arcpy.mapping.InsertLayer(df, target_lyr, new_obj, "BEFORE")
             arcpy.mapping.RemoveLayer(df, target_lyr)
 
+            # Forcar e Validar Simbologia RGB Composite imediatamente apos substituicao
+            rgb_feedback_msg = ""
+            if band_count >= 3:
+                rgb_indices = resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
+                ok_rgb, msg_rgb = force_and_validate_rgb_composite(
+                    layer_name=new_layer_name,
+                    rgb_bands=rgb_indices,
+                    settings=settings,
+                    tif_path=tif_path,
+                    comp_code=comp_code,
+                    sensor=sensor,
+                    custom_bands=custom_bands
+                )
+                rgb_feedback_msg = (" | " + msg_rgb) if msg_rgb else ""
+                _log_debug("replace_in_toc: force_and_validate_rgb_composite -> %s (%s)" % (str(ok_rgb), msg_rgb))
+
             try:
                 for lyr in arcpy.mapping.ListLayers(mxd, "", df):
                     if not lyr.isGroupLayer and lyr.name == new_layer_name:
@@ -1185,7 +1717,7 @@ def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=No
 
         arcpy.RefreshTOC()
         arcpy.RefreshActiveView()
-        return True, "Camada '%s' substituida por '%s' com sucesso!" % (target_long_name, new_layer_name)
+        return True, ("Camada '%s' substituida por '%s' com sucesso!%s" % (target_long_name, new_layer_name, rgb_feedback_msg)).strip()
     except Exception as e:
         return False, "Erro ao substituir camada no TOC: " + str(e)
 
@@ -1213,9 +1745,21 @@ def change_layer_composition(target_layer_name, composition_code, sensor):
         prev_add_outputs = arcpy.env.addOutputsToMap
         arcpy.env.addOutputsToMap = False
 
-        temp_lyr_name = "gee_temp_" + str(abs(hash(data_source + composition_code)))[:6]
+        band_count = None
+        try:
+            desc = arcpy.Describe(data_source)
+            band_count = getattr(desc, 'bandCount', None) or getattr(desc, 'BandCount', None)
+        except Exception:
+            pass
+
+        temp_lyr_name = "gee_temp_" + uuid.uuid4().hex[:8]
 
         try:
+            if arcpy.Exists(temp_lyr_name):
+                try:
+                    arcpy.Delete_management(temp_lyr_name)
+                except Exception:
+                    pass
             arcpy.MakeRasterLayer_management(data_source, temp_lyr_name)
             tmp_lyr_file = os.path.join(tempfile.gettempdir(), temp_lyr_name + ".lyr")
             try:
@@ -1224,7 +1768,7 @@ def change_layer_composition(target_layer_name, composition_code, sensor):
             except Exception:
                 pass
             arcpy.SaveToLayerFile_management(temp_lyr_name, tmp_lyr_file)
-            rgb_indices = resolve_rgb_band_indices(sensor, composition_code, None, band_count=None)
+            rgb_indices = resolve_rgb_band_indices(sensor, composition_code, None, band_count=band_count)
             apply_stretch_and_stats(tmp_lyr_file, rgb_bands=rgb_indices)
 
             new_obj = arcpy.mapping.Layer(tmp_lyr_file)
@@ -1232,7 +1776,22 @@ def change_layer_composition(target_layer_name, composition_code, sensor):
 
             arcpy.mapping.InsertLayer(df, target_lyr, new_obj, "BEFORE")
             arcpy.mapping.RemoveLayer(df, target_lyr)
+
+            # Forcar e validar RGB na camada recem-inserida
+            force_and_validate_rgb_composite(
+                layer_name=target_lyr.name,
+                rgb_bands=rgb_indices,
+                settings=load_plugin_settings(),
+                tif_path=data_source,
+                comp_code=composition_code,
+                sensor=sensor
+            )
         finally:
+            if arcpy.Exists(temp_lyr_name):
+                try:
+                    arcpy.Delete_management(temp_lyr_name)
+                except Exception:
+                    pass
             arcpy.env.addOutputsToMap = prev_add_outputs
 
         arcpy.RefreshTOC()
@@ -1243,7 +1802,7 @@ def change_layer_composition(target_layer_name, composition_code, sensor):
 
 def apply_stretch_to_toc_layer(target_layer_name=None, settings=None):
     """Aplica e garante as configuracoes de Stretch (ex: Standard Deviations) e DRA (From Current Display Extent)
-    em uma camada especifica ou em todas as camadas raster do TOC."""
+    em uma camada especifica ou em todas as camadas raster do TOC, forçando e validando RGB Composite para multibandas."""
     if not arcpy:
         return False, "ArcPy nao disponivel."
     if not settings:
@@ -1267,6 +1826,19 @@ def apply_stretch_to_toc_layer(target_layer_name=None, settings=None):
         try:
             for lyr in rasters_to_update:
                 try:
+                    data_src = getattr(lyr, 'dataSource', None)
+                    desc = arcpy.Describe(data_src) if (data_src and os.path.exists(data_src)) else None
+                    b_count = getattr(desc, 'bandCount', 1) if desc else 1
+                    if b_count >= 3:
+                        ok_f, msg_f = force_and_validate_rgb_composite(
+                            layer_name=lyr.name,
+                            settings=settings,
+                            tif_path=data_src
+                        )
+                        if ok_f:
+                            updated_count += 1
+                            continue
+
                     tmp_lyr = os.path.join(tempfile.gettempdir(), "gee_stretch_" + str(abs(hash(lyr.longName)))[:6] + ".lyr")
                     if os.path.exists(tmp_lyr):
                         try: os.remove(tmp_lyr)
@@ -1306,8 +1878,18 @@ DEBUG_LOG_FILE = os.path.join(tempfile.gettempdir(), "arcgee_debug.log")
 
 def _log_debug(msg):
     try:
+        if os.path.exists(DEBUG_LOG_FILE) and os.path.getsize(DEBUG_LOG_FILE) > 3 * 1024 * 1024:
+            try:
+                bak = DEBUG_LOG_FILE + ".bak"
+                if os.path.exists(bak):
+                    os.remove(bak)
+                os.rename(DEBUG_LOG_FILE, bak)
+            except Exception:
+                pass
         t_str = time.strftime("%Y-%m-%d %H:%M:%S")
         with open(DEBUG_LOG_FILE, "a") as f:
+            if isinstance(msg, unicode):
+                msg = msg.encode("utf-8", "replace")
             f.write("[%s] %s\n" % (t_str, msg))
     except Exception:
         pass
@@ -1443,7 +2025,13 @@ def start_arcmap_ipc_timer(interval_ms=250):
                 now = time.time()
                 if now - _last_timer_ctx_time > 0.6:
                     _last_timer_ctx_time = now
-                    export_arcmap_context()
+                    hb_file = os.path.join(tempfile.gettempdir(), "arcgee_gui_heartbeat.tmp")
+                    if os.path.exists(hb_file):
+                        try:
+                            if (now - os.path.getmtime(hb_file)) < 6.0:
+                                export_arcmap_context()
+                        except Exception:
+                            pass
             except Exception:
                 pass
         _timer_proc_ref = TIMERPROC(on_timer)
@@ -1547,15 +2135,16 @@ def process_pending_arcmap_commands():
                     settings=cmd.get('settings')
                 )
                 resp = {'reply_to': cmd_id, 'success': ok, 'message': msg}
-            elif action == 'eval_code':
-                code_str = cmd.get('code', '')
-                loc = {'result': None, 'error': None}
-                try:
-                    exec(code_str, globals(), loc)
-                    resp = {'reply_to': cmd_id, 'success': True, 'result': repr(loc.get('result'))}
-                except Exception as ex:
-                    import traceback
-                    resp = {'reply_to': cmd_id, 'success': False, 'message': unicode(ex) + u"\n" + unicode(traceback.format_exc())}
+            elif action in ('force_rgb_composite', 'fix_symbology'):
+                ok, msg = force_and_validate_rgb_composite(
+                    layer_name=cmd.get('layer_name'),
+                    rgb_bands=cmd.get('rgb_bands'),
+                    settings=cmd.get('settings'),
+                    sensor=cmd.get('sensor'),
+                    comp_code=cmd.get('comp'),
+                    custom_bands=cmd.get('custom_bands')
+                )
+                resp = {'reply_to': cmd_id, 'success': ok, 'message': msg}
         except Exception as ex:
             import traceback
             resp = {'reply_to': cmd_id, 'success': False, 'message': unicode(ex) + u"\n" + unicode(traceback.format_exc())}
@@ -1624,6 +2213,17 @@ def apply_stretch(layer_name=None, settings=None):
     return send_arcmap_command({
         'action': 'apply_stretch',
         'layer_name': layer_name,
+        'settings': settings
+    })
+
+def force_rgb_composite(layer_name=None, sensor=None, comp=None, custom_bands=None, settings=None):
+    """Envia comando para o ArcMap forcar e validar a simbologia RGB Composite na camada alvo"""
+    return send_arcmap_command({
+        'action': 'force_rgb_composite',
+        'layer_name': layer_name,
+        'sensor': sensor,
+        'comp': comp,
+        'custom_bands': custom_bands,
         'settings': settings
     })
 

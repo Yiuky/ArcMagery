@@ -30,7 +30,6 @@ echo.
 echo [2/5] Verificando ambiente Python 3 para o Google Earth Engine...
 set PY3_CMD=
 if exist "C:\CGMA_GEE_PLUGIN\venv\Scripts\python.exe" set PY3_CMD="C:\CGMA_GEE_PLUGIN\venv\Scripts\python.exe"
-if not defined PY3_CMD if exist "C:\PRODUTIVIDADE_SIMCAR_DIGITAL\venv_p3\Scripts\python.exe" set PY3_CMD="C:\PRODUTIVIDADE_SIMCAR_DIGITAL\venv_p3\Scripts\python.exe"
 if not defined PY3_CMD if exist "C:\Python312\python.exe" set PY3_CMD="C:\Python312\python.exe"
 if not defined PY3_CMD if exist "C:\Python311\python.exe" set PY3_CMD="C:\Python311\python.exe"
 if not defined PY3_CMD if exist "C:\Python310\python.exe" set PY3_CMD="C:\Python310\python.exe"

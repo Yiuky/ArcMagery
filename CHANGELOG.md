@@ -4,6 +4,21 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.11.0] - 2026-09-28
+
+### 🛡️ Corrigido & Otimizado
+- **Eliminação de Deadlock no Pipe do Windows (`run_backend_cmd`):**
+  - Identificada e corrigida a causa-raiz que congelava a busca de imagens por vários minutos: o buffer de pipe anônimo do Windows (4 KB) lotava ao receber o JSON de resultados da busca (> 6 KB a 30 KB), fazendo com que o subprocesso Python bloqueasse em kernel space enquanto o processo pai aguardava término sem ler `stdout`.
+  - Implementadas threads leitoras em segundo plano (`_stream_out` e `_stream_err`) que drenam ativamente os descritores de arquivo em tempo real, eliminando qualquer possibilidade de travamento de buffer.
+- **Aceleração da Busca no Google Earth Engine (`search_collection`):**
+  - Otimização com `coll.select([])` para suprimir a serialização de metadados das 15–20 bandas espectrais de cada imagem, reduzindo o volume de tráfego de rede e latência de resposta em até 80% (respostas em ~0.8 a 5 segundos).
+  - Validação, ordenação e normalização defensiva das coordenadas de `bbox` (min/max e limites de longitude/latitude WGS84).
+- **Timeouts Adaptativos e Recuperação Graciosa da UI:**
+  - Definidos timeouts específicos por operação (90s para buscas, 600s para downloads pesados, 30s para verificações de conexão).
+  - Garantida a liberação do botão `[ Buscar Imagens no GEE ]` e exibição de feedback imediato ao usuário em caso de timeout de rede ou catálogo vazio.
+
+---
+
 ## [1.10.0] - 2026-09-28
 
 ### 🌟 Adicionado & Aprimorado

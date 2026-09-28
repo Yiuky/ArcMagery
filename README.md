@@ -13,13 +13,13 @@
   <a href="https://www.esri.com/"><img src="https://img.shields.io/badge/ArcGIS%20Desktop-10.8%20%7C%2010.8.2-0079C1.svg?logo=esri&logoColor=white" alt="ArcGIS Desktop"></a>
   <a href="https://earthengine.google.com/"><img src="https://img.shields.io/badge/Google%20Earth%20Engine-API-4285F4.svg?logo=googleearthengine&logoColor=white" alt="Google Earth Engine"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-2.7%20%7C%203.9+-3776AB.svg?logo=python&logoColor=white" alt="Python Version"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v1.10%20Estável-28A745.svg" alt="Versão v1.10"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v1.11%20Estável-28A745.svg" alt="Versão v1.11"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License MIT"></a>
   <a href="https://github.com/Yiuky/arcgis-google-earth-engine-explorer"><img src="https://img.shields.io/badge/GitHub-arcgis--google--earth--engine--explorer-181717.svg?logo=github&logoColor=white" alt="GitHub Repository"></a>
 </p>
 
 <p align="center">
-  <a href="MANUAL_DE_USO_E_INSTALACAO.md"><strong>📖 Manual de Instalação e Uso</strong></a> •
+  <a href="docs/MANUAL_DE_USO_E_INSTALACAO.md"><strong>📖 Manual de Instalação e Uso</strong></a> •
   <a href="CHANGELOG.md"><strong>📋 Changelog (Histórico)</strong></a> •
   <a href="https://github.com/Yiuky/arcgis-google-earth-engine-explorer/archive/refs/heads/main.zip"><strong>📥 Baixar Plugin (.ZIP)</strong></a> •
   <a href="#-instalação-rápida-em-1-clique"><strong>⚡ Início Rápido</strong></a> •

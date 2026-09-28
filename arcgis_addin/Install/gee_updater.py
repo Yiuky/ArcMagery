@@ -330,7 +330,7 @@ def find_system_directories():
     curr_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.path.abspath(os.path.join(curr_dir, "..", "..")),
-        r"C:\Users\joberthgambati\.gemini\antigravity\scratch\gee_arcgis_plugin"
+        os.environ.get("GEE_PLUGIN_DEV_REPO", "")
     ]
     dev_repo = None
     for c in candidates:
@@ -735,14 +735,14 @@ def download_github_archive(target_path, progress_callback=None):
             import urllib2
             req = urllib2.Request(
                 GITHUB_ZIP_URL,
-                headers={"User-Agent": "CGMA-ArcGEE-Updater/1.10"}
+                headers={"User-Agent": "CGMA-ArcGEE-Updater/1.11"}
             )
             response = urllib2.urlopen(req, timeout=20)
         else:
             import urllib.request
             req = urllib.request.Request(
                 GITHUB_ZIP_URL,
-                headers={"User-Agent": "CGMA-ArcGEE-Updater/1.10"}
+                headers={"User-Agent": "CGMA-ArcGEE-Updater/1.11"}
             )
             response = urllib.request.urlopen(req, timeout=20)
 
@@ -812,7 +812,7 @@ def download_github_archive(target_path, progress_callback=None):
 # MOTOR DE BACKUP E SNAPSHOT DE SEGURANÇA
 # ==============================================================================
 
-def create_snapshot_backup(current_version="1.10"):
+def create_snapshot_backup(current_version="1.11", backups_root=None, custom_sys_dirs=None):
     """
     Cria um backup completo e atômico do estado operacional atual do plugin.
     Copia o .esriaddin instalado e todo o AssemblyCache para uma pasta versionada:
@@ -821,12 +821,13 @@ def create_snapshot_backup(current_version="1.10"):
     Salva um arquivo manifest.json para auditoria e controle de integridade.
     Retorna o dicionário com metadados do snapshot.
     """
-    sys_dirs = find_system_directories()
-    addin_dir = sys_dirs["addin_dir"]
-    cache_dir = sys_dirs["cache_dir"]
+    sys_dirs = custom_sys_dirs if custom_sys_dirs else find_system_directories()
+    addin_dir = sys_dirs.get("addin_dir", "")
+    cache_dir = sys_dirs.get("cache_dir", "")
 
     timestamp_str = time.strftime("%Y%m%d_%H%M%S")
-    backups_root = get_backups_dir()
+    if backups_root is None:
+        backups_root = get_backups_dir()
     snapshot_dir = os.path.join(backups_root, "backup_%s_%s" % (current_version.replace(".", "_"), timestamp_str))
 
     log_info(u"Criando snapshot de backup em: %s" % snapshot_dir)
@@ -1171,7 +1172,7 @@ if defined DEV_REPO if exist "%DEV_REPO%\arcgis_addin" (
 echo [%DATE% %TIME%] [SUCESSO] Atualização concluída com êxito e validada! >> "%LOG_FILE%"
 rd /s /q "%STAGING_DIR%" 2>nul
 
-mshta vbscript:Execute("MsgBox ""CGMA ArcGEE Explorer atualizado com sucesso!" & vbCrLf & vbCrLf & "Todos os arquivos foram validados, instalados e recompilados." & vbCrLf & "Reabra o ArcMap para carregar a nova versão."", 64, ""Atualização Concluída"")(window.close)")
+powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show('CGMA ArcGEE Explorer atualizado com sucesso!`n`nTodos os arquivos foram validados, instalados e recompilados.`nReabra o ArcMap para carregar a nova versão.', 'Atualização Concluída', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)"
 (goto) 2>nul & del "%~f0"
 exit /b 0
 
@@ -1183,16 +1184,26 @@ echo ====================================================================== >> "
 echo [%DATE% %TIME%] [FALHA DETECTADA - INICIANDO ROLLBACK AUTOMÁTICO] >> "%LOG_FILE%"
 echo ====================================================================== >> "%LOG_FILE%"
 
+set "ROLLBACK_ERR=0"
+
 :: Restaurar .esriaddin
 if exist "%BACKUP_DIR%\GEE_Image_Selector.esriaddin" (
     echo [%DATE% %TIME%] Restaurando .esriaddin do backup... >> "%LOG_FILE%"
     copy /Y "%BACKUP_DIR%\GEE_Image_Selector.esriaddin" "%ADDIN_DIR%\GEE_Image_Selector.esriaddin" >> "%LOG_FILE%" 2>&1
+    if errorlevel 1 (
+        echo [%DATE% %TIME%] [ERRO] Falha ao restaurar .esriaddin! >> "%LOG_FILE%"
+        set "ROLLBACK_ERR=1"
+    )
 )
 
 :: Restaurar AssemblyCache
 if exist "%BACKUP_DIR%\AssemblyCache" (
     echo [%DATE% %TIME%] Restaurando AssemblyCache do backup... >> "%LOG_FILE%"
     xcopy /s /e /y /i "%BACKUP_DIR%\AssemblyCache\*" "%CACHE_DIR%\" >> "%LOG_FILE%" 2>&1
+    if errorlevel 1 (
+        echo [%DATE% %TIME%] [ERRO] Falha ao restaurar AssemblyCache! >> "%LOG_FILE%"
+        set "ROLLBACK_ERR=1"
+    )
 )
 
 :: Recompilar versão restaurada
@@ -1203,15 +1214,20 @@ if exist "C:\Python27\ArcGIS10.8\python.exe" (
 )
 
 rd /s /q "%STAGING_DIR%" 2>nul
-echo [%DATE% %TIME%] [ROLLBACK CONCLUÍDO] Estado anterior restaurado com segurança. >> "%LOG_FILE%"
 
-mshta vbscript:Execute("MsgBox ""A atualização encontrou um erro durante a instalação e foi CANCELADA." & vbCrLf & vbCrLf & "O sistema executou o ROLLBACK AUTOMÁTICO e restaurou a versão anterior com sucesso." & vbCrLf & "Nenhuma funcionalidade foi perdida." & vbCrLf & vbCrLf & "Consulte o log de atualização para mais detalhes."", 48, ""Atualização Cancelada - Rollback Executado"")(window.close)")
+if "%ROLLBACK_ERR%"=="0" (
+    echo [%DATE% %TIME%] [ROLLBACK CONCLUÍDO] Estado anterior restaurado com segurança. >> "%LOG_FILE%"
+    powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show('A atualização encontrou um erro durante a instalação e foi CANCELADA.`n`nO sistema executou o ROLLBACK AUTOMÁTICO e restaurou a versão anterior com sucesso.`nNenhuma funcionalidade foi perdida.`n`nConsulte o log de atualização para mais detalhes.', 'Atualização Cancelada - Rollback Executado', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)"
+) else (
+    echo [%DATE% %TIME%] [ROLLBACK COM ERROS] Ocorreram falhas ao restaurar os arquivos de backup. >> "%LOG_FILE%"
+    powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show('Aviso crítico: A atualização falhou e o rollback automático encontrou erros ao restaurar arquivos.`n`nVerifique o arquivo de log para detalhes e certifique-se de que o ArcMap esteja fechado.', 'Aviso de Rollback', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)"
+)
 (goto) 2>nul & del "%~f0"
 exit /b 1
 
 :ABORT_NO_BACKUP
 echo [%DATE% %TIME%] [ERRO FATAL] Cancelando operação pois o backup não pôde ser verificado. >> "%LOG_FILE%"
-mshta vbscript:Execute("MsgBox ""Erro crítico de atualização: diretório de backup não encontrado." & vbCrLf & "A operação foi cancelada e nenhum arquivo foi modificado."", 16, ""Erro de Atualização"")(window.close)")
+powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show('Erro crítico de atualização: diretório de backup não encontrado.`nA operação foi cancelada e nenhum arquivo foi modificado.', 'Erro de Atualização', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)"
 (goto) 2>nul & del "%~f0"
 exit /b 1
 """.format(
@@ -1250,7 +1266,7 @@ exit /b 1
 # FLUXO ORQUESTRADO COMPLETO (ORCHESTRATOR)
 # ==============================================================================
 
-def execute_zip_update_flow(zip_path, current_version="1.10", progress_callback=None):
+def execute_zip_update_flow(zip_path, current_version="1.11", progress_callback=None):
     """
     Fluxo de atualização passo a passo via arquivo ZIP:
     Fase 1: Pre-flight checks (integridade, segurança Zip Slip, espaço em disco, permissões).
@@ -1285,7 +1301,7 @@ def execute_zip_update_flow(zip_path, current_version="1.10", progress_callback=
     generate_and_launch_detached_runner(staging_info, backup_meta)
     return True
 
-def execute_git_update_flow(repo_path, remote_branch="main", current_version="1.10", progress_callback=None):
+def execute_git_update_flow(repo_path, remote_branch="main", current_version="1.11", progress_callback=None):
     """
     Fluxo de atualização passo a passo via repositório Git local:
     Fase 1: Pre-flight checks Git (conectividade, working tree limpa, divergência).
@@ -1359,7 +1375,7 @@ def execute_git_update_flow(repo_path, remote_branch="main", current_version="1.
     generate_and_launch_detached_runner(staging_info, backup_meta)
     return True
 
-def execute_online_github_update_flow(current_version="1.10", progress_callback=None):
+def execute_online_github_update_flow(current_version="1.11", progress_callback=None):
     """
     Fluxo de atualização inteligente online:
     1. Se o sistema estiver rodando de um clone Git com .git:

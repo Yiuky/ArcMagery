@@ -29,3 +29,6 @@ env/
 !test_gee_updater.py
 !test_raster_health.py
 
+# Addin build artifacts
+*.esriaddin
+

@@ -42,6 +42,17 @@ MULTIBAND_DEFAULT_BANDS = {
     'L1': ['B4', 'B5', 'B6', 'B7']
 }
 
+VALID_SENSOR_BANDS = {
+    'S2': ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B8A', 'B9', 'B11', 'B12'],
+    'L8': ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7', 'ST_B10'],
+    'L7': ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'ST_B6'],
+    'L5': ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'ST_B6'],
+    'L4': ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'ST_B6'],
+    'L3': ['B4', 'B5', 'B6', 'B7'],
+    'L2': ['B4', 'B5', 'B6', 'B7'],
+    'L1': ['B4', 'B5', 'B6', 'B7']
+}
+
 def get_image_collection(sensor):
     """Retorna colecao de imagens incluindo Tier 1 e Tier 2 para Landsat para garantir busca de todas as datas"""
     if sensor == 'S2':
@@ -198,21 +209,43 @@ COMPOSITIONS['L4'] = COMPOSITIONS['L5']
 COMPOSITIONS['L3'] = COMPOSITIONS['L1']
 COMPOSITIONS['L2'] = COMPOSITIONS['L1']
 
+def get_user_gee_config_file():
+    appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
+    arcgee_dir = os.path.join(appdata, 'ArcGEE')
+    os.makedirs(arcgee_dir, exist_ok=True)
+    return os.path.join(arcgee_dir, 'gee_config.json')
+
 def load_config():
+    # 1. Config do usuario em %APPDATA%\ArcGEE\gee_config.json (nao sobrescrito em atualizacoes)
+    user_cfg = get_user_gee_config_file()
+    if os.path.exists(user_cfg):
+        try:
+            with open(user_cfg, 'r', encoding='utf-8') as f:
+                d = json.load(f)
+                if d.get('project'):
+                    return d
+        except Exception:
+            pass
+    # 2. Fallback: arquivo local de exemplo/pacote
     if os.path.exists(CONFIG_FILE):
         try:
-            with open(CONFIG_FILE, 'r') as f:
-                return json.load(f)
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                d = json.load(f)
+                if d.get('project'):
+                    return d
         except Exception:
             pass
     return {'project': ''}
 
 def save_config(cfg):
+    user_cfg = get_user_gee_config_file()
     try:
-        with open(CONFIG_FILE, 'w') as f:
+        with open(user_cfg, 'w', encoding='utf-8') as f:
             json.dump(cfg, f, indent=2)
+        return True
     except Exception as e:
-        print("Erro salvando config:", e)
+        sys.stderr.write("[ArcGEE] Erro salvando config: %s\n" % str(e))
+        return False
 
 CREDENTIALS_PATH = os.path.expanduser('~/.config/earthengine/credentials')
 
@@ -308,14 +341,21 @@ def is_math_expr(text):
         return True
 
     # Tratar ocorrencias do caractere '-': verificar se e intervalo de bandas (ex: B3-B7 ou SR_B3-SR_B7)
-    # ou operacao aritmetica de subtracao (ex: B5 - B4)
+    # ou operacao aritmetica de subtracao (ex: B8-B4 ou B5-B4)
     if '-' in t:
         parts = [p.strip() for p in re.split(r'[,;\s]+', t) if p.strip()]
         for p in parts:
             if '-' in p:
                 sub = p.split('-')
                 if len(sub) == 2 and re.match(r'^(SR_|ST_)?B\d+[A-Za-z]?$', sub[0], re.I) and re.match(r'^(SR_|ST_)?B\d+[A-Za-z]?$', sub[1], re.I):
-                    continue
+                    m1 = re.search(r'\d+', sub[0])
+                    m2 = re.search(r'\d+', sub[1])
+                    if m1 and m2 and int(m1.group()) < int(m2.group()):
+                        # Intervalo estritamente ascendente (ex: B3-B5)
+                        continue
+                    else:
+                        # Subtracao aritmetica (ex: B8-B4)
+                        return True
                 else:
                     return True
 
@@ -326,13 +366,18 @@ def parse_bands(text, sensor=None):
     Interpreta e normaliza uma lista de bandas customizadas, suportando:
     - Separadores por virgula, ponto e virgula ou espacos
     - Delimitadores externos como parenteses (B3, B4) ou colchetes [B3, B4]
-    - Expansao inteligente de intervalos com hifen (ex: 'B3-B5' -> ['SR_B3', 'SR_B4', 'SR_B5'])
+    - Expansao de intervalos com hifen apenas quando estritamente ascendente (ex: 'B3-B5' -> ['SR_B3', 'SR_B4', 'SR_B5'])
+    - Bloqueia expressao matematica (ex: 'B8-B4' e subtracao, nao intervalo)
     - Mapeamento e normalizacao de prefixos para Landsat (SR_ / ST_) e Sentinel-2
     - Compatibilidade estrita com Landsat 5 TM (onde B6 termica e ST_B6, e nao existe SR_B6)
+    - Filtragem estrita pelas bandas reais suportadas pelo sensor
     """
     if not text:
         return []
     t = str(text).strip()
+    if is_math_expr(t):
+        return []
+
     while (t.startswith('(') and t.endswith(')')) or (t.startswith('[') and t.endswith(']')):
         t = t[1:-1].strip()
 
@@ -353,10 +398,10 @@ def parse_bands(text, sensor=None):
                 if m1 and m2:
                     n1 = int(m1.group())
                     n2 = int(m2.group())
-                    step = 1 if n1 <= n2 else -1
-                    for n in range(n1, n2 + step, step):
-                        expanded.append("%sB%d" % (prefix, n))
-                    continue
+                    if n1 < n2:
+                        for n in range(n1, n2 + 1):
+                            expanded.append("%sB%d" % (prefix, n))
+                        continue
         expanded.append(item)
 
     out = []
@@ -386,7 +431,74 @@ def parse_bands(text, sensor=None):
     if sens in ['L5', 'L4', 'L7']:
         out = [('ST_B6' if x == 'SR_B6' else x) for x in out]
 
+    # Validacao contra as bandas reais do sensor selecionado
+    if sens in VALID_SENSOR_BANDS:
+        valid_set = set(VALID_SENSOR_BANDS[sens])
+        out = [b for b in out if b in valid_set]
+
     return out
+
+def inspect_tiff_header_pure_python(tif_path):
+    """Lê cabeçalho TIFF em Python puro usando struct para extrair largura, altura e contagem de bandas
+    como fallback definitivo caso GDAL e rasterio não estejam instalados."""
+    import struct
+    try:
+        with open(tif_path, 'rb') as f:
+            header = f.read(8)
+            if len(header) < 8:
+                return None
+            byte_order = header[:2]
+            if byte_order == b'II':
+                fmt = '<'
+            elif byte_order == b'MM':
+                fmt = '>'
+            else:
+                return None
+            version = struct.unpack(fmt + 'H', header[2:4])[0]
+            if version != 42:
+                return None
+            first_ifd_offset = struct.unpack(fmt + 'I', header[4:8])[0]
+            f.seek(first_ifd_offset)
+            num_entries_bytes = f.read(2)
+            if len(num_entries_bytes) < 2:
+                return None
+            num_entries = struct.unpack(fmt + 'H', num_entries_bytes)[0]
+            tags = {}
+            for _ in range(num_entries):
+                entry = f.read(12)
+                if len(entry) < 12:
+                    break
+                tag, ttype, count, val_or_offset = struct.unpack(fmt + 'HHII', entry)
+                if ttype == 3:  # SHORT
+                    val = (val_or_offset & 0xFFFF) if fmt == '<' else (val_or_offset >> 16)
+                    tags[tag] = val
+                elif ttype == 4:  # LONG
+                    tags[tag] = val_or_offset
+
+            width = tags.get(256)   # ImageWidth
+            height = tags.get(257)  # ImageLength
+            samples = tags.get(277, 1)  # SamplesPerPixel (padrão 1 banda se omitido)
+            if width and height and width > 0 and height > 0:
+                bands_info = []
+                for b_i in range(1, samples + 1):
+                    bands_info.append({
+                        'band': b_i,
+                        'description': '',
+                        'dtype': 'uint16',
+                        'min': None, 'max': None, 'mean': None, 'std': None,
+                        'is_constant': False, 'is_nan': False
+                    })
+                return {
+                    'width': width,
+                    'height': height,
+                    'count': samples,
+                    'geotransform': [0.0, 1.0, 0.0, 0.0, 0.0, -1.0],
+                    'projection': 'TIFF',
+                    'bands': bands_info
+                }
+    except Exception:
+        pass
+    return None
 
 def validate_geotiff_health(tif_path, expected_bands=None, sensor=None, strict_stats=True):
     """
@@ -463,13 +575,12 @@ def validate_geotiff_health(tif_path, expected_bands=None, sensor=None, strict_s
     except Exception as e_gdal:
         sys.stderr.write("[ArcGEE][HealthCheck] Inspecao GDAL nativo falhou: %s. Tentando QGIS...\n" % str(e_gdal))
 
-    # 2. Fallback: Subprocesso Python QGIS com GDAL
+    # 2. Fallback: Subprocesso Python QGIS com GDAL (busca dinâmica)
     if not info:
-        qgis_py_candidates = [
-            r"C:\Program Files\QGIS 3.44.10\apps\Python312\python.exe",
-            r"C:\Program Files\QGIS 3.34.10\apps\Python312\python.exe",
-            r"C:\Program Files\QGIS 3.28\apps\Python39\python.exe",
-        ]
+        import glob
+        qgis_py_candidates = glob.glob(r"C:\Program Files\QGIS *\apps\Python3*\python.exe")
+        qgis_py_candidates += glob.glob(r"C:\Program Files (x86)\QGIS *\apps\Python3*\python.exe")
+        qgis_py_candidates += glob.glob(r"C:\OSGeo4W*\apps\Python3*\python.exe")
         for qpy in qgis_py_candidates:
             if os.path.exists(qpy):
                 try:
@@ -521,6 +632,7 @@ def validate_geotiff_health(tif_path, expected_bands=None, sensor=None, strict_s
     if not info:
         try:
             import rasterio
+            import numpy as np
             with rasterio.open(tif_path) as src:
                 count = src.count
                 w = src.width
@@ -552,6 +664,15 @@ def validate_geotiff_health(tif_path, expected_bands=None, sensor=None, strict_s
         except Exception:
             pass
 
+    # 4. Fallback: Python puro (leitor basico de cabecalho TIFF com struct - sem GDAL e sem rasterio)
+    is_pure_python_inspection = False
+    if not info:
+        info = inspect_tiff_header_pure_python(tif_path)
+        if info:
+            is_pure_python_inspection = True
+            sys.stderr.write("[ArcGEE][HealthCheck] Cabecalho TIFF verificado com sucesso via leitor Python puro (GDAL/rasterio ausentes).\n")
+            sys.stderr.flush()
+
     if not info:
         diag = {'file': str(tif_path), 'error': 'Nao foi possivel inspecionar metadados do GeoTIFF'}
         raise RasterHealthCheckError("Falha crítica ao inspecionar GeoTIFF: nenhum driver geoespacial disponível.", diag)
@@ -567,11 +688,12 @@ def validate_geotiff_health(tif_path, expected_bands=None, sensor=None, strict_s
     if w <= 0 or h <= 0:
         failures.append("Dimensões espaciais inválidas: largura=%d, altura=%d" % (w, h))
 
-    if not gt or (len(gt) >= 6 and gt[1] == 0 and gt[5] == 0):
-        failures.append("Geotransform ou resolução espacial inválida: %s" % str(gt))
+    if not is_pure_python_inspection:
+        if not gt or (len(gt) >= 6 and gt[1] == 0 and gt[5] == 0):
+            failures.append("Geotransform ou resolução espacial inválida: %s" % str(gt))
 
-    if not proj or len(str(proj).strip()) == 0:
-        failures.append("CRS / Sistema de Referência de Coordenadas ausente no arquivo")
+        if not proj or len(str(proj).strip()) == 0:
+            failures.append("CRS / Sistema de Referência de Coordenadas ausente no arquivo")
 
     expected_count = None
     if expected_bands is not None:
@@ -742,13 +864,18 @@ def parse_ee_geometry(geom_dict):
 def search_collection(sensor, start_date, end_date, bbox=None, geometry=None, path=None, row=None, mgrs=None, max_images=150):
     coll = get_image_collection(sensor)
 
-    # Filtro temporal inclusivo com normalizacao de formato (suporta DD/MM/AAAA e AAAA-MM-DD)
+    # Filtro temporal flexível e inclusivo (suporta uma ou ambas as datas)
     s_date = normalize_date(start_date)
     e_date = normalize_date(end_date)
-    if s_date and e_date:
+    import datetime
+    if s_date or e_date:
+        if not s_date:
+            s_date = "1972-01-01"
+        if not e_date:
+            e_date = datetime.date.today().strftime("%Y-%m-%d")
+
         end_dt_str = e_date
         if len(end_dt_str) == 10:
-            import datetime
             try:
                 d = datetime.datetime.strptime(end_dt_str, "%Y-%m-%d").date() + datetime.timedelta(days=1)
                 end_dt_str = d.strftime("%Y-%m-%d")
@@ -761,18 +888,54 @@ def search_collection(sensor, start_date, end_date, bbox=None, geometry=None, pa
     if geometry:
         aoi = parse_ee_geometry(geometry)
     elif bbox:
-        # [minx, miny, maxx, maxy]
-        aoi = ee.Geometry.BBox(bbox[0], bbox[1], bbox[2], bbox[3])
+        # [minx, miny, maxx, maxy] com protecao de orientacao e limites WGS84
+        try:
+            b_minx = min(float(bbox[0]), float(bbox[2]))
+            b_maxx = max(float(bbox[0]), float(bbox[2]))
+            b_miny = min(float(bbox[1]), float(bbox[3]))
+            b_maxy = max(float(bbox[1]), float(bbox[3]))
+            b_minx = max(-180.0, min(180.0, b_minx))
+            b_maxx = max(-180.0, min(180.0, b_maxx))
+            b_miny = max(-90.0, min(90.0, b_miny))
+            b_maxy = max(-90.0, min(90.0, b_maxy))
+            if abs(b_maxx - b_minx) < 1e-6:
+                b_maxx = b_minx + 0.001
+            if abs(b_maxy - b_miny) < 1e-6:
+                b_maxy = b_miny + 0.001
+            aoi = ee.Geometry.BBox(b_minx, b_miny, b_maxx, b_maxy)
+        except Exception as e_bbox:
+            raise ValueError("Coordenadas de extensão inválidas: " + str(e_bbox))
     else:
         raise ValueError(u"Filtro espacial obrigatório: defina a extensão da tela do ArcMap ou selecione uma camada vetorial (AOI).")
 
     coll = coll.filterBounds(aoi)
 
+    # Filtros de indexação espacial (Path/Row para Landsat, MGRS para Sentinel-2)
+    sens_u = (sensor or '').upper()
+    if path:
+        try:
+            coll = coll.filter(ee.Filter.eq('WRS_PATH', int(path)))
+        except Exception:
+            pass
+    if row:
+        try:
+            coll = coll.filter(ee.Filter.eq('WRS_ROW', int(row)))
+        except Exception:
+            pass
+    if mgrs:
+        try:
+            coll = coll.filter(ee.Filter.eq('MGRS_TILE', str(mgrs).strip().upper()))
+        except Exception:
+            pass
+
     # Ordenar por data (mais recentes primeiro) e limitar
     coll = coll.sort('system:time_start', False).limit(max_images)
 
-    # Obter lista de imagens de forma direta e rapida
-    data = coll.getInfo()
+    # Obter lista de imagens de forma direta e rapida (select([]) reduz tráfego e latência)
+    try:
+        data = coll.select([]).getInfo()
+    except Exception:
+        data = coll.getInfo()
     features = data.get('features', [])
 
     results = []
@@ -852,7 +1015,7 @@ def compute_safe_scale(region_bbox, num_bands, is_multiband, requested_scale=Non
 
     return req
 
-def calculate_spatial_grid(region_bbox, scale, num_bands, is_multiband, max_chunk_mb=32):
+def calculate_spatial_grid(region_bbox, scale, num_bands, is_multiband, max_chunk_mb=32, bytes_per_sample=None):
     """
     Calcula a divisao da area em quadrantes quando o tamanho estimado excede
     o limite de seguranca do GEE (max_chunk_mb, padrao 32 MB para garantir margem segura contra o teto de 48 MB).
@@ -870,7 +1033,10 @@ def calculate_spatial_grid(region_bbox, scale, num_bands, is_multiband, max_chun
     width_m = abs(maxx - minx) * m_per_deg_lon
     height_m = abs(maxy - miny) * m_per_deg_lat
 
-    bpp = 4 if (num_bands == 1 and not is_multiband) else ((2 * num_bands) if is_multiband else 3)
+    if bytes_per_sample is not None:
+        bpp = int(bytes_per_sample) * num_bands
+    else:
+        bpp = 4 if (num_bands == 1 and not is_multiband) else ((2 * num_bands) if is_multiband else 3)
     target_max_bytes = max_chunk_mb * 1024 * 1024
     max_pixels = float(target_max_bytes) / float(bpp)
 
@@ -1019,13 +1185,13 @@ def merge_geotiff_tiles(tile_paths, out_tif_path, expected_bands_count=None):
             try:
                 vrt_temp = tempfile.mktemp(suffix='.vrt')
                 cmd_vrt = [bvrt_exe, vrt_temp] + tile_paths
-                subprocess.run(cmd_vrt, check=True, capture_output=True)
+                subprocess.run(cmd_vrt, check=True, capture_output=True, timeout=300)
                 cmd_trans = [trans_exe, "-co", "COMPRESS=LZW", "-co", "TILED=YES", "-co", "BIGTIFF=IF_SAFER"]
                 if band_list_arg:
                     for b_num in band_list_arg:
                         cmd_trans.extend(["-b", str(b_num)])
                 cmd_trans.extend([vrt_temp, out_tif_path])
-                subprocess.run(cmd_trans, check=True, capture_output=True)
+                subprocess.run(cmd_trans, check=True, capture_output=True, timeout=300)
                 if os.path.exists(vrt_temp):
                     try: os.remove(vrt_temp)
                     except Exception: pass
@@ -1035,6 +1201,44 @@ def merge_geotiff_tiles(tile_paths, out_tif_path, expected_bands_count=None):
                 sys.stderr.write("[ArcGEE] GDAL CLI: %s\n" % str(e3))
 
     raise RuntimeError("Falha ao mesclar quadrantes: nenhum motor de mosaico GDAL disponivel.")
+
+def mask_clouds_and_shadows(image, sensor=None):
+    """Aplica mascaramento de nuvens, sombras e linhas de varredura (SLC-off)
+    para Sentinel-2 e Landsat 4-9 antes de calculos de mosaico/mediana."""
+    sens = (sensor or '').upper()
+    try:
+        if sens == 'S2':
+            b_names = image.bandNames().getInfo()
+            if 'SCL' in b_names:
+                scl = image.select('SCL')
+                # 3: Cloud shadow, 8: Cloud med prob, 9: Cloud high prob, 10: Cirrus
+                mask = scl.neq(3).And(scl.neq(8)).And(scl.neq(9)).And(scl.neq(10))
+                return image.updateMask(mask)
+            elif 'QA60' in b_names:
+                qa = image.select('QA60')
+                mask = qa.bitwiseAnd(1 << 10).eq(0).And(qa.bitwiseAnd(1 << 11).eq(0))
+                return image.updateMask(mask)
+        elif sens in ['L8', 'L7', 'L5', 'L4']:
+            b_names = image.bandNames().getInfo()
+            if 'QA_PIXEL' in b_names:
+                qa = image.select('QA_PIXEL')
+                # Bit 0: Fill (remove SLC-off gaps e dados vazios)
+                # Bit 1: Dilated Cloud
+                # Bit 3: Cloud
+                # Bit 4: Cloud Shadow
+                mask = qa.bitwiseAnd(1 << 0).eq(0).And(
+                    qa.bitwiseAnd(1 << 1).eq(0)
+                ).And(
+                    qa.bitwiseAnd(1 << 3).eq(0)
+                ).And(
+                    qa.bitwiseAnd(1 << 4).eq(0)
+                )
+                if sens == 'L8':
+                    mask = mask.And(qa.bitwiseAnd(1 << 2).eq(0))  # Cirrus
+                return image.updateMask(mask)
+    except Exception:
+        pass
+    return image
 
 def get_safe_destination_path(target_path):
     """Verifica se o arquivo de destino esta bloqueado por outro processo (ex: ArcMap).
@@ -1054,6 +1258,21 @@ def get_safe_destination_path(target_path):
         sys.stderr.write("[ArcGEE] Arquivo '%s' bloqueado pelo ArcMap. Gravando em '%s'...\n" % (os.path.basename(target_path), os.path.basename(safe_path)))
         sys.stderr.flush()
         return safe_path
+
+def download_url_with_timeout(url, out_path, timeout=120, max_retries=3):
+    """Realiza download via stream HTTP com timeout explicito de socket e tentativas contra dropouts."""
+    for attempt in range(max_retries):
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'ArcGEE-Downloader/1.10'})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                with open(out_path, 'wb') as out_f:
+                    shutil.copyfileobj(resp, out_f, length=65536)
+            return True
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(1.5 * (attempt + 1))
+    return False
 
 def download_geotiff(image_ids, sensor, composition_code, custom_bands=None, load_mode='multiband', aoi_geometry=None, bbox=None, out_tif_path=None, scale=None, crs='EPSG:4674'):
     import math
@@ -1094,7 +1313,12 @@ def download_geotiff(image_ids, sensor, composition_code, custom_bands=None, loa
         img = ee.Image(cleaned_ids[0])
     else:
         coll = ee.ImageCollection(cleaned_ids)
+        # Aplicar mascara de nuvens, sombras e SLC-off gaps em cada cena da colecao
+        coll = coll.map(lambda im: mask_clouds_and_shadows(im, sensor))
         img = coll.median()
+        # Se for composicao multibanda regular, preservar int16
+        if composition_code not in ['10', '6', 'ST_B10', 'ST_B6', 'NDVI', 'NDWI', 'NDMI', 'NBR', 'EVI', 'SAVI', 'CUSTOM_MATH']:
+            img = img.toInt16()
 
     comp_map = COMPOSITIONS.get(sensor, COMPOSITIONS['L8'])
     comp_info = comp_map.get(composition_code, {})
@@ -1103,7 +1327,10 @@ def download_geotiff(image_ids, sensor, composition_code, custom_bands=None, loa
     is_custom_formula = bool(custom_text and is_math_expr(custom_text))
     is_custom_band_list = bool(custom_text and not is_math_expr(custom_text))
 
-    if is_custom_formula or (composition_code in ['NDVI', 'NDWI', 'NDMI', 'NBR', 'EVI', 'SAVI'] and not is_custom_band_list) or (composition_code == 'CUSTOM_MATH' and not is_custom_band_list):
+    is_thermal = (composition_code in ['10', '6', 'ST_B10', 'ST_B6'])
+    is_spec_index = (composition_code in ['NDVI', 'NDWI', 'NDMI', 'NBR', 'EVI', 'SAVI'] or comp_info.get('is_index', False))
+
+    if is_custom_formula or is_thermal or (is_spec_index and not is_custom_band_list) or (composition_code == 'CUSTOM_MATH' and not is_custom_band_list):
         is_index = True
         is_multi = False
         bands = [composition_code]
@@ -1158,7 +1385,9 @@ def download_geotiff(image_ids, sensor, composition_code, custom_bands=None, loa
 
     safe_scale = compute_safe_scale(calc_bbox, len(bands), is_multi, requested_scale=scale, sensor=sensor)
 
-    nx, ny, tot_bytes, grid_tiles = calculate_spatial_grid(calc_bbox, safe_scale, len(bands), is_multi, max_chunk_mb=32)
+    is_float_data = is_index or is_thermal
+    bytes_per_sample = 4 if is_float_data else 2
+    nx, ny, tot_bytes, grid_tiles = calculate_spatial_grid(calc_bbox, safe_scale, len(bands), is_multi, max_chunk_mb=32, bytes_per_sample=bytes_per_sample)
 
     if not out_tif_path:
         first_name = cleaned_ids[0].split('/')[-1]
@@ -1187,13 +1416,27 @@ def download_geotiff(image_ids, sensor, composition_code, custom_bands=None, loa
         if url:
             sys.stderr.write("[ArcGEE] Baixando arquivo GeoTIFF do GEE...\n")
             sys.stderr.flush()
-            urllib.request.urlretrieve(url, out_tif_path)
+            download_url_with_timeout(url, out_tif_path, timeout=180)
             sys.stderr.write("[ArcGEE] Validando integridade atômica do GeoTIFF (Health Check)...\n")
             sys.stderr.flush()
             validate_geotiff_health(out_tif_path, expected_bands=bands, sensor=sensor)
             sys.stderr.write("[ArcGEE] Download concluído e verificado com sucesso (%d bandas íntegras).\n" % len(bands))
             sys.stderr.flush()
             return out_tif_path
+
+        # Se rejeitado por tamanho na primeira tentativa, forçar subdivisão em pelo menos 2x2
+        nx, ny, tot_bytes, grid_tiles = calculate_spatial_grid(calc_bbox, safe_scale, len(bands), is_multi, max_chunk_mb=16, bytes_per_sample=bytes_per_sample)
+        if len(grid_tiles) <= 1:
+            minx, miny, maxx, maxy = calc_bbox
+            midx = (minx + maxx) / 2.0
+            midy = (miny + maxy) / 2.0
+            grid_tiles = [
+                (minx, miny, midx, midy),
+                (midx, miny, maxx, midy),
+                (minx, midy, midx, maxy),
+                (midx, midy, maxx, maxy)
+            ]
+            nx, ny = 2, 2
 
     # Caso 2: Area grande (> 32 MB / > 48 MB, ate escala 1:500.000)
     # Particionamento automatico com 100% de resolucao nativa estrita e mosaico sem perda
@@ -1207,38 +1450,59 @@ def download_geotiff(image_ids, sensor, composition_code, custom_bands=None, loa
 
     temp_tiles_dir = tempfile.mkdtemp(prefix='arcgee_tiles_')
 
-    def _download_tile(item):
-        idx, sub_bbox = item
-        tile_file = os.path.join(temp_tiles_dir, "tile_%03d.tif" % idx)
-        tile_region = ee.Geometry.BBox(sub_bbox[0], sub_bbox[1], sub_bbox[2], sub_bbox[3])
-        tile_params = {
+    def _fetch_sub_bbox(b_box, prefix_id):
+        t_file = os.path.join(temp_tiles_dir, "tile_%s.tif" % prefix_id)
+        t_reg = ee.Geometry.BBox(b_box[0], b_box[1], b_box[2], b_box[3])
+        t_par = {
             'scale': safe_scale,
             'crs': crs,
-            'region': tile_region,
+            'region': t_reg,
             'format': 'GEO_TIFF'
         }
-
         last_err = None
-        for attempt in range(3):
+        for attempt in range(2):
             try:
-                tile_url = export_img.getDownloadURL(tile_params)
-                if tile_url:
-                    urllib.request.urlretrieve(tile_url, tile_file)
-                    if os.path.exists(tile_file) and os.path.getsize(tile_file) > 0:
-                        sys.stderr.write("[ArcGEE] Quadrante %d/%d baixado com sucesso.\n" % (idx + 1, total_quads))
-                        sys.stderr.flush()
-                        return (idx, tile_file)
+                u = export_img.getDownloadURL(t_par)
+                if u:
+                    download_url_with_timeout(u, t_file, timeout=120)
+                    if os.path.exists(t_file) and os.path.getsize(t_file) > 0:
+                        return [t_file]
             except Exception as ex:
                 err_text = str(ex)
-                if '0 bytes' in err_text or 'empty' in err_text.lower():
-                    # Quadrante fora do poligono de recorte da AOI
-                    sys.stderr.write("[ArcGEE] Quadrante %d/%d fora da AOI vetorial, ignorado.\n" % (idx + 1, total_quads))
-                    sys.stderr.flush()
-                    return None
                 last_err = ex
-                time.sleep(1.0 + attempt * 1.5)
+                # Se exceder o limite de tamanho do GEE, subdividir recursivamente em 2x2
+                if 'Total request size' in err_text or 'must be less than or equal to' in err_text:
+                    sys.stderr.write("[ArcGEE] Quadrante %s excede limite do GEE. Subdividindo em 2x2...\n" % prefix_id)
+                    sys.stderr.flush()
+                    mid_x = (b_box[0] + b_box[2]) / 2.0
+                    mid_y = (b_box[1] + b_box[3]) / 2.0
+                    sub_quads = [
+                        [b_box[0], b_box[1], mid_x, mid_y],
+                        [mid_x, b_box[1], b_box[2], mid_y],
+                        [b_box[0], mid_y, mid_x, b_box[3]],
+                        [mid_x, mid_y, b_box[2], b_box[3]],
+                    ]
+                    res_files = []
+                    for s_i, s_box in enumerate(sub_quads):
+                        res_files.extend(_fetch_sub_bbox(s_box, "%s_%d" % (prefix_id, s_i)))
+                    return res_files
 
-        raise RuntimeError("Falha ao baixar quadrante %d/%d: %s" % (idx + 1, total_quads, str(last_err)))
+                # Se for 'empty' ou '0 bytes': apenas ignorar se houver geometria vetorial AOI real poligonal
+                if aoi_geometry and ('0 bytes' in err_text or 'empty' in err_text.lower()):
+                    sys.stderr.write("[ArcGEE] Quadrante %s fora da geometria vetorial AOI, ignorado.\n" % prefix_id)
+                    sys.stderr.flush()
+                    return []
+                time.sleep(1.0 + attempt * 1.5)
+        raise RuntimeError("Falha ao baixar quadrante %s: %s" % (prefix_id, str(last_err)))
+
+    def _download_tile(item):
+        idx, sub_bbox = item
+        files = _fetch_sub_bbox(sub_bbox, "%03d" % idx)
+        if files:
+            sys.stderr.write("[ArcGEE] Quadrante %d/%d concluído (%d arquivo(s)).\n" % (idx + 1, total_quads, len(files)))
+            sys.stderr.flush()
+            return (idx, files)
+        return None
 
     # Download multithread paralelo dos quadrantes
     max_workers = min(4, total_quads)
@@ -1249,7 +1513,7 @@ def download_geotiff(image_ids, sensor, composition_code, custom_bands=None, loa
     # Filtrar quadrantes vazios e ordenar por indice
     valid_results = [r for r in raw_results if r is not None]
     valid_results.sort(key=lambda x: x[0])
-    ordered_tile_files = [x[1] for x in valid_results]
+    ordered_tile_files = [f for r in valid_results for f in r[1]]
 
     if not ordered_tile_files:
         raise RuntimeError("Nenhum dado retornado para a regiao solicitada.")

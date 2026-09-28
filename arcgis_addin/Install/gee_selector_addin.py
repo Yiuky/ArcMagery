@@ -51,10 +51,6 @@ class OpenGEESelectorButton(object):
         self._style_applied = False
         try:
             import gee_bridge
-            try:
-                reload(gee_bridge)
-            except Exception:
-                pass
             gee_bridge.start_arcmap_ipc_timer(300)
             gee_bridge.export_arcmap_context()
         except Exception:
@@ -68,10 +64,6 @@ class OpenGEESelectorButton(object):
             pass
         try:
             import gee_bridge
-            try:
-                reload(gee_bridge)
-            except Exception:
-                pass
             gee_bridge.start_arcmap_ipc_timer(300)
             gee_bridge.export_arcmap_context()
             ok, msg = gee_bridge.launch_gui_process()
