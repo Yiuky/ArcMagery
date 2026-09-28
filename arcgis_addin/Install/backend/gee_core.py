@@ -1202,43 +1202,49 @@ def merge_geotiff_tiles(tile_paths, out_tif_path, expected_bands_count=None):
 
     raise RuntimeError("Falha ao mesclar quadrantes: nenhum motor de mosaico GDAL disponivel.")
 
+# Bits do QA_PIXEL (Landsat Collection 2 L2): 0=Fill (inclui gaps SLC-off), 1=Dilated Cloud,
+# 2=Cirrus (apenas OLI/L8-L9), 3=Cloud, 4=Cloud Shadow
+_LANDSAT_QA_MASK_BITS = (1 << 0) | (1 << 1) | (1 << 3) | (1 << 4)
+_LANDSAT_OLI_QA_MASK_BITS = _LANDSAT_QA_MASK_BITS | (1 << 2)
+# Classes SCL (Sentinel-2 L2A) removidas: 3=Sombra de nuvem, 8/9=Nuvem media/alta prob., 10=Cirrus
+_S2_SCL_MASKED_CLASSES = (3, 8, 9, 10)
+
+
 def mask_clouds_and_shadows(image, sensor=None):
     """Aplica mascaramento de nuvens, sombras e linhas de varredura (SLC-off)
-    para Sentinel-2 e Landsat 4-9 antes de calculos de mosaico/mediana."""
+    para Sentinel-2 e Landsat 4-9 antes de calculos de mosaico/mediana.
+
+    IMPORTANTE: esta funcao e executada dentro de ImageCollection.map(), onde a
+    imagem e um placeholder do servidor. Nenhuma operacao client-side (getInfo)
+    pode ser usada aqui - a decisao de bandas e feita pelo sensor, que e conhecido.
+    As colecoes usadas (S2_SR_HARMONIZED e Landsat C02 T1/T2_L2) sempre possuem
+    SCL / QA_PIXEL. Landsat MSS (L1-L3) nao possui QA de nuvem e retorna sem mascara.
+    """
     sens = (sensor or '').upper()
-    try:
-        if sens == 'S2':
-            b_names = image.bandNames().getInfo()
-            if 'SCL' in b_names:
-                scl = image.select('SCL')
-                # 3: Cloud shadow, 8: Cloud med prob, 9: Cloud high prob, 10: Cirrus
-                mask = scl.neq(3).And(scl.neq(8)).And(scl.neq(9)).And(scl.neq(10))
-                return image.updateMask(mask)
-            elif 'QA60' in b_names:
-                qa = image.select('QA60')
-                mask = qa.bitwiseAnd(1 << 10).eq(0).And(qa.bitwiseAnd(1 << 11).eq(0))
-                return image.updateMask(mask)
-        elif sens in ['L8', 'L7', 'L5', 'L4']:
-            b_names = image.bandNames().getInfo()
-            if 'QA_PIXEL' in b_names:
-                qa = image.select('QA_PIXEL')
-                # Bit 0: Fill (remove SLC-off gaps e dados vazios)
-                # Bit 1: Dilated Cloud
-                # Bit 3: Cloud
-                # Bit 4: Cloud Shadow
-                mask = qa.bitwiseAnd(1 << 0).eq(0).And(
-                    qa.bitwiseAnd(1 << 1).eq(0)
-                ).And(
-                    qa.bitwiseAnd(1 << 3).eq(0)
-                ).And(
-                    qa.bitwiseAnd(1 << 4).eq(0)
-                )
-                if sens == 'L8':
-                    mask = mask.And(qa.bitwiseAnd(1 << 2).eq(0))  # Cirrus
-                return image.updateMask(mask)
-    except Exception:
-        pass
+    if sens == 'S2':
+        scl = image.select('SCL')
+        mask = ee.Image.constant(1)
+        for cls in _S2_SCL_MASKED_CLASSES:
+            mask = mask.And(scl.neq(cls))
+        return image.updateMask(mask)
+    if sens in ('L8', 'L9'):
+        return image.updateMask(image.select('QA_PIXEL').bitwiseAnd(_LANDSAT_OLI_QA_MASK_BITS).eq(0))
+    if sens in ('L7', 'L5', 'L4'):
+        return image.updateMask(image.select('QA_PIXEL').bitwiseAnd(_LANDSAT_QA_MASK_BITS).eq(0))
     return image
+
+
+def cast_mosaic_to_native_type(image, sensor=None):
+    """Converte o resultado de median() (sempre ponto flutuante) de volta ao tipo nativo do sensor.
+
+    Landsat C02 L2 e Sentinel-2 L2A sao uint16 (SR ate ~43.636 DN e ST_B10 ~45.000 DN a 300 K):
+    usar int16 truncaria tudo acima de 32.767. Landsat MSS (L1-L3) e uint8.
+    """
+    sens = (sensor or '').upper()
+    if sens in ('L1', 'L2', 'L3'):
+        return image.toUint8()
+    return image.toUint16()
+
 
 def get_safe_destination_path(target_path):
     """Verifica se o arquivo de destino esta bloqueado por outro processo (ex: ArcMap).
@@ -1315,10 +1321,9 @@ def download_geotiff(image_ids, sensor, composition_code, custom_bands=None, loa
         coll = ee.ImageCollection(cleaned_ids)
         # Aplicar mascara de nuvens, sombras e SLC-off gaps em cada cena da colecao
         coll = coll.map(lambda im: mask_clouds_and_shadows(im, sensor))
-        img = coll.median()
-        # Se for composicao multibanda regular, preservar int16
-        if composition_code not in ['10', '6', 'ST_B10', 'ST_B6', 'NDVI', 'NDWI', 'NDMI', 'NBR', 'EVI', 'SAVI', 'CUSTOM_MATH']:
-            img = img.toInt16()
+        # median() promove para ponto flutuante: restaurar o tipo nativo (uint16/uint8) antes
+        # de indices/termica, que aplicam os fatores de escala sobre o DN original.
+        img = cast_mosaic_to_native_type(coll.median(), sensor)
 
     comp_map = COMPOSITIONS.get(sensor, COMPOSITIONS['L8'])
     comp_info = comp_map.get(composition_code, {})
