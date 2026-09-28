@@ -12,7 +12,7 @@ import tempfile
 import zipfile
 
 # Adicionar pasta Install ao sys.path
-install_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "arcgis_addin", "Install"))
+install_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "arcgis_addin", "Install"))
 if install_dir not in sys.path:
     sys.path.insert(0, install_dir)
 

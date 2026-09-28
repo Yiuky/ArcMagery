@@ -10,10 +10,10 @@ import json
 import unittest
 import numpy as np
 
-# Adicionar diretorio raiz ao sys.path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from backend import gee_core
-from arcgis_addin.Install import gee_bridge
+import _paths  # noqa: F401  (backend no sys.path)
+import gee_core
+sys.path.insert(0, os.path.dirname(_paths.BACKEND))  # arcgis_addin/Install (ponte compativel com Py3)
+import gee_bridge
 
 class TestBandParsingAndMathDetection(unittest.TestCase):
     def test_landsat5_custom_bands_parsing(self):
