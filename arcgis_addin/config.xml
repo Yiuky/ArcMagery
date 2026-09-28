@@ -1,8 +1,8 @@
 <ESRI.Configuration xmlns="http://schemas.esri.com/Desktop/AddIns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <Name>CGMA ArcGEE Explorer</Name>
+  <Name>ArcMagery</Name>
   <AddInID>{ceae58c4-c44e-4edd-b8f4-1ba7d13b6b7d}</AddInID>
-  <Description>CGMA ArcGEE Explorer - Integracao do Google Earth Engine para ArcGIS Desktop 10.8 (ArcMap).</Description>
-  <Version>1.12</Version>
+  <Description>ArcMagery - Imagens de satelite no ArcMap 10.8: Google Earth Engine, Google Earth / mosaicos XYZ e CBERS / Amazonia-1 (STAC INPE).</Description>
+  <Version>2.0.0</Version>
   <Author>Joberth Gambati</Author>
   <Company>SEMA-MT</Company>
   <Date>28/09/2026</Date>
@@ -12,13 +12,13 @@
   <AddIn language="PYTHON" library="gee_selector_addin.py" namespace="gee_selector_addin">
     <ArcMap>
       <Commands>
-        <Button id="gee_selector_addin.btn_open" class="OpenGEESelectorButton" caption="ArcGEE Explorer" category="CGMA ArcGEE Explorer" image="Images/icon.png" tip="Abre o CGMA ArcGEE Explorer" message="Abre o CGMA ArcGEE Explorer para carregar imagens e indices do Google Earth Engine" />
+        <Button id="gee_selector_addin.btn_open" class="OpenGEESelectorButton" caption="ArcMagery" category="ArcMagery" image="Images/icon.png" tip="Abre o ArcMagery" message="Abre o ArcMagery para carregar imagens do Google Earth Engine, Google Earth e CBERS/INPE" />
       </Commands>
       <Extensions>
-        <Extension id="gee_selector_addin.extension" class="GEEExtension" name="GEEExtension" description="CGMA ArcGEE Explorer Real-Time Extension" autoLoad="true" />
+        <Extension id="gee_selector_addin.extension" class="GEEExtension" name="GEEExtension" description="ArcMagery Real-Time Extension" autoLoad="true" />
       </Extensions>
       <Toolbars>
-        <Toolbar id="gee_selector_addin.toolbar" caption="CGMA ArcGEE Explorer" showInitially="true" autoArrangeButtons="true">
+        <Toolbar id="gee_selector_addin.toolbar" caption="ArcMagery" showInitially="true" autoArrangeButtons="true">
           <Items>
             <Menu refID="gee_selector_addin.menu_main" />
             <Button refID="gee_selector_addin.btn_open" />
@@ -26,7 +26,7 @@
         </Toolbar>
       </Toolbars>
       <Menus>
-        <Menu id="gee_selector_addin.menu_main" caption="ArcGEE Explorer" isRootMenu="false">
+        <Menu id="gee_selector_addin.menu_main" caption="ArcMagery" isRootMenu="false">
           <Items>
             <Button refID="gee_selector_addin.btn_open" />
           </Items>

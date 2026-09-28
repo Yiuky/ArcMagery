@@ -53,21 +53,21 @@ class SafeStream(object):
     def flush(self):
         pass
 
-# Redirecionar sys.stdout e sys.stderr para evitar IOError silencioso em pythonw
-try:
-    if sys.stdout is None or not hasattr(sys.stdout, 'write'):
-        sys.stdout = SafeStream(os.path.join(tempfile.gettempdir(), "arcgee_gui_stdout.log"))
-    else:
-        sys.stdout.write("")
-except Exception:
-    sys.stdout = SafeStream(os.path.join(tempfile.gettempdir(), "arcgee_gui_stdout.log"))
+def _stream_is_usable(stream):
+    """Sob pythonw.exe (Python 2.7) sys.stdout EXISTE e write("") funciona, mas o descritor e
+    invalido (fileno() == -2): o primeiro flush de ~4 KB levanta IOError(9, 'Bad file
+    descriptor'). Streams sem fileno() (ex.: janela Python do ArcMap) sao consideradas validas."""
+    if stream is None or not hasattr(stream, 'write'):
+        return False
+    try:
+        return stream.fileno() >= 0
+    except Exception:
+        return True
 
-try:
-    if sys.stderr is None or not hasattr(sys.stderr, 'write'):
-        sys.stderr = SafeStream(os.path.join(tempfile.gettempdir(), "arcgee_gui_stderr.log"))
-    else:
-        sys.stderr.write("")
-except Exception:
+# Redirecionar sys.stdout e sys.stderr para evitar IOError silencioso em pythonw
+if not _stream_is_usable(sys.stdout):
+    sys.stdout = SafeStream(os.path.join(tempfile.gettempdir(), "arcgee_gui_stdout.log"))
+if not _stream_is_usable(sys.stderr):
     sys.stderr = SafeStream(os.path.join(tempfile.gettempdir(), "arcgee_gui_stderr.log"))
 
 # Compatibilidade Python 2.7 e Python 3
@@ -160,7 +160,7 @@ class GEESettingsDialog(object):
         self.parent = parent
         p_win = parent.root if hasattr(parent, 'root') else parent
         self.top = tk.Toplevel(p_win)
-        self.top.title(u"Configurações - CGMA ArcGEE Explorer")
+        self.top.title(u"Configurações - ArcMagery")
         self.top.geometry("540x510")
         self.top.resizable(False, False)
         setup_window_icon(self.top)
@@ -484,7 +484,7 @@ class GEEAboutDialog(object):
         self.parent = parent
         p_win = parent.root if hasattr(parent, 'root') else parent
         self.top = tk.Toplevel(p_win)
-        self.top.title(u"Sobre - CGMA ArcGEE Explorer")
+        self.top.title(u"Sobre - ArcMagery")
         self.top.geometry("580x525")
         self.top.resizable(False, False)
         setup_window_icon(self.top)
@@ -515,7 +515,7 @@ class GEEAboutDialog(object):
 
         lbl_title = tk.Label(
             title_box,
-            text=u"CGMA ArcGEE Explorer",
+            text=u"ArcMagery",
             font=("Segoe UI", 16, "bold"),
             fg="#0b5345"
         )
@@ -523,7 +523,7 @@ class GEEAboutDialog(object):
 
         lbl_sub = tk.Label(
             title_box,
-            text=u"Google Earth Engine Explorer for ArcGIS Desktop 10.8 (ArcMap)  |  v1.12",
+            text=u"Google Earth Engine, Google Earth e CBERS/INPE no ArcGIS Desktop 10.8 (ArcMap)  |  v%s" % CURRENT_VERSION,
             font=("Segoe UI", 9, "italic"),
             fg="#566573"
         )
@@ -544,7 +544,7 @@ class GEEAboutDialog(object):
         info_frame.pack(fill=tk.X, pady=(0, 10))
 
         info_text = (
-            u"• Versão: v1.12 (Padrão RGB Composite Nativo, Ações Multi-Escopo em Grupos/TOC & Sincronização Dinâmica)\n"
+            u"• Versão: v2.0.0 (ArcMagery: Google Earth / XYZ, CBERS / INPE e correções de mosaico GEE)\n"
             u"• Organização: Coordenadoria de Geoprocessamento e Monitoramento Ambiental\n"
             u"  Secretaria de Estado de Meio Ambiente de Mato Grosso (CGMA / SEMA-MT)\n"
             u"• Desenvolvedor: Joberth Firmino Gambati\n"
@@ -680,7 +680,7 @@ class GEEUpdaterDialog(object):
     def __init__(self, parent):
         self.parent = parent
         self.top = tk.Toplevel(parent.root if hasattr(parent, 'root') else parent)
-        self.top.title(u"Atualização Segura - CGMA ArcGEE Explorer")
+        self.top.title(u"Atualização Segura - ArcMagery")
         self.top.geometry("560x420")
         self.top.resizable(False, False)
         setup_window_icon(self.top)
@@ -700,7 +700,7 @@ class GEEUpdaterDialog(object):
 
         lbl_head = tk.Label(
             pad,
-            text=u"Atualização do CGMA ArcGEE Explorer (v1.12)",
+            text=u"Atualização do ArcMagery (v%s)" % CURRENT_VERSION,
             font=("Segoe UI", 12, "bold"),
             fg="#1b4f72"
         )
@@ -794,12 +794,24 @@ class GEEUpdaterDialog(object):
         if status_text:
             self.lbl_status.config(text=status_text)
 
-    def _do_zip_update(self):
-        zip_path = filedialog.askopenfilename(
-            title=u"Selecione o arquivo ZIP de atualização do Plugin",
-            filetypes=[("Arquivos ZIP ou Add-In (*.zip;*.esriaddin)", "*.zip;*.esriaddin"), ("Todos os arquivos (*.*)", "*.*")],
-            parent=self.top
-        )
+    def _ask_confirmation_and_retry(self, ex, retry_fn, flags):
+        """Trata gee_updater.ConfirmationRequired: pergunta ao usuario e repete com a flag."""
+        self._set_busy(False, u"Aguardando confirmação do usuário...")
+        msg = ex.user_message if isinstance(ex.user_message, unicode) else unicode(str(ex.user_message), 'utf-8', 'replace')
+        if messagebox.askyesno(ex.title, msg, parent=self.top, icon=messagebox.WARNING):
+            new_flags = dict(flags)
+            new_flags[ex.flag] = True
+            retry_fn(**new_flags)
+        else:
+            self._set_busy(False, u"Atualização cancelada pelo usuário.")
+
+    def _do_zip_update(self, zip_path=None, **flags):
+        if not zip_path:
+            zip_path = filedialog.askopenfilename(
+                title=u"Selecione o arquivo ZIP de atualização do Plugin",
+                filetypes=[("Arquivos ZIP ou Add-In (*.zip;*.esriaddin)", "*.zip;*.esriaddin"), ("Todos os arquivos (*.*)", "*.*")],
+                parent=self.top
+            )
         if not zip_path or not os.path.exists(zip_path):
             return
 
@@ -818,7 +830,8 @@ class GEEUpdaterDialog(object):
                 gee_updater.execute_zip_update_flow(
                     zip_path,
                     current_version=CURRENT_VERSION,
-                    progress_callback=on_progress
+                    progress_callback=on_progress,
+                    **flags
                 )
 
                 # Notifica o usuário e encerra o processo da interface
@@ -845,6 +858,11 @@ class GEEUpdaterDialog(object):
                 self.top.after(0, show_success_and_exit)
 
             except Exception as ex:
+                import gee_updater as _gu
+                if isinstance(ex, _gu.ConfirmationRequired):
+                    self.top.after(0, lambda: self._ask_confirmation_and_retry(
+                        ex, lambda **f: self._do_zip_update(zip_path=zip_path, **f), flags))
+                    return
                 def show_err():
                     self._set_busy(False, u"Falha na validação da atualização.")
                     GEEUpdaterErrorDialog(self.top, ex)
@@ -852,7 +870,7 @@ class GEEUpdaterDialog(object):
 
         threading.Thread(target=worker).start()
 
-    def _do_github_update(self):
+    def _do_github_update(self, **flags):
         self._set_busy(True, u"Conectando ao GitHub para verificar atualizações...")
 
         def worker():
@@ -866,7 +884,8 @@ class GEEUpdaterDialog(object):
 
                 gee_updater.execute_online_github_update_flow(
                     current_version=CURRENT_VERSION,
-                    progress_callback=on_progress
+                    progress_callback=on_progress,
+                    **flags
                 )
 
                 def show_success_and_exit():
@@ -891,6 +910,10 @@ class GEEUpdaterDialog(object):
                 self.top.after(0, show_success_and_exit)
 
             except Exception as ex:
+                import gee_updater as _gu
+                if isinstance(ex, _gu.ConfirmationRequired):
+                    self.top.after(0, lambda: self._ask_confirmation_and_retry(ex, self._do_github_update, flags))
+                    return
                 def show_err():
                     self._set_busy(False, u"Falha na atualização pelo GitHub.")
                     GEEUpdaterErrorDialog(self.top, ex)
@@ -899,7 +922,9 @@ class GEEUpdaterDialog(object):
         threading.Thread(target=worker).start()
 
 
-CURRENT_VERSION = "1.12"
+CURRENT_VERSION = "2.0.0"
+APP_NAME = u"ArcMagery"
+APP_WINDOW_TITLE = u"ArcMagery (ArcGIS 10.8)  |  v" + CURRENT_VERSION
 
 SENSOR_METADATA = {
     'S2': {
@@ -1047,7 +1072,7 @@ def normalize_date(d_str):
 class GEEPluginWindow(object):
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title(u"CGMA ArcGEE Explorer (ArcGIS 10.8)  |  v1.12")
+        self.root.title(APP_WINDOW_TITLE)
         self.root.geometry("1100x740")
         self.root.minsize(960, 640)
         setup_window_icon(self.root)
@@ -1100,7 +1125,7 @@ class GEEPluginWindow(object):
         """Encerra o processo da GUI de forma limpa"""
         try:
             self._alive = False
-            hb_file = os.path.join(tempfile.gettempdir(), "arcgee_gui_heartbeat.tmp")
+            hb_file = gee_bridge.HEARTBEAT_FILE
             if os.path.exists(hb_file):
                 try:
                     os.remove(hb_file)
@@ -1111,10 +1136,50 @@ class GEEPluginWindow(object):
             pass
         sys.exit(0)
 
+    def on_open_extra_sources(self):
+        """Abre (ou traz para frente) a janela Google Earth / XYZ e CBERS / INPE."""
+        try:
+            dlg = getattr(self, '_sources_dlg', None)
+            if dlg is not None and dlg.top.winfo_exists():
+                dlg.top.deiconify()
+                dlg.top.lift()
+                return
+            import arcmagery_sources_gui
+            self._sources_dlg = arcmagery_sources_gui.ExtraSourcesDialog(self)
+        except Exception as e:
+            messagebox.showerror(u"ArcMagery", u"Falha ao abrir as fontes adicionais: %s" % e, parent=self.root)
+
     def post_to_gui(self, callback):
         """Envia uma acao para ser executada na thread principal do Tkinter"""
         if self._alive:
             self.queue.put(callback)
+
+    def ui_call(self, fn, timeout=900):
+        """Executa fn na thread do Tk e devolve o resultado ao chamador (worker thread).
+        Tkinter nao e thread-safe: workers nunca devem tocar widgets diretamente."""
+        if threading.current_thread().name == 'MainThread':
+            return fn()
+        done = threading.Event()
+        box = {}
+
+        def run():
+            try:
+                box['value'] = fn()
+            except Exception as e:
+                box['error'] = e
+            finally:
+                done.set()
+
+        self.post_to_gui(run)
+        if not done.wait(timeout):
+            raise RuntimeError(u"Tempo esgotado aguardando a interface.")
+        if 'error' in box:
+            raise box['error']
+        return box.get('value')
+
+    def _mb(self, kind, *args, **kwargs):
+        """messagebox.<kind>(...) seguro a partir de qualquer thread."""
+        return self.ui_call(lambda: getattr(messagebox, kind)(*args, **kwargs))
 
     def _schedule_poll(self):
         if self._alive:
@@ -1378,7 +1443,7 @@ class GEEPluginWindow(object):
                         import urllib2
                         req = urllib2.Request(
                             "https://api.github.com/repos/Yiuky/arcgis-google-earth-engine-explorer/commits/main",
-                            headers={'User-Agent': 'CGMA-ArcGEE-Explorer-UpdateCheck'}
+                            headers={'User-Agent': 'ArcMagery-UpdateCheck'}
                         )
                         res = urllib2.urlopen(req, timeout=5)
                         import json
@@ -1388,7 +1453,7 @@ class GEEPluginWindow(object):
                         import json
                         req = urllib.request.Request(
                             "https://api.github.com/repos/Yiuky/arcgis-google-earth-engine-explorer/commits/main",
-                            headers={'User-Agent': 'CGMA-ArcGEE-Explorer-UpdateCheck'}
+                            headers={'User-Agent': 'ArcMagery-UpdateCheck'}
                         )
                         res = urllib.request.urlopen(req, timeout=5)
                         remote_data = json.loads(res.read().decode('utf-8'))
@@ -1406,7 +1471,7 @@ class GEEPluginWindow(object):
         if not has_update:
             try:
                 raw_url = "https://raw.githubusercontent.com/Yiuky/arcgis-google-earth-engine-explorer/main/arcgis_addin/config.xml?t=%d" % int(time.time())
-                hdrs = {'User-Agent': 'CGMA-ArcGEE-Explorer-UpdateCheck', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache'}
+                hdrs = {'User-Agent': 'ArcMagery-UpdateCheck', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache'}
                 if sys.version_info[0] < 3:
                     import urllib2
                     req = urllib2.Request(raw_url, headers=hdrs)
@@ -1444,7 +1509,7 @@ class GEEPluginWindow(object):
                 # Notificar o usuário com opção de abrir o atualizador imediatamente
                 resp = messagebox.askyesno(
                     u"Nova Atualização Disponível",
-                    u"Uma nova atualização do CGMA ArcGEE Explorer foi detectada no repositório oficial!\n\n"
+                    u"Uma nova atualização do ArcMagery foi detectada no repositório oficial!\n\n"
                     u"%s\n\nDeseja abrir o assistente de atualização agora para aplicar?" % update_info,
                     parent=self.root
                 )
@@ -1458,7 +1523,7 @@ class GEEPluginWindow(object):
         if not self._alive:
             return
         try:
-            hb_file = os.path.join(tempfile.gettempdir(), "arcgee_gui_heartbeat.tmp")
+            hb_file = gee_bridge.HEARTBEAT_FILE
             with open(hb_file, "w") as f:
                 f.write(str(time.time()))
         except Exception:
@@ -1514,7 +1579,7 @@ class GEEPluginWindow(object):
         # Badge de Versao bem visivel
         self.lbl_v_badge = tk.Label(
             self.top_frame,
-            text=u" v1.12 ",
+            text=u" v%s " % CURRENT_VERSION,
             font=("Segoe UI", 9, "bold"),
             bg="#1b4f72",
             fg="#ffffff",
@@ -1549,6 +1614,10 @@ class GEEPluginWindow(object):
 
         self.btn_about = ttk.Button(self.top_frame, text=u"ℹ Sobre", command=self.on_open_about)
         self.btn_about.pack(side=tk.RIGHT, padx=4)
+
+        self.btn_sources = ttk.Button(self.top_frame, text=u"Google Earth / CBERS", style="Action.TButton",
+                                      command=self.on_open_extra_sources)
+        self.btn_sources.pack(side=tk.RIGHT, padx=4)
 
         self.btn_settings = ttk.Button(self.top_frame, text=u"⚙ Configurações", command=self.on_open_settings)
         self.btn_settings.pack(side=tk.RIGHT, padx=4)
@@ -1850,7 +1919,7 @@ class GEEPluginWindow(object):
 
         self.lbl_progress = ttk.Label(
             status_bar_frame,
-            text=u"Pronto. (CGMA ArcGEE Explorer v1.12 - Resolução Nativa Estrita 100%)",
+            text=u"Pronto. (ArcMagery v%s - Google Earth Engine, Google Earth e CBERS/INPE)" % CURRENT_VERSION,
             anchor=tk.W
         )
         self.lbl_progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 6))
@@ -2387,28 +2456,31 @@ class GEEPluginWindow(object):
 
     def validate_scale_and_get_bbox(self):
         """Valida se a escala do ArcMap esta dentro de 1:500.000 para busca por extensao.
+        Executada em worker threads: widgets e caixas de dialogo passam por ui_call/_mb.
+        Executada em worker threads: widgets e caixas de dialogo passam por ui_call/_mb.
+        Executada em worker threads: widgets e caixas de dialogo passam por ui_call/_mb.
         Retorna (ok, bbox, auto_zoom):
         - Para Camada (AOI): exporta geojson, bbox=None e auto_zoom=True.
         - Para Extensao da Tela: valida escala <= 1:500k, bbox da tela e auto_zoom=False.
         """
-        st = self.var_spatial_type.get()
+        st = self.ui_call(self.var_spatial_type.get)
 
         if st == "layer":
-            lyr_name = self.cbo_layers.get()
+            lyr_name = self.ui_call(self.cbo_layers.get)
             if not lyr_name or lyr_name == "Nenhuma camada encontrada":
-                messagebox.showwarning(u"Camada Inválida", u"Selecione uma camada vetorial (AOI) válida no ArcMap.", parent=self.root)
+                self._mb('showwarning', u"Camada Inválida", u"Selecione uma camada vetorial (AOI) válida no ArcMap.", parent=self.root)
                 return False, None, False
             buf = float(self.settings.get('aoi_buffer_meters', 0.0) if hasattr(self, 'settings') else 0.0)
             rep = gee_bridge.send_arcmap_command({'action': 'export_aoi', 'layer_name': lyr_name, 'buffer_meters': buf}, timeout=10)
             if rep.get('success'):
                 self.current_aoi_file = rep.get('file')
             else:
-                messagebox.showerror(u"Erro AOI", u"Falha ao exportar limite vetorial da camada '%s': %s" % (lyr_name, rep.get('message', '')), parent=self.root)
+                self._mb('showerror', u"Erro AOI", u"Falha ao exportar limite vetorial da camada '%s': %s" % (lyr_name, rep.get('message', '')), parent=self.root)
                 return False, None, False
             return True, None, True
 
         # st == "extent"
-        self.sync_arcmap_context()
+        self.ui_call(self.sync_arcmap_context)
         scale = self.arcmap_context.get('scale')
 
         if scale is not None and scale > MAX_ALLOWED_SCALE:
@@ -2416,19 +2488,19 @@ class GEEPluginWindow(object):
                 "A escala atual do mapa e 1:{:,.0f}, superior a escala maxima permitida de 1:500.000.\n\n"
                 "Deseja ajustar o zoom do ArcMap automaticamente para 1:500.000 para continuar?"
             ).format(scale)
-            if messagebox.askyesno("Limite de Escala (1:500.000)", msg, parent=self.root):
+            if self._mb('askyesno', "Limite de Escala (1:500.000)", msg, parent=self.root):
                 rep_scale = gee_bridge.send_arcmap_command({'action': 'set_scale', 'scale': MAX_ALLOWED_SCALE}, timeout=10)
                 if rep_scale.get('success'):
-                    self.sync_arcmap_context()
+                    self.ui_call(self.sync_arcmap_context)
                 else:
-                    messagebox.showwarning(u"Aviso Escala", u"Não foi possível ajustar a escala no ArcMap: " + rep_scale.get('message', ''), parent=self.root)
+                    self._mb('showwarning', u"Aviso Escala", u"Não foi possível ajustar a escala no ArcMap: " + rep_scale.get('message', ''), parent=self.root)
                     return False, None, False
             else:
                 return False, None, False
 
         bbox = self.arcmap_context.get('bbox')
         if not bbox:
-            self.sync_arcmap_context()
+            self.ui_call(self.sync_arcmap_context)
             bbox = self.arcmap_context.get('bbox')
         if not bbox:
             rep = gee_bridge.send_arcmap_command({'action': 'refresh_context'}, timeout=4)
@@ -2437,7 +2509,7 @@ class GEEPluginWindow(object):
                 bbox = self.arcmap_context.get('bbox')
 
         if not bbox:
-            messagebox.showwarning(
+            self._mb('showwarning', 
                 u"Extensão ArcMap Indefinida",
                 u"Não foi possível obter a extensão geográfica atual do ArcMap.\n\n"
                 u"Verifique se o mapa no ArcMap possui uma camada visível ou sistema de coordenadas definido, ou utilize uma camada vetorial (AOI).",
@@ -3143,7 +3215,32 @@ class GEEPluginWindow(object):
             if i_id in self.current_downloading_ids:
                 self.current_downloading_ids.remove(i_id)
 
+_SINGLE_INSTANCE_MUTEX = None
+
+def acquire_single_instance():
+    """Garante uma unica GUI por ArcMap (mutex nomeado por sessao IPC). Se ja existir, traz a
+    janela existente para frente e retorna False."""
+    global _SINGLE_INSTANCE_MUTEX
+    if os.name != 'nt':
+        return True
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        handle = k32.CreateMutexW(None, False, u"Local\\ArcMagery_GUI_%s" % gee_bridge.IPC_SESSION)
+        if k32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            hwnd = ctypes.windll.user32.FindWindowW(None, APP_WINDOW_TITLE)
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+            return False
+        _SINGLE_INSTANCE_MUTEX = handle
+    except Exception:
+        pass
+    return True
+
 def main():
+    if not acquire_single_instance():
+        return
     win = GEEPluginWindow()
     win.root.mainloop()
 

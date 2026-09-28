@@ -45,21 +45,21 @@ class SafeStream(object):
     def flush(self):
         pass
 
-# Redirecionar sys.stdout e sys.stderr para evitar IOError silencioso em pythonw
-try:
-    if sys.stdout is None or not hasattr(sys.stdout, 'write'):
-        sys.stdout = SafeStream(os.path.join(tempfile.gettempdir(), "arcgee_bridge_stdout.log"))
-    else:
-        sys.stdout.write("")
-except Exception:
-    sys.stdout = SafeStream(os.path.join(tempfile.gettempdir(), "arcgee_bridge_stdout.log"))
+def _stream_is_usable(stream):
+    """Sob pythonw.exe (Python 2.7) sys.stdout EXISTE e write("") funciona, mas o descritor e
+    invalido (fileno() == -2): o primeiro flush de ~4 KB levanta IOError(9, 'Bad file
+    descriptor'). Streams sem fileno() (ex.: janela Python do ArcMap) sao consideradas validas."""
+    if stream is None or not hasattr(stream, 'write'):
+        return False
+    try:
+        return stream.fileno() >= 0
+    except Exception:
+        return True
 
-try:
-    if sys.stderr is None or not hasattr(sys.stderr, 'write'):
-        sys.stderr = SafeStream(os.path.join(tempfile.gettempdir(), "arcgee_bridge_stderr.log"))
-    else:
-        sys.stderr.write("")
-except Exception:
+# Redirecionar sys.stdout e sys.stderr para evitar IOError silencioso em pythonw
+if not _stream_is_usable(sys.stdout):
+    sys.stdout = SafeStream(os.path.join(tempfile.gettempdir(), "arcgee_bridge_stdout.log"))
+if not _stream_is_usable(sys.stderr):
     sys.stderr = SafeStream(os.path.join(tempfile.gettempdir(), "arcgee_bridge_stderr.log"))
 
 def get_user_gee_config_file():
@@ -143,24 +143,89 @@ def find_python3():
     except Exception:
         pass
 
-    # 3. Lista de caminhos dinamicos no Windows
+    global _FOUND_PYTHON3
+    if _FOUND_PYTHON3 and os.path.exists(_FOUND_PYTHON3):
+        return _FOUND_PYTHON3
+
+    existing = python3_candidates()
+    # Preferir o primeiro interpretador que realmente possui o earthengine-api
+    # (ex.: o Python do QGIS existe mas normalmente nao tem 'ee').
+    for c in existing:
+        if python_has_modules(c, ['ee']):
+            _FOUND_PYTHON3 = c
+            return c
+    if existing:
+        return existing[0]
+    return "python.exe"
+
+def find_python3_gdal():
+    """Python 3 com GDAL (osgeo) + numpy para as fontes CBERS/INPE e Google Earth/XYZ.
+    Ordem: venv do ArcMagery (criado sobre o Python do QGIS), Python do QGIS/OSGeo4W, demais.
+    Se nenhum tiver GDAL, devolve o Python do GEE (o XYZ ainda funciona com Pillow + numpy)."""
+    global _FOUND_PYTHON3_GDAL
+    if _FOUND_PYTHON3_GDAL and os.path.exists(_FOUND_PYTHON3_GDAL):
+        return _FOUND_PYTHON3_GDAL
+    for c in python3_candidates():
+        if python_has_modules(c, ['osgeo.gdal', 'numpy']):
+            _FOUND_PYTHON3_GDAL = c
+            return c
+    return find_python3()
+
+def python3_candidates():
+    """Interpretadores Python 3 existentes, em ordem de preferencia (sem o alias da MS Store)."""
     import glob
     candidates = [
         os.environ.get("GEE_PYTHON3", ""),
-        r"C:\CGMA_GEE_PLUGIN\venv\Scripts\python.exe",
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), r"ArcMagery\venv\Scripts\python.exe"),
         os.path.join(os.environ.get("LOCALAPPDATA", ""), r"ArcGEE\venv\Scripts\python.exe"),
+        r"C:\CGMA_GEE_PLUGIN\venv\Scripts\python.exe",
     ]
     candidates += glob.glob(r"C:\Program Files\QGIS *\apps\Python3*\python.exe")
     candidates += glob.glob(r"C:\Program Files (x86)\QGIS *\apps\Python3*\python.exe")
     candidates += glob.glob(r"C:\OSGeo4W*\apps\Python3*\python.exe")
     candidates += glob.glob(r"C:\Python3*\python.exe")
     candidates += glob.glob(os.path.expanduser(r"~\AppData\Local\Programs\Python\Python3*\python.exe"))
-    candidates.append("python.exe")
-
+    existing = []
     for c in candidates:
-        if c and os.path.exists(c):
-            return os.path.abspath(c)
-    return "python.exe"
+        if c and os.path.exists(c) and "WindowsApps" not in c:
+            c = os.path.abspath(c)
+            if c not in existing:
+                existing.append(c)
+    return existing
+
+_FOUND_PYTHON3 = None
+_FOUND_PYTHON3_GDAL = None
+_MODULE_CHECK_CACHE = {}
+
+def python_has_modules(py_exe, modules, timeout=40):
+    """Verifica (uma vez por processo) se um interpretador Python 3 importa os modulos dados."""
+    key = (py_exe, tuple(modules))
+    if key in _MODULE_CHECK_CACHE:
+        return _MODULE_CHECK_CACHE[key]
+    ok = False
+    try:
+        env = dict(os.environ)
+        env.pop('PYTHONPATH', None)
+        env.pop('PYTHONHOME', None)
+        startupinfo = None
+        if os.name == 'nt':
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+        code = "import sys; import %s; sys.exit(0 if sys.version_info[0] == 3 else 1)" % ", ".join(modules)
+        proc = subprocess.Popen([py_exe, "-c", code], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                startupinfo=startupinfo, env=env)
+        start = time.time()
+        while proc.poll() is None and time.time() - start < timeout:
+            time.sleep(0.1)
+        if proc.poll() is None:
+            proc.kill()
+        else:
+            ok = (proc.returncode == 0)
+    except Exception:
+        ok = False
+    _MODULE_CHECK_CACHE[key] = ok
+    return ok
 
 def get_backend_script():
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -316,8 +381,8 @@ MULTIBAND_DEFAULT_BANDS = {
     'L1': ['B4', 'B5', 'B6', 'B7']
 }
 
-def run_backend_cmd(subcmd, args_dict, on_progress=None):
-    py3 = find_python3()
+def run_backend_cmd(subcmd, args_dict, on_progress=None, python_exe=None):
+    py3 = python_exe or find_python3()
     script = get_backend_script()
     if not os.path.exists(script):
         return {'success': False, 'message': u"Script backend nao encontrado: " + unicode(script)}
@@ -356,6 +421,7 @@ def run_backend_cmd(subcmd, args_dict, on_progress=None):
         clean_env.pop('PYTHONPATH', None)
         clean_env.pop('PYTHONHOME', None)
         clean_env['PYTHONUNBUFFERED'] = '1'
+        clean_env['PYTHONIOENCODING'] = 'utf-8'  # stderr/stdout do backend sempre em UTF-8
 
         # Configurar para nao abrir janela preta do cmd
         startupinfo = None
@@ -422,6 +488,10 @@ def run_backend_cmd(subcmd, args_dict, on_progress=None):
             timeout_seconds = 90   # 90 segundos para busca no catalogo GEE
         elif subcmd == 'thumb':
             timeout_seconds = 60   # 60 segundos para miniaturas
+        elif subcmd in ('xyz_download', 'stac_download'):
+            timeout_seconds = 1800  # 30 minutos: mosaicos XYZ e recortes CBERS grandes
+        elif subcmd in ('stac_search', 'stac_thumb', 'sources_info', 'xyz_estimate'):
+            timeout_seconds = 120
         else:
             timeout_seconds = 120
 
@@ -1738,7 +1808,18 @@ def force_and_validate_rgb_composite(
     else:
         return False, u"Falha ao validar RGB Composite. Erros: " + u"; ".join(errors[:3])
 
-def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_code=None, sensor=None, custom_bands=None):
+def _rgb_override(rgb_bands):
+    """Aceita uma lista explicita [R, G, B] de indices 0-based enviada pela GUI (ex.: CBERS)."""
+    try:
+        if rgb_bands and len(rgb_bands) == 3:
+            vals = tuple(int(v) for v in rgb_bands)
+            if min(vals) >= 0:
+                return vals
+    except Exception:
+        pass
+    return None
+
+def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_code=None, sensor=None, custom_bands=None, rgb_bands=None):
     """Adiciona o arquivo GeoTIFF baixado diretamente no TOC do ArcMap sem duplicar,
     garantindo que camadas multibanda entrem NATIVAMENTE no modo RGB Composite como padrao."""
     if not arcpy:
@@ -1814,7 +1895,7 @@ def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_c
 
             # 4. Configurar Stretch e bandas RGB no arquivo de camada (.lyr)
             if band_count >= 3:
-                rgb_indices = resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
+                rgb_indices = _rgb_override(rgb_bands) or resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
                 apply_stretch_and_stats(persistent_lyr, settings, rgb_bands=rgb_indices)
             else:
                 apply_stretch_and_stats(persistent_lyr, settings, rgb_bands=None)
@@ -1838,7 +1919,7 @@ def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_c
             # 6.0 Forcar e Validar Simbologia RGB Composite imediatamente na camada viva do TOC
             rgb_feedback_msg = ""
             if band_count >= 3:
-                rgb_indices = resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
+                rgb_indices = _rgb_override(rgb_bands) or resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
                 ok_rgb, msg_rgb = force_single_layer_rgb(
                     layer_name=layer_name,
                     rgb_bands=rgb_indices,
@@ -1901,7 +1982,7 @@ def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_c
     except Exception as e:
         return False, "Erro ao adicionar camada ao TOC: " + str(e)
 
-def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=None, sensor=None, custom_bands=None):
+def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=None, sensor=None, custom_bands=None, rgb_bands=None):
     """Substitui uma camada existente no TOC pela nova imagem/mosaico baixado, mantendo a posicao exata e garantindo RGB Composite nativo"""
     if not arcpy or not target_long_name:
         return False, "Alvo nao fornecido."
@@ -1975,7 +2056,7 @@ def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=No
                 except Exception: pass
 
             if band_count >= 3:
-                rgb_indices = resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
+                rgb_indices = _rgb_override(rgb_bands) or resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
                 apply_stretch_and_stats(persistent_lyr, settings, rgb_bands=rgb_indices)
             else:
                 apply_stretch_and_stats(persistent_lyr, settings, rgb_bands=None)
@@ -1991,7 +2072,7 @@ def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=No
             # Forcar e Validar Simbologia RGB Composite imediatamente apos substituicao
             rgb_feedback_msg = ""
             if band_count >= 3:
-                rgb_indices = resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
+                rgb_indices = _rgb_override(rgb_bands) or resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
                 ok_rgb, msg_rgb = force_single_layer_rgb(
                     layer_name=new_layer_name,
                     rgb_bands=rgb_indices,
@@ -2183,9 +2264,19 @@ def apply_stretch_to_toc_layer(target_layer_name=None, settings=None):
 # Garante 100% de estabilidade: ArcMap NUNCA executa mainloop() e NUNCA trava
 # ==============================================================================
 
-CONTEXT_FILE = os.path.join(tempfile.gettempdir(), "gee_arcgis_context.json")
-CMD_FILE = os.path.join(tempfile.gettempdir(), "gee_arcgis_cmd.json")
-REPLY_FILE = os.path.join(tempfile.gettempdir(), "gee_arcgis_reply.json")
+def _ipc_session_id():
+    """Identificador da sessao IPC = PID do processo ArcMap.
+    No proprio ArcMap e os.getpid(); na GUI vem de ARCMAGERY_SESSION (definido por
+    launch_gui_process). Isola varios ArcMaps/GUIs abertos ao mesmo tempo."""
+    sid = os.environ.get('ARCMAGERY_SESSION', '').strip()
+    return sid if sid.isdigit() else str(os.getpid())
+
+IPC_SESSION = _ipc_session_id()
+_IPC_DIR = tempfile.gettempdir()
+CONTEXT_FILE = os.path.join(_IPC_DIR, "arcmagery_%s_context.json" % IPC_SESSION)
+CMD_FILE = os.path.join(_IPC_DIR, "arcmagery_%s_cmd.json" % IPC_SESSION)
+REPLY_FILE = os.path.join(_IPC_DIR, "arcmagery_%s_reply.json" % IPC_SESSION)
+HEARTBEAT_FILE = os.path.join(_IPC_DIR, "arcmagery_%s_gui_heartbeat.tmp" % IPC_SESSION)
 DEBUG_LOG_FILE = os.path.join(tempfile.gettempdir(), "arcgee_debug.log")
 
 def _log_debug(msg):
@@ -2206,15 +2297,36 @@ def _log_debug(msg):
     except Exception:
         pass
 
+def _atomic_replace(src, dst):
+    """Substitui dst por src atomicamente (o leitor nunca ve um JSON pela metade)."""
+    if os.name == 'nt':
+        import ctypes
+        MOVEFILE_REPLACE_EXISTING = 0x1
+        MOVEFILE_WRITE_THROUGH = 0x8
+        to_text = unicode if sys.version_info[0] == 2 else str  # noqa: F821
+        if not ctypes.windll.kernel32.MoveFileExW(to_text(src), to_text(dst),
+                                                  MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH):
+            raise OSError("MoveFileExW falhou (%d)" % ctypes.windll.kernel32.GetLastError())
+    else:
+        os.rename(src, dst)
+
 def safe_write_json(filepath, data):
-    """Escreve JSON com tentativas seguras contra conflito de leitura/escrita no Windows"""
+    """Escreve JSON de forma atomica (arquivo temporario + rename) com novas tentativas
+    em caso de conflito de acesso no Windows."""
+    tmp_path = "%s.%d.tmp" % (filepath, os.getpid())
     for attempt in range(8):
         try:
-            with open(filepath, "w") as f:
+            with open(tmp_path, "w") as f:
                 json.dump(data, f)
+            _atomic_replace(tmp_path, filepath)
             return True
         except Exception:
             time.sleep(0.05)
+    try:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+    except Exception:
+        pass
     return False
 
 def safe_read_json(filepath):
@@ -2382,7 +2494,7 @@ def start_arcmap_ipc_timer(interval_ms=250):
                 now = time.time()
                 if now - _last_timer_ctx_time > 0.6:
                     _last_timer_ctx_time = now
-                    hb_file = os.path.join(tempfile.gettempdir(), "arcgee_gui_heartbeat.tmp")
+                    hb_file = HEARTBEAT_FILE
                     if os.path.exists(hb_file):
                         try:
                             if (now - os.path.getmtime(hb_file)) < 6.0:
@@ -2455,7 +2567,8 @@ def process_pending_arcmap_commands():
                     zoom=cmd.get('zoom', False),
                     comp_code=cmd.get('comp'),
                     sensor=cmd.get('sensor'),
-                    custom_bands=cmd.get('custom_bands')
+                    custom_bands=cmd.get('custom_bands'),
+                    rgb_bands=cmd.get('rgb_bands')
                 )
                 resp = {'reply_to': cmd_id, 'success': ok, 'message': msg}
             elif action == 'replace_layer':
@@ -2465,7 +2578,8 @@ def process_pending_arcmap_commands():
                     new_layer_name=cmd.get('name'),
                     comp_code=cmd.get('comp'),
                     sensor=cmd.get('sensor'),
-                    custom_bands=cmd.get('custom_bands')
+                    custom_bands=cmd.get('custom_bands'),
+                    rgb_bands=cmd.get('rgb_bands')
                 )
                 resp = {'reply_to': cmd_id, 'success': ok, 'message': msg}
             elif action == 'change_composition':
@@ -2586,9 +2700,13 @@ def force_rgb_composite(layer_name=None, sensor=None, comp=None, custom_bands=No
 
 def launch_gui_process():
     """Inicia a interface grafica como processo independente pythonw.exe sem travar o ArcMap"""
-    pyw = r"C:\Python27\ArcGIS10.8\pythonw.exe"
+    # pythonw.exe do proprio Python do ArcGIS (sys.prefix dentro do ArcMap); nunca o do PATH,
+    # que pode ser um Python 3 incapaz de rodar a GUI (Python 2.7).
+    pyw = os.path.join(sys.prefix, "pythonw.exe")
     if not os.path.exists(pyw):
-        pyw = "pythonw.exe"
+        pyw = r"C:\Python27\ArcGIS10.8\pythonw.exe"
+    if not os.path.exists(pyw):
+        return False, "pythonw.exe do ArcGIS (Python 2.7) nao encontrado em %s" % sys.prefix
 
     install_dir = os.path.dirname(os.path.abspath(__file__))
     gui_script = os.path.join(install_dir, "gee_gui.py")
@@ -2602,6 +2720,7 @@ def launch_gui_process():
     clean_env = dict(os.environ)
     clean_env.pop('PYTHONPATH', None)
     clean_env.pop('PYTHONHOME', None)
+    clean_env['ARCMAGERY_SESSION'] = str(os.getpid())  # GUI conversa apenas com ESTE ArcMap
 
     try:
         subprocess.Popen([pyw, gui_script], cwd=install_dir, env=clean_env)
