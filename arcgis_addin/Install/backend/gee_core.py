@@ -11,6 +11,8 @@ import json
 import time
 import math
 import shutil
+import re
+import subprocess
 import concurrent.futures
 import urllib.request
 import tempfile
@@ -270,6 +272,355 @@ INDEX_PALETTES = {
     'CUSTOM_MATH': {'min': -1.0, 'max': 1.0, 'palette': ['#0000ff', '#ffffff', '#ff0000']}
 }
 
+class RasterHealthCheckError(Exception):
+    """Exceção levantada quando um raster gerado falha na validação atômica de integridade."""
+    def __init__(self, message, diagnostics=None):
+        super(RasterHealthCheckError, self).__init__(message)
+        self.message = message
+        self.diagnostics = diagnostics or {}
+
+    def __str__(self):
+        diag_str = json.dumps(self.diagnostics, indent=2, ensure_ascii=False) if self.diagnostics else ""
+        return "%s\n[Health Check Diagnósticos]:\n%s" % (self.message, diag_str)
+
+def is_math_expr(text):
+    """
+    Verifica de forma robusta se a string de entrada representa uma expressao/formula
+    matematica (ex: '(SR_B5 - SR_B4) / (SR_B5 + SR_B4)') ou uma lista de bandas
+    (ex: 'SR_B3, SR_B4, SR_B5, SR_B7' ou '(SR_B3, SR_B4, SR_B5, SR_B7)' ou 'B3-B5, B7').
+    """
+    if not text:
+        return False
+    t = str(text).strip()
+    if not t:
+        return False
+
+    # Remover parenteses ou colchetes externos se envolverem a expressao inteira
+    while (t.startswith('(') and t.endswith(')')) or (t.startswith('[') and t.endswith(']')):
+        t = t[1:-1].strip()
+
+    # Operadores inequivocos de operacao matematica
+    if any(op in t for op in ['+', '*', '/', '^', '%']):
+        return True
+
+    # Funcoes matematicas comuns (sqrt, exp, log, min, max, etc.)
+    if re.search(r'\b(sqrt|exp|log|log10|sin|cos|tan|min|max|abs)\s*\(', t, re.IGNORECASE):
+        return True
+
+    # Tratar ocorrencias do caractere '-': verificar se e intervalo de bandas (ex: B3-B7 ou SR_B3-SR_B7)
+    # ou operacao aritmetica de subtracao (ex: B5 - B4)
+    if '-' in t:
+        parts = [p.strip() for p in re.split(r'[,;\s]+', t) if p.strip()]
+        for p in parts:
+            if '-' in p:
+                sub = p.split('-')
+                if len(sub) == 2 and re.match(r'^(SR_|ST_)?B\d+[A-Za-z]?$', sub[0], re.I) and re.match(r'^(SR_|ST_)?B\d+[A-Za-z]?$', sub[1], re.I):
+                    continue
+                else:
+                    return True
+
+    return False
+
+def parse_bands(text, sensor=None):
+    """
+    Interpreta e normaliza uma lista de bandas customizadas, suportando:
+    - Separadores por virgula, ponto e virgula ou espacos
+    - Delimitadores externos como parenteses (B3, B4) ou colchetes [B3, B4]
+    - Expansao inteligente de intervalos com hifen (ex: 'B3-B5' -> ['SR_B3', 'SR_B4', 'SR_B5'])
+    - Mapeamento e normalizacao de prefixos para Landsat (SR_ / ST_) e Sentinel-2
+    - Compatibilidade estrita com Landsat 5 TM (onde B6 termica e ST_B6, e nao existe SR_B6)
+    """
+    if not text:
+        return []
+    t = str(text).strip()
+    while (t.startswith('(') and t.endswith(')')) or (t.startswith('[') and t.endswith(']')):
+        t = t[1:-1].strip()
+
+    raw_items = [b.strip().upper() for b in re.split(r'[,;\s]+', t) if b.strip()]
+    expanded = []
+
+    for item in raw_items:
+        item = item.strip("()[]")
+        if not item:
+            continue
+
+        if '-' in item:
+            sub = item.split('-')
+            if len(sub) == 2 and re.match(r'^(SR_|ST_)?B\d+$', sub[0]) and re.match(r'^(SR_|ST_)?B\d+$', sub[1]):
+                prefix = 'SR_' if ('SR_' in sub[0] or 'SR_' in sub[1]) else ''
+                m1 = re.search(r'\d+', sub[0])
+                m2 = re.search(r'\d+', sub[1])
+                if m1 and m2:
+                    n1 = int(m1.group())
+                    n2 = int(m2.group())
+                    step = 1 if n1 <= n2 else -1
+                    for n in range(n1, n2 + step, step):
+                        expanded.append("%sB%d" % (prefix, n))
+                    continue
+        expanded.append(item)
+
+    out = []
+    sens = (sensor or '').upper()
+
+    for b in expanded:
+        if sens in ['L8', 'L7', 'L5', 'L4']:
+            if b.startswith('B') and not b.startswith(('SR_', 'ST_')):
+                if b == 'B10' and sens == 'L8':
+                    out.append('ST_B10')
+                elif b == 'B6' and sens in ['L7', 'L5', 'L4']:
+                    out.append('ST_B6')
+                else:
+                    out.append('SR_' + b)
+            else:
+                out.append(b)
+        elif sens == 'S2':
+            if b.startswith('SR_'):
+                out.append(b.replace('SR_', ''))
+            elif b.startswith('ST_'):
+                out.append(b.replace('ST_', ''))
+            else:
+                out.append(b)
+        else:
+            out.append(b)
+
+    if sens in ['L5', 'L4', 'L7']:
+        out = [('ST_B6' if x == 'SR_B6' else x) for x in out]
+
+    return out
+
+def validate_geotiff_health(tif_path, expected_bands=None, sensor=None, strict_stats=True):
+    """
+    Realiza a validação atômica de integridade (Health Check) do raster pós-geração:
+    - Existência física e tamanho de arquivo mínimo (> 1024 bytes).
+    - Contagem estrita de bandas (raster.count == len(expected_bands)).
+    - Dimensões espaciais válidas (W > 0, H > 0).
+    - Resolução espacial e geotransform válidos.
+    - Projeção/CRS presente.
+    - Tipos de dados íntegros.
+    - Verificação de dados: detecção de all-NaN ou rasters vazios/constantes com variância zero.
+
+    Se a validação falhar:
+    - Descarta imediatamente o arquivo corrompido e seus arquivos auxiliares.
+    - Registra metadados diagnósticos estruturados em JSON.
+    - Levanta a exceção tipada RasterHealthCheckError com os diagnósticos completos.
+    """
+    if not tif_path or not os.path.exists(tif_path):
+        diag = {'file': str(tif_path), 'error': 'Arquivo nao existe no disco'}
+        raise RasterHealthCheckError("Arquivo GeoTIFF não foi criado ou não existe: %s" % str(tif_path), diag)
+
+    file_size = os.path.getsize(tif_path)
+    if file_size < 1024:
+        diag = {'file': str(tif_path), 'file_size_bytes': file_size, 'error': 'Arquivo truncado ou menor que 1KB'}
+        try: os.remove(tif_path)
+        except Exception: pass
+        raise RasterHealthCheckError("Arquivo GeoTIFF corrompido ou truncado (tamanho: %d bytes)" % file_size, diag)
+
+    # 1. Tentar inspecionar com osgeo.gdal nativo
+    info = None
+    try:
+        from osgeo import gdal
+        ds = gdal.Open(tif_path, gdal.GA_ReadOnly)
+        if ds is not None:
+            w = ds.RasterXSize
+            h = ds.RasterYSize
+            count = ds.RasterCount
+            gt = ds.GetGeoTransform()
+            proj = ds.GetProjection()
+            bands_info = []
+            for i in range(1, count + 1):
+                b = ds.GetRasterBand(i)
+                stats = None
+                try:
+                    stats = b.GetStatistics(0, 1)
+                except Exception:
+                    pass
+                b_min = float(stats[0]) if stats else None
+                b_max = float(stats[1]) if stats else None
+                b_mean = float(stats[2]) if stats else None
+                b_std = float(stats[3]) if stats else None
+                is_const = (b_min is not None and b_max is not None and b_min == b_max) or (b_std is not None and b_std == 0.0)
+                is_nan = (b_mean is None) or math.isnan(b_mean)
+                bands_info.append({
+                    'band': i,
+                    'description': b.GetDescription() or '',
+                    'dtype': gdal.GetDataTypeName(b.DataType),
+                    'min': b_min,
+                    'max': b_max,
+                    'mean': b_mean,
+                    'std': b_std,
+                    'is_constant': is_const,
+                    'is_nan': is_nan
+                })
+            ds = None
+            info = {
+                'width': w,
+                'height': h,
+                'count': count,
+                'geotransform': gt,
+                'projection': proj,
+                'bands': bands_info
+            }
+    except Exception as e_gdal:
+        sys.stderr.write("[ArcGEE][HealthCheck] Inspecao GDAL nativo falhou: %s. Tentando QGIS...\n" % str(e_gdal))
+
+    # 2. Fallback: Subprocesso Python QGIS com GDAL
+    if not info:
+        qgis_py_candidates = [
+            r"C:\Program Files\QGIS 3.44.10\apps\Python312\python.exe",
+            r"C:\Program Files\QGIS 3.34.10\apps\Python312\python.exe",
+            r"C:\Program Files\QGIS 3.28\apps\Python39\python.exe",
+        ]
+        for qpy in qgis_py_candidates:
+            if os.path.exists(qpy):
+                try:
+                    inspect_script = (
+                        "import sys, json, math\n"
+                        "from osgeo import gdal\n"
+                        "ds = gdal.Open(%r, gdal.GA_ReadOnly)\n"
+                        "if not ds:\n"
+                        "    print(json.dumps({'error': 'Falha gdal.Open'}))\n"
+                        "    sys.exit(0)\n"
+                        "count = ds.RasterCount\n"
+                        "bands_info = []\n"
+                        "for i in range(1, count + 1):\n"
+                        "    b = ds.GetRasterBand(i)\n"
+                        "    stats = None\n"
+                        "    try:\n"
+                        "        stats = b.GetStatistics(0, 1)\n"
+                        "    except Exception:\n"
+                        "        pass\n"
+                        "    b_min = float(stats[0]) if stats else None\n"
+                        "    b_max = float(stats[1]) if stats else None\n"
+                        "    b_mean = float(stats[2]) if stats else None\n"
+                        "    b_std = float(stats[3]) if stats else None\n"
+                        "    is_const = (b_min is not None and b_max is not None and b_min == b_max) or (b_std is not None and b_std == 0.0)\n"
+                        "    is_nan = (b_mean is None) or math.isnan(b_mean)\n"
+                        "    bands_info.append({\n"
+                        "        'band': i, 'description': b.GetDescription() or '',\n"
+                        "        'dtype': gdal.GetDataTypeName(b.DataType),\n"
+                        "        'min': b_min, 'max': b_max, 'mean': b_mean, 'std': b_std,\n"
+                        "        'is_constant': is_const, 'is_nan': is_nan\n"
+                        "    })\n"
+                        "res = {\n"
+                        "    'width': ds.RasterXSize, 'height': ds.RasterYSize, 'count': count,\n"
+                        "    'geotransform': list(ds.GetGeoTransform()), 'projection': ds.GetProjection(),\n"
+                        "    'bands': bands_info\n"
+                        "}\n"
+                        "print(json.dumps(res))\n"
+                    ) % tif_path
+                    proc = subprocess.run([qpy, "-c", inspect_script], capture_output=True, text=True, timeout=60)
+                    if proc.returncode == 0 and proc.stdout.strip():
+                        parsed = json.loads(proc.stdout.strip())
+                        if 'error' not in parsed:
+                            info = parsed
+                            break
+                except Exception as ex_q:
+                    sys.stderr.write("[ArcGEE][HealthCheck] Fallback QGIS falhou: %s\n" % str(ex_q))
+
+    # 3. Fallback: rasterio (se disponivel)
+    if not info:
+        try:
+            import rasterio
+            with rasterio.open(tif_path) as src:
+                count = src.count
+                w = src.width
+                h = src.height
+                crs_str = str(src.crs) if src.crs else ""
+                bands_info = []
+                for i in range(1, count + 1):
+                    arr = src.read(i)
+                    arr_f = arr.astype(float)
+                    b_min = float(np.nanmin(arr_f)) if arr_f.size > 0 else None
+                    b_max = float(np.nanmax(arr_f)) if arr_f.size > 0 else None
+                    b_mean = float(np.nanmean(arr_f)) if arr_f.size > 0 else None
+                    b_std = float(np.nanstd(arr_f)) if arr_f.size > 0 else None
+                    is_const = (b_min is not None and b_max is not None and b_min == b_max) or (b_std is not None and b_std == 0.0)
+                    is_nan = (b_mean is None) or math.isnan(b_mean)
+                    bands_info.append({
+                        'band': i,
+                        'description': src.descriptions[i - 1] or '',
+                        'dtype': str(src.dtypes[i - 1]),
+                        'min': b_min, 'max': b_max, 'mean': b_mean, 'std': b_std,
+                        'is_constant': is_const, 'is_nan': is_nan
+                    })
+                info = {
+                    'width': w, 'height': h, 'count': count,
+                    'geotransform': list(src.transform)[:6],
+                    'projection': crs_str,
+                    'bands': bands_info
+                }
+        except Exception:
+            pass
+
+    if not info:
+        diag = {'file': str(tif_path), 'error': 'Nao foi possivel inspecionar metadados do GeoTIFF'}
+        raise RasterHealthCheckError("Falha crítica ao inspecionar GeoTIFF: nenhum driver geoespacial disponível.", diag)
+
+    failures = []
+    w = info.get('width', 0)
+    h = info.get('height', 0)
+    count = info.get('count', 0)
+    gt = info.get('geotransform', [])
+    proj = info.get('projection', '')
+    bands_info = info.get('bands', [])
+
+    if w <= 0 or h <= 0:
+        failures.append("Dimensões espaciais inválidas: largura=%d, altura=%d" % (w, h))
+
+    if not gt or (len(gt) >= 6 and gt[1] == 0 and gt[5] == 0):
+        failures.append("Geotransform ou resolução espacial inválida: %s" % str(gt))
+
+    if not proj or len(str(proj).strip()) == 0:
+        failures.append("CRS / Sistema de Referência de Coordenadas ausente no arquivo")
+
+    expected_count = None
+    if expected_bands is not None:
+        expected_count = len(expected_bands) if isinstance(expected_bands, (list, tuple)) else int(expected_bands)
+        if count != expected_count:
+            failures.append(
+                "Contagem de bandas divergente: esperado %d bandas (%s), mas o produto gerado possui %d banda(s)"
+                % (expected_count, str(expected_bands), count)
+            )
+
+    if strict_stats and bands_info:
+        if all(b.get('is_nan', False) for b in bands_info):
+            failures.append("Raster sem dados válidos: todas as bandas são NaN (NoData integral)")
+        elif all(b.get('is_constant', False) and (b.get('mean') == 0.0 or b.get('min') == 0.0) for b in bands_info):
+            failures.append("Raster vazio: todas as bandas contêm valor constante zero (0.0)")
+
+    diagnostics = {
+        'file': tif_path,
+        'file_size_bytes': file_size,
+        'expected_band_count': expected_count,
+        'expected_bands': expected_bands,
+        'actual_band_count': count,
+        'dimensions': {'width': w, 'height': h},
+        'geotransform': gt,
+        'crs_summary': str(proj)[:120] if proj else 'Nenhum',
+        'bands': bands_info,
+        'failures': failures
+    }
+
+    if failures:
+        try:
+            if os.path.exists(tif_path): os.remove(tif_path)
+            aux_xml = tif_path + ".aux.xml"
+            if os.path.exists(aux_xml): os.remove(aux_xml)
+            ovr = tif_path + ".ovr"
+            if os.path.exists(ovr): os.remove(ovr)
+        except Exception:
+            pass
+
+        diag_json = json.dumps(diagnostics, indent=2, ensure_ascii=False)
+        sys.stderr.write("[ArcGEE][HealthCheck] FALHA NA VALIDAÇÃO DO RASTER:\n%s\n" % diag_json)
+        sys.stderr.flush()
+        raise RasterHealthCheckError(
+            "Falha no Health Check pós-processamento: " + "; ".join(failures),
+            diagnostics=diagnostics
+        )
+
+    return True, diagnostics
+
 def compute_spectral_index(img, sensor, comp_code, custom_formula=None):
     """Calcula indice espectral ou formula customizada sobre a imagem (usando reflectancia normalizada)"""
     # 0. Banda Termica (Surface Temperature em Celsius)
@@ -281,7 +632,7 @@ def compute_spectral_index(img, sensor, comp_code, custom_formula=None):
     scaled = apply_sensor_scaling(img, sensor)
 
     # 1. Formula Matematica Customizada
-    has_formula = bool(custom_formula and any(op in custom_formula for op in ['+', '-', '*', '/', '(', ')', '^']))
+    has_formula = bool(custom_formula and is_math_expr(custom_formula))
     if has_formula or (comp_code == 'CUSTOM_MATH' and not custom_formula):
         formula = custom_formula or comp_code
         band_names = scaled.bandNames().getInfo()
@@ -568,10 +919,11 @@ def calculate_spatial_grid(region_bbox, scale, num_bands, is_multiband, max_chun
 
     return nx, ny, tot_bytes, tiles
 
-def merge_geotiff_tiles(tile_paths, out_tif_path):
+def merge_geotiff_tiles(tile_paths, out_tif_path, expected_bands_count=None):
     """
     Mescla uma lista de GeoTIFFs em um unico arquivo GeoTIFF continuo
     preservando bandas, tipos de dados, CRS e georreferenciamento.
+    Garante a integridade do empilhamento e contagem de bandas solicitadas.
     Tenta em ordem:
     1. osgeo.gdal (Python nativo no processo atual)
     2. Subprocesso Python do QGIS com GDAL
@@ -581,6 +933,18 @@ def merge_geotiff_tiles(tile_paths, out_tif_path):
 
     if not tile_paths:
         raise ValueError("Nenhum arquivo de quadrante para mesclar.")
+
+    if expected_bands_count is None and os.path.exists(tile_paths[0]):
+        try:
+            from osgeo import gdal
+            ds0 = gdal.Open(tile_paths[0], gdal.GA_ReadOnly)
+            if ds0:
+                expected_bands_count = ds0.RasterCount
+                ds0 = None
+        except Exception:
+            pass
+
+    band_list_arg = list(range(1, expected_bands_count + 1)) if (expected_bands_count and expected_bands_count > 0) else None
 
     if len(tile_paths) == 1:
         os.makedirs(os.path.dirname(os.path.abspath(out_tif_path)), exist_ok=True)
@@ -595,10 +959,13 @@ def merge_geotiff_tiles(tile_paths, out_tif_path):
         vrt_opts = gdal.BuildVRTOptions(resampleAlg='near')
         vrt = gdal.BuildVRT('', tile_paths, options=vrt_opts)
         if vrt is not None:
-            trans_opts = gdal.TranslateOptions(
-                format='GTiff',
-                creationOptions=['COMPRESS=LZW', 'TILED=YES', 'BIGTIFF=IF_SAFER']
-            )
+            trans_kwargs = {
+                'format': 'GTiff',
+                'creationOptions': ['COMPRESS=LZW', 'TILED=YES', 'BIGTIFF=IF_SAFER']
+            }
+            if band_list_arg:
+                trans_kwargs['bandList'] = band_list_arg
+            trans_opts = gdal.TranslateOptions(**trans_kwargs)
             ds = gdal.Translate(out_tif_path, vrt, options=trans_opts)
             ds = None
             vrt = None
@@ -616,15 +983,21 @@ def merge_geotiff_tiles(tile_paths, out_tif_path):
     for qpy in qgis_py_candidates:
         if os.path.exists(qpy):
             try:
+                b_list_repr = repr(band_list_arg)
                 merge_code = (
                     "import sys\n"
                     "from osgeo import gdal\n"
                     "tiles = %r\n"
                     "out_path = %r\n"
+                    "band_list = %s\n"
                     "vrt = gdal.BuildVRT('', tiles)\n"
-                    "gdal.Translate(out_path, vrt, creationOptions=['COMPRESS=LZW', 'TILED=YES', 'BIGTIFF=IF_SAFER'])\n"
+                    "kwargs = {'format': 'GTiff', 'creationOptions': ['COMPRESS=LZW', 'TILED=YES', 'BIGTIFF=IF_SAFER']}\n"
+                    "if band_list:\n"
+                    "    kwargs['bandList'] = band_list\n"
+                    "opts = gdal.TranslateOptions(**kwargs)\n"
+                    "gdal.Translate(out_path, vrt, options=opts)\n"
                     "vrt = None\n"
-                ) % (tile_paths, out_tif_path)
+                ) % (tile_paths, out_tif_path, b_list_repr)
 
                 proc = subprocess.run([qpy, "-c", merge_code], capture_output=True, text=True, timeout=300)
                 if proc.returncode == 0 and os.path.exists(out_tif_path) and os.path.getsize(out_tif_path) > 1024:
@@ -647,7 +1020,11 @@ def merge_geotiff_tiles(tile_paths, out_tif_path):
                 vrt_temp = tempfile.mktemp(suffix='.vrt')
                 cmd_vrt = [bvrt_exe, vrt_temp] + tile_paths
                 subprocess.run(cmd_vrt, check=True, capture_output=True)
-                cmd_trans = [trans_exe, "-co", "COMPRESS=LZW", "-co", "TILED=YES", "-co", "BIGTIFF=IF_SAFER", vrt_temp, out_tif_path]
+                cmd_trans = [trans_exe, "-co", "COMPRESS=LZW", "-co", "TILED=YES", "-co", "BIGTIFF=IF_SAFER"]
+                if band_list_arg:
+                    for b_num in band_list_arg:
+                        cmd_trans.extend(["-b", str(b_num)])
+                cmd_trans.extend([vrt_temp, out_tif_path])
                 subprocess.run(cmd_trans, check=True, capture_output=True)
                 if os.path.exists(vrt_temp):
                     try: os.remove(vrt_temp)
@@ -721,39 +1098,6 @@ def download_geotiff(image_ids, sensor, composition_code, custom_bands=None, loa
 
     comp_map = COMPOSITIONS.get(sensor, COMPOSITIONS['L8'])
     comp_info = comp_map.get(composition_code, {})
-
-    def is_math_expr(text):
-        if not text:
-            return False
-        return any(op in text for op in ['+', '-', '*', '/', '(', ')', '^'])
-
-    def parse_bands(text, sens):
-        if not text:
-            return []
-        raw = [b.strip().upper() for b in re.split(r'[,;\s]+', text) if b.strip()]
-        out = []
-        for b in raw:
-            if sens in ['L8', 'L7', 'L5', 'L4']:
-                if b.startswith('B') and not b.startswith(('SR_', 'ST_')):
-                    if b == 'B10' and sens == 'L8':
-                        out.append('ST_B10')
-                    elif b == 'B6' and sens in ['L7', 'L5', 'L4']:
-                        out.append('ST_B6')
-                    else:
-                        out.append('SR_' + b)
-                else:
-                    out.append(b)
-            elif sens == 'S2':
-                # Remove prefixos Landsat se o usuario digitou SR_B* ou ST_B*
-                if b.startswith('SR_'):
-                    out.append(b.replace('SR_', ''))
-                elif b.startswith('ST_'):
-                    out.append(b.replace('ST_', ''))
-                else:
-                    out.append(b)
-            else:
-                out.append(b)
-        return out
 
     custom_text = (custom_bands or '').strip()
     is_custom_formula = bool(custom_text and is_math_expr(custom_text))
@@ -844,7 +1188,10 @@ def download_geotiff(image_ids, sensor, composition_code, custom_bands=None, loa
             sys.stderr.write("[ArcGEE] Baixando arquivo GeoTIFF do GEE...\n")
             sys.stderr.flush()
             urllib.request.urlretrieve(url, out_tif_path)
-            sys.stderr.write("[ArcGEE] Download concluído, salvando em disco.\n")
+            sys.stderr.write("[ArcGEE] Validando integridade atômica do GeoTIFF (Health Check)...\n")
+            sys.stderr.flush()
+            validate_geotiff_health(out_tif_path, expected_bands=bands, sensor=sensor)
+            sys.stderr.write("[ArcGEE] Download concluído e verificado com sucesso (%d bandas íntegras).\n" % len(bands))
             sys.stderr.flush()
             return out_tif_path
 
@@ -909,12 +1256,18 @@ def download_geotiff(image_ids, sensor, composition_code, custom_bands=None, loa
 
     sys.stderr.write("[ArcGEE] Mesclando %d quadrantes em GeoTIFF unico final via GDAL...\n" % len(ordered_tile_files))
     sys.stderr.flush()
-    merge_geotiff_tiles(ordered_tile_files, out_tif_path)
+    merge_geotiff_tiles(ordered_tile_files, out_tif_path, expected_bands_count=len(bands))
 
     # Limpeza da pasta temporaria de quadrantes
     try:
         shutil.rmtree(temp_tiles_dir)
     except Exception:
         pass
+
+    sys.stderr.write("[ArcGEE] Validando integridade atômica do mosaico GeoTIFF (Health Check)...\n")
+    sys.stderr.flush()
+    validate_geotiff_health(out_tif_path, expected_bands=bands, sensor=sensor)
+    sys.stderr.write("[ArcGEE] Mosaico concluído e verificado com sucesso (%d bandas íntegras).\n" % len(bands))
+    sys.stderr.flush()
 
     return out_tif_path

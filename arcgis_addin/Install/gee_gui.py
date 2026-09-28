@@ -478,7 +478,7 @@ class GEEAboutDialog(object):
 
         lbl_sub = tk.Label(
             title_box,
-            text=u"Google Earth Engine Explorer for ArcGIS Desktop 10.8 (ArcMap)  |  v1.8",
+            text=u"Google Earth Engine Explorer for ArcGIS Desktop 10.8 (ArcMap)  |  v1.10",
             font=("Segoe UI", 9, "italic"),
             fg="#566573"
         )
@@ -499,7 +499,7 @@ class GEEAboutDialog(object):
         info_frame.pack(fill=tk.X, pady=(0, 10))
 
         info_text = (
-            u"• Versão: v1.8 (Bandas Personalizadas, Atualizador Desacoplado & Info de Sensores)\n"
+            u"• Versão: v1.10 (Validação Atômica de Raster, Health Check Defensivo & Fix Multibanda)\n"
             u"• Organização: Coordenadoria de Geoprocessamento e Monitoramento Ambiental\n"
             u"  Secretaria de Estado de Meio Ambiente de Mato Grosso (CGMA / SEMA-MT)\n"
             u"• Desenvolvedor: Joberth Firmino Gambati\n"
@@ -543,13 +543,100 @@ def safe_makedirs(path):
         if not os.path.isdir(path):
             raise
 
+class GEEUpdaterErrorDialog(object):
+    """Janela modal amigável para exibição de falhas de atualização com orientações práticas de resolução"""
+    def __init__(self, parent_win, exc):
+        self.top = tk.Toplevel(parent_win)
+        title_text = getattr(exc, 'title', None) or u"Falha na Atualização"
+        self.top.title(title_text)
+        self.top.geometry("540x380")
+        self.top.resizable(False, False)
+        setup_window_icon(self.top)
+        self.top.transient(parent_win)
+        self.top.grab_set()
+
+        try:
+            x = parent_win.winfo_rootx() + (parent_win.winfo_width() // 2) - 270
+            y = parent_win.winfo_rooty() + (parent_win.winfo_height() // 2) - 190
+            self.top.geometry("+%d+%d" % (max(0, x), max(0, y)))
+        except Exception:
+            pass
+
+        pad = ttk.Frame(self.top, padding=16)
+        pad.pack(fill=tk.BOTH, expand=True)
+
+        hdr_frame = ttk.Frame(pad)
+        hdr_frame.pack(fill=tk.X, pady=(0, 10))
+
+        lbl_icon = tk.Label(hdr_frame, text=u"⚠️", font=("Segoe UI", 22), fg="#c0392b")
+        lbl_icon.pack(side=tk.LEFT, padx=(0, 10))
+
+        lbl_title = tk.Label(
+            hdr_frame,
+            text=title_text,
+            font=("Segoe UI", 12, "bold"),
+            fg="#c0392b",
+            wraplength=440,
+            justify=tk.LEFT
+        )
+        lbl_title.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        user_msg = getattr(exc, 'user_message', None) or str(exc)
+        if sys.version_info[0] < 3 and isinstance(user_msg, str):
+            try:
+                user_msg = user_msg.decode("utf-8", "replace")
+            except Exception:
+                pass
+
+        lbl_msg = ttk.Label(pad, text=user_msg, wraplength=500, justify=tk.LEFT)
+        lbl_msg.pack(anchor=tk.W, pady=(0, 10))
+
+        remediation = getattr(exc, 'remediation', None) or []
+        if remediation:
+            box_rem = ttk.LabelFrame(pad, text=u" 💡 O que você pode fazer para resolver: ", padding=10)
+            box_rem.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+            rem_lines = []
+            for idx, r in enumerate(remediation, 1):
+                if sys.version_info[0] < 3 and isinstance(r, str):
+                    try:
+                        r = r.decode("utf-8", "replace")
+                    except Exception:
+                        pass
+                rem_lines.append(u"%d. %s" % (idx, r))
+            lbl_rem = ttk.Label(box_rem, text="\n".join(rem_lines), wraplength=470, justify=tk.LEFT)
+            lbl_rem.pack(anchor=tk.W)
+
+        bot_bar = ttk.Frame(pad)
+        bot_bar.pack(fill=tk.X, side=tk.BOTTOM)
+
+        def open_log():
+            try:
+                import gee_updater
+                log_p = gee_updater.get_updater_log_path()
+                if os.path.exists(log_p):
+                    try:
+                        os.startfile(log_p)
+                    except Exception:
+                        subprocess.Popen(["notepad.exe", log_p])
+                else:
+                    messagebox.showinfo(u"Log", u"Arquivo de log ainda não criado.", parent=self.top)
+            except Exception as e_log:
+                messagebox.showerror(u"Erro", str(e_log), parent=self.top)
+
+        btn_log = ttk.Button(bot_bar, text=u"📄 Abrir Log de Diagnóstico", command=open_log)
+        btn_log.pack(side=tk.LEFT)
+
+        btn_ok = ttk.Button(bot_bar, text=u"Fechar", command=self.top.destroy)
+        btn_ok.pack(side=tk.RIGHT)
+
+
 class GEEUpdaterDialog(object):
-    """Janela modal para atualização automática do plugin via GitHub ou arquivo ZIP"""
+    """Janela modal para atualização do plugin com pre-flight checks, backup e rollback automático"""
     def __init__(self, parent):
         self.parent = parent
         self.top = tk.Toplevel(parent.root if hasattr(parent, 'root') else parent)
-        self.top.title(u"Atualizar - CGMA ArcGEE Explorer")
-        self.top.geometry("540x380")
+        self.top.title(u"Atualização Segura - CGMA ArcGEE Explorer")
+        self.top.geometry("560x420")
         self.top.resizable(False, False)
         setup_window_icon(self.top)
         self.top.transient(parent.root if hasattr(parent, 'root') else parent)
@@ -557,8 +644,8 @@ class GEEUpdaterDialog(object):
 
         try:
             p_win = parent.root if hasattr(parent, 'root') else parent
-            x = p_win.winfo_rootx() + (p_win.winfo_width() // 2) - 270
-            y = p_win.winfo_rooty() + (p_win.winfo_height() // 2) - 190
+            x = p_win.winfo_rootx() + (p_win.winfo_width() // 2) - 280
+            y = p_win.winfo_rooty() + (p_win.winfo_height() // 2) - 210
             self.top.geometry("+%d+%d" % (max(0, x), max(0, y)))
         except Exception:
             pass
@@ -568,202 +655,99 @@ class GEEUpdaterDialog(object):
 
         lbl_head = tk.Label(
             pad,
-            text=u"Atualização do CGMA ArcGEE Explorer",
+            text=u"Atualização do CGMA ArcGEE Explorer (v1.10)",
             font=("Segoe UI", 12, "bold"),
             fg="#1b4f72"
         )
-        lbl_head.pack(anchor=tk.W, pady=(0, 6))
+        lbl_head.pack(anchor=tk.W, pady=(0, 4))
 
         lbl_desc = ttk.Label(
             pad,
-            text=u"Escolha o método desejado para atualizar o plugin e seus componentes:"
+            text=u"Sistema transacional com pré-validação, backup automático e proteção contra falhas."
         )
         lbl_desc.pack(anchor=tk.W, pady=(0, 10))
 
-        box_git = ttk.LabelFrame(pad, text=u" Método 1: Atualizar Diretamente via GitHub (Online) ", padding=10)
-        box_git.pack(fill=tk.X, pady=(0, 10))
+        # Método 1: GitHub Online
+        box_git = ttk.LabelFrame(pad, text=u" Método 1: Atualização Online (GitHub Oficial) ", padding=10)
+        box_git.pack(fill=tk.X, pady=(0, 8))
 
         ttk.Label(
             box_git,
-            text=u"Baixa as alterações mais recentes do repositório oficial no GitHub,\nrecompila o Add-In e atualiza o AssemblyCache do ArcMap."
+            text=u"Verifica conexão, valida alterações e atualiza os arquivos mantendo backup prévio."
         ).pack(anchor=tk.W, pady=(0, 6))
 
-        self.btn_git_update = ttk.Button(box_git, text=u"⬇ Atualizar pelo GitHub Agora", command=self._do_github_update)
+        self.btn_git_update = ttk.Button(box_git, text=u"⬇ Iniciar Atualização Online", command=self._do_github_update)
         self.btn_git_update.pack(anchor=tk.W)
 
-        box_zip = ttk.LabelFrame(pad, text=u" Método 2: Atualizar a partir de Arquivo ZIP Local ", padding=10)
-        box_zip.pack(fill=tk.X, pady=(0, 10))
+        # Método 2: Arquivo ZIP Local
+        box_zip = ttk.LabelFrame(pad, text=u" Método 2: Atualização Offline (Arquivo ZIP ou Add-In) ", padding=10)
+        box_zip.pack(fill=tk.X, pady=(0, 8))
 
         ttk.Label(
             box_zip,
-            text=u"Selecione um arquivo .zip com a nova versão do plugin para instalar offline."
+            text=u"Instala nova versão via arquivo .zip ou .esriaddin com teste de integridade e Zip Slip."
         ).pack(anchor=tk.W, pady=(0, 6))
 
         self.btn_zip_update = ttk.Button(box_zip, text=u"📂 Selecionar Arquivo ZIP e Atualizar", command=self._do_zip_update)
         self.btn_zip_update.pack(anchor=tk.W)
 
-        self.lbl_status = ttk.Label(pad, text=u"Pronto para atualizar.", font=("Segoe UI", 8), foreground="#555")
-        self.lbl_status.pack(anchor=tk.W, pady=(0, 6))
+        # Barra de progresso e status
+        self.prog_bar = ttk.Progressbar(pad, mode="indeterminate")
+        self.prog_bar.pack(fill=tk.X, pady=(6, 4))
 
-        btn_close = ttk.Button(pad, text=u"Fechar", command=self.top.destroy)
+        self.lbl_status = ttk.Label(pad, text=u"Pronto para verificar atualizações.", font=("Segoe UI", 8), foreground="#555")
+        self.lbl_status.pack(anchor=tk.W, pady=(0, 8))
+
+        # Rodapé com utilitários e fechar
+        bot_frame = ttk.Frame(pad)
+        bot_frame.pack(fill=tk.X, side=tk.BOTTOM)
+
+        btn_log = ttk.Button(bot_frame, text=u"📄 Ver Log", command=self._open_log_file)
+        btn_log.pack(side=tk.LEFT, padx=(0, 6))
+
+        btn_backups = ttk.Button(bot_frame, text=u"📂 Pasta de Backups", command=self._open_backups_folder)
+        btn_backups.pack(side=tk.LEFT)
+
+        btn_close = ttk.Button(bot_frame, text=u"Fechar", command=self.top.destroy)
         btn_close.pack(side=tk.RIGHT)
 
-    def _apply_update_from_zip(self, zip_path):
-        import zipfile
-        import shutil
-        import tempfile
-        import subprocess
-
-        self.lbl_status.config(text=u"Preparando arquivos para instalação...")
+    def _open_log_file(self):
         try:
-            staging_base = tempfile.gettempdir()
-            ts = int(time.time() * 1000) % 1000000
-            staging_dir = os.path.join(staging_base, "arcgee_stage_%d" % ts)
-            if os.path.exists(staging_dir):
+            import gee_updater
+            log_p = gee_updater.get_updater_log_path()
+            if os.path.exists(log_p):
                 try:
-                    shutil.rmtree(staging_dir)
+                    os.startfile(log_p)
                 except Exception:
-                    pass
-            safe_makedirs(staging_dir)
+                    subprocess.Popen(["notepad.exe", log_p])
+            else:
+                messagebox.showinfo(u"Log", u"O arquivo de log ainda não foi criado.", parent=self.top)
+        except Exception as e:
+            messagebox.showerror(u"Erro", str(e), parent=self.top)
 
-            # 1. Extrair ZIP para a pasta de staging
-            with zipfile.ZipFile(zip_path, 'r') as z:
-                z.extractall(staging_dir)
+    def _open_backups_folder(self):
+        try:
+            import gee_updater
+            b_dir = gee_updater.get_backups_dir()
+            if os.path.exists(b_dir):
+                os.startfile(b_dir)
+            else:
+                messagebox.showinfo(u"Backups", u"Nenhum backup realizado ainda.", parent=self.top)
+        except Exception as e:
+            messagebox.showerror(u"Erro", str(e), parent=self.top)
 
-            # 2. Localizar componentes essenciais
-            config_file = None
-            install_dir = None
-            backend_dir = None
+    def _set_busy(self, is_busy, status_text=u""):
+        if is_busy:
+            self.btn_git_update.config(state=tk.DISABLED)
+            self.btn_zip_update.config(state=tk.DISABLED)
+            self.prog_bar.start(10)
+        else:
+            self.btn_git_update.config(state=tk.NORMAL)
+            self.btn_zip_update.config(state=tk.NORMAL)
+            self.prog_bar.stop()
 
-            for root, dirs, files in os.walk(staging_dir):
-                if 'config.xml' in files and not config_file:
-                    config_file = os.path.join(root, 'config.xml')
-                if 'gee_gui.py' in files and not install_dir:
-                    install_dir = root
-                if 'gee_core.py' in files and not backend_dir:
-                    backend_dir = root
-
-            if not config_file or not install_dir:
-                messagebox.showerror(
-                    u"Pacote Inválido",
-                    u"O arquivo ZIP selecionado não contém a estrutura do plugin CGMA ArcGEE Explorer (config.xml ou pasta Install com gee_gui.py).",
-                    parent=self.top
-                )
-                self.lbl_status.config(text=u"Falha: pacote ZIP inválido.")
-                return False
-
-            # Garantir sincronia da pasta backend dentro de Install
-            inst_backend = os.path.join(install_dir, 'backend')
-            if not os.path.exists(inst_backend):
-                safe_makedirs(inst_backend)
-            if backend_dir and os.path.abspath(backend_dir) != os.path.abspath(inst_backend):
-                for f in os.listdir(backend_dir):
-                    if f.endswith('.py') or f.endswith('.json'):
-                        shutil.copy2(os.path.join(backend_dir, f), os.path.join(inst_backend, f))
-
-            # 3. Gerar novo .esriaddin completo no staging
-            staged_addin = os.path.join(staging_dir, "GEE_Image_Selector.esriaddin")
-            with zipfile.ZipFile(staged_addin, 'w', zipfile.ZIP_DEFLATED) as z:
-                z.write(config_file, "config.xml")
-                for root, dirs, files in os.walk(install_dir):
-                    for f in files:
-                        if f.endswith('.pyc') or f.endswith('.pyo'):
-                            continue
-                        full_p = os.path.join(root, f)
-                        rel_p = "Install/" + os.path.relpath(full_p, install_dir).replace('\\', '/')
-                        z.write(full_p, rel_p)
-
-            # 4. Caminhos de instalacao no ArcGIS Desktop 10.8
-            user_prof = os.environ.get('USERPROFILE', '')
-            addin_dir = os.path.join(user_prof, r"Documents\ArcGIS\AddIns\Desktop10.8\{ceae58c4-c44e-4edd-b8f4-1ba7d13b6b7d}")
-            cache_dir = os.path.join(user_prof, r"AppData\Local\ESRI\Desktop10.8\AssemblyCache\{CEAE58C4-C44E-4EDD-B8F4-1BA7D13B6B7D}")
-
-            curr_dir = os.path.dirname(os.path.abspath(__file__))
-            candidates = [
-                os.path.abspath(os.path.join(curr_dir, "..", "..")),
-                r"C:\Users\joberthgambati\.gemini\antigravity\scratch\gee_arcgis_plugin"
-            ]
-            dev_repo = ""
-            for c in candidates:
-                if os.path.exists(os.path.join(c, "arcgis_addin", "makeaddin.py")):
-                    dev_repo = c
-                    break
-
-            # 5. Criar script em lote (.bat) desanexado para atualizar sem travas de arquivo
-            bat_path = os.path.join(staging_base, "apply_arcgee_update_%d.bat" % ts)
-            with open(bat_path, 'w') as f_bat:
-                f_bat.write(r"""@echo off
-chcp 65001 >nul
-ping 127.0.0.1 -n 3 >nul
-taskkill /f /im pythonw.exe 2>nul
-set ADDIN_DIR={addin_dir}
-set CACHE_DIR={cache_dir}
-if not exist "%ADDIN_DIR%" mkdir "%ADDIN_DIR%"
-if not exist "%CACHE_DIR%" mkdir "%CACHE_DIR%"
-
-copy /Y "{staged_addin}" "%ADDIN_DIR%\GEE_Image_Selector.esriaddin" >nul
-xcopy /s /e /y /i "{install_dir}\*" "%CACHE_DIR%\" >nul
-copy /Y "{config_file}" "%CACHE_DIR%\config.xml" >nul
-
-del /Q /F "%CACHE_DIR%\*.pyc" 2>nul
-del /Q /F "%CACHE_DIR%\backend\*.pyc" 2>nul
-if exist "C:\Python27\ArcGIS10.8\python.exe" (
-    "C:\Python27\ArcGIS10.8\python.exe" -m compileall "%CACHE_DIR%" >nul 2>nul
-)
-
-if exist "{dev_repo}\arcgis_addin" (
-    xcopy /s /e /y /i "{install_dir}\*" "{dev_repo}\arcgis_addin\Install\" >nul 2>nul
-    copy /Y "{staged_addin}" "{dev_repo}\arcgis_addin\GEE_Image_Selector.esriaddin" >nul 2>nul
-    if exist "{dev_repo}\backend" (
-        xcopy /s /e /y /i "{inst_backend}\*" "{dev_repo}\backend\" >nul 2>nul
-    )
-)
-
-rd /s /q "{staging_dir}" 2>nul
-
-mshta vbscript:Execute("MsgBox ""CGMA ArcGEE Explorer atualizado com sucesso!" & vbCrLf & vbCrLf & "O Add-In e o AssemblyCache foram atualizados e recompilados." & vbCrLf & "Reabra a ferramenta no ArcMap para carregar a nova versao."", 64, ""Atualizacao Concluida"":close")
-
-(goto) 2>nul & del "%~f0"
-""".format(
-                    addin_dir=addin_dir,
-                    cache_dir=cache_dir,
-                    staged_addin=staged_addin,
-                    install_dir=install_dir,
-                    config_file=config_file,
-                    dev_repo=dev_repo,
-                    inst_backend=inst_backend,
-                    staging_dir=staging_dir
-                ))
-
-            # 6. Exibir aviso e despachar o processo desanexado
-            messagebox.showinfo(
-                u"Finalizando Atualização",
-                u"O pacote foi validado com sucesso!\n\nA interface gráfica será fechada agora para liberar os arquivos e aplicar as alterações.\n\nUma notificação confirmará a conclusão em instantes.",
-                parent=self.top
-            )
-
-            # Flags para processo totalmente desanexado no Windows
-            DETACHED_PROCESS = 0x00000008
-            CREATE_NEW_PROCESS_GROUP = 0x00000200
-            flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-
-            subprocess.Popen(["cmd.exe", "/c", bat_path], creationflags=flags, close_fds=True)
-
-            try:
-                self.top.destroy()
-            except Exception:
-                pass
-            try:
-                if hasattr(self.parent, 'root'):
-                    self.parent.root.destroy()
-            except Exception:
-                pass
-            sys.exit(0)
-
-        except Exception as ex:
-            self.lbl_status.config(text=u"Erro na atualização.")
-            messagebox.showerror(u"Erro na Atualização", str(ex), parent=self.top)
-            return False
+        if status_text:
+            self.lbl_status.config(text=status_text)
 
     def _do_zip_update(self):
         zip_path = filedialog.askopenfilename(
@@ -774,45 +758,103 @@ mshta vbscript:Execute("MsgBox ""CGMA ArcGEE Explorer atualizado com sucesso!" &
         if not zip_path or not os.path.exists(zip_path):
             return
 
-        self._apply_update_from_zip(zip_path)
-
-    def _do_github_update(self):
-        self.lbl_status.config(text=u"Conectando ao GitHub para baixar atualizações...")
-        self.btn_git_update.config(state=tk.DISABLED)
+        self._set_busy(True, u"Iniciando validação prévia do arquivo ZIP...")
 
         def worker():
             try:
-                zip_url = "https://github.com/Yiuky/arcgis-google-earth-engine-explorer/archive/refs/heads/main.zip"
-                tmp_zip = os.path.join(tempfile.gettempdir(), "gee_plugin_update.zip")
-                if sys.version_info[0] < 3:
-                    import urllib
-                    urllib.urlretrieve(zip_url, tmp_zip)
-                else:
-                    import urllib.request
-                    urllib.request.urlretrieve(zip_url, tmp_zip)
+                import gee_updater
 
-                def proceed():
-                    self.btn_git_update.config(state=tk.NORMAL)
-                    self._apply_update_from_zip(tmp_zip)
+                def on_progress(step_msg):
+                    def update_ui():
+                        self.lbl_status.config(text=step_msg)
+                    self.top.after(0, update_ui)
 
-                if hasattr(self.parent, 'post_to_gui'):
-                    self.parent.post_to_gui(proceed)
-                else:
-                    self.top.after(0, proceed)
-            except Exception as ex_dl:
-                err_msg = str(ex_dl).decode('utf-8', 'replace') if sys.version_info[0] < 3 else str(ex_dl)
+                # Executa pre-flight checks, backup, staging e despacho desacoplado com rollback
+                gee_updater.execute_zip_update_flow(
+                    zip_path,
+                    current_version=CURRENT_VERSION,
+                    progress_callback=on_progress
+                )
+
+                # Notifica o usuário e encerra o processo da interface
+                def show_success_and_exit():
+                    messagebox.showinfo(
+                        u"Validação Concluída com Sucesso",
+                        u"O pacote foi validado e o backup de segurança foi criado!\n\n"
+                        u"A interface gráfica será encerrada agora para que os arquivos sejam "
+                        u"atualizados sem conflitos de arquivo.\n\n"
+                        u"Uma notificação do Windows confirmará o término da instalação.",
+                        parent=self.top
+                    )
+                    try:
+                        self.top.destroy()
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(self.parent, 'root'):
+                            self.parent.root.destroy()
+                    except Exception:
+                        pass
+                    sys.exit(0)
+
+                self.top.after(0, show_success_and_exit)
+
+            except Exception as ex:
                 def show_err():
-                    self.btn_git_update.config(state=tk.NORMAL)
-                    self.lbl_status.config(text=u"Erro ao conectar com GitHub.")
-                    messagebox.showerror(u"Erro ao Baixar do GitHub", err_msg, parent=self.top)
-                if hasattr(self.parent, 'post_to_gui'):
-                    self.parent.post_to_gui(show_err)
-                else:
-                    self.top.after(0, show_err)
+                    self._set_busy(False, u"Falha na validação da atualização.")
+                    GEEUpdaterErrorDialog(self.top, ex)
+                self.top.after(0, show_err)
 
         threading.Thread(target=worker).start()
 
-CURRENT_VERSION = "1.8"
+    def _do_github_update(self):
+        self._set_busy(True, u"Conectando ao GitHub para verificar atualizações...")
+
+        def worker():
+            try:
+                import gee_updater
+
+                def on_progress(step_msg):
+                    def update_ui():
+                        self.lbl_status.config(text=step_msg)
+                    self.top.after(0, update_ui)
+
+                gee_updater.execute_online_github_update_flow(
+                    current_version=CURRENT_VERSION,
+                    progress_callback=on_progress
+                )
+
+                def show_success_and_exit():
+                    messagebox.showinfo(
+                        u"Validação Concluída com Sucesso",
+                        u"A nova versão foi baixada, validada e o backup foi gerado com sucesso!\n\n"
+                        u"A interface será fechada para finalizar a aplicação das alterações.\n\n"
+                        u"Uma mensagem do sistema confirmará a conclusão em instantes.",
+                        parent=self.top
+                    )
+                    try:
+                        self.top.destroy()
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(self.parent, 'root'):
+                            self.parent.root.destroy()
+                    except Exception:
+                        pass
+                    sys.exit(0)
+
+                self.top.after(0, show_success_and_exit)
+
+            except Exception as ex:
+                def show_err():
+                    self._set_busy(False, u"Falha na atualização pelo GitHub.")
+                    GEEUpdaterErrorDialog(self.top, ex)
+                self.top.after(0, show_err)
+
+        threading.Thread(target=worker).start()
+
+
+CURRENT_VERSION = "1.10"
 
 SENSOR_METADATA = {
     'S2': {
@@ -960,7 +1002,7 @@ def normalize_date(d_str):
 class GEEPluginWindow(object):
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title(u"CGMA ArcGEE Explorer (ArcGIS 10.8)  |  v1.8")
+        self.root.title(u"CGMA ArcGEE Explorer (ArcGIS 10.8)  |  v1.10")
         self.root.geometry("1100x740")
         self.root.minsize(960, 640)
         setup_window_icon(self.root)
@@ -1395,7 +1437,7 @@ class GEEPluginWindow(object):
         # Badge de Versao bem visivel
         self.lbl_v_badge = tk.Label(
             self.top_frame,
-            text=u" v1.8 ",
+            text=u" v1.10 ",
             font=("Segoe UI", 9, "bold"),
             bg="#1b4f72",
             fg="#ffffff",
@@ -1720,7 +1762,7 @@ class GEEPluginWindow(object):
 
         self.lbl_progress = ttk.Label(
             status_bar_frame,
-            text=u"Pronto. (CGMA ArcGEE Explorer v1.8 - Resolução Nativa Estrita 100%)",
+            text=u"Pronto. (CGMA ArcGEE Explorer v1.10 - Resolução Nativa Estrita 100%)",
             anchor=tk.W
         )
         self.lbl_progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 6))
@@ -1932,14 +1974,14 @@ class GEEPluginWindow(object):
             if comp == 'CUSTOM_MATH':
                 self.lbl_custom_bands.config(text=u"Fórmula Matemática de Índice (ex: (B8-B4)/(B8+B4)):")
                 curr = self.txt_custom_bands.get().strip()
-                if not curr or not any(op in curr for op in ['+', '-', '*', '/', '(', ')', '^']):
+                if not curr or not gee_bridge.is_math_expr(curr):
                     def_formula = "(B8-B4)/(B8+B4)" if sensor == "S2" else "(SR_B5-SR_B4)/(SR_B5+SR_B4)"
                     self.txt_custom_bands.delete(0, tk.END)
                     self.txt_custom_bands.insert(0, def_formula)
             elif comp == 'CUSTOM_BANDS':
                 self.lbl_custom_bands.config(text=u"Bandas Personalizadas (ex: B8,B4,B3 ou SR_B5,SR_B4,SR_B2):")
                 curr = self.txt_custom_bands.get().strip()
-                if not curr or any(op in curr for op in ['+', '-', '*', '/', '(', ')', '^']):
+                if not curr or gee_bridge.is_math_expr(curr):
                     def_bands = "B4,B3,B2" if sensor == "S2" else "SR_B4,SR_B3,SR_B2"
                     self.txt_custom_bands.delete(0, tk.END)
                     self.txt_custom_bands.insert(0, def_bands)
@@ -2459,7 +2501,7 @@ class GEEPluginWindow(object):
                     req_scale = 30.0
 
             has_custom = bool(custom_bands and custom_bands.strip())
-            is_formula = has_custom and any(op in custom_bands for op in ['+', '-', '*', '/', '(', ')', '^'])
+            is_formula = has_custom and gee_bridge.is_math_expr(custom_bands)
 
             if is_formula or (comp in ['NDVI', 'NDWI', 'NDMI', 'NBR', 'EVI', 'SAVI'] and not has_custom) or (comp == 'CUSTOM_MATH' and (is_formula or not has_custom)):
                 comp_is_index = True
@@ -2468,8 +2510,7 @@ class GEEPluginWindow(object):
             else:
                 comp_is_index = False
                 if has_custom and not is_formula:
-                    import re
-                    n_b = max(1, len([b for b in re.split(r'[,;\s]+', custom_bands) if b.strip()]))
+                    n_b = max(1, len(gee_bridge.parse_bands(custom_bands, sensor)))
                 elif load_mode == 'multiband':
                     if comp == 'MB_10':
                         n_b = 10

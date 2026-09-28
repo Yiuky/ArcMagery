@@ -8,7 +8,8 @@ Copy-Item "arcgis_addin\config.xml" $cacheDir -Force
 Get-ChildItem -Path $cacheDir -Filter "*.pyc" -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
 Stop-Process -Name pythonw -Force -ErrorAction SilentlyContinue
 
-& "C:\Python27\ArcGIS10.8\python.exe" -c "import py_compile, os; cache=r'$cacheDir'; py_compile.compile(os.path.join(cache, 'gee_selector_addin.py')); py_compile.compile(os.path.join(cache, 'gee_bridge.py')); py_compile.compile(os.path.join(cache, 'gee_gui.py')); print('Cache pyc compiled successfully!')"
+& "C:\Python27\ArcGIS10.8\python.exe" -c "import py_compile, os; cache=r'$cacheDir'; py_compile.compile(os.path.join(cache, 'gee_selector_addin.py')); py_compile.compile(os.path.join(cache, 'gee_bridge.py')); py_compile.compile(os.path.join(cache, 'gee_gui.py')); py_compile.compile(os.path.join(cache, 'gee_updater.py')); print('Cache pyc compiled successfully!')"
+
 
 Write-Output "DEPLOY_COMPLETE"
 

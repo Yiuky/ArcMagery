@@ -305,24 +305,49 @@ Clique no botão **`[ ⚙ Configurações ]`** no canto superior direito para ac
 
 ---
 
+### 6.9 Validação Atômica de Raster e Health Check Pós-Processamento (v1.10)
+
+1. **Garantia Multibanda Sem Colapso (4+ Bandas):**
+   - Suporte estrito a composições com qualquer número de bandas (ex: 4 bandas no Landsat 5: `SR_B3, SR_B4, SR_B5, SR_B7` ou `B3-B5, B7`), inclusive delimitadas por parênteses `(SR_B3, ...)` ou colchetes.
+   - O pipeline impede a conversão acidental para índice monobanda e assegura que todas as bandas solicitadas sejam baixadas do GEE e preservadas nos mosaicos GDAL.
+2. **Inspeção Atômica Pré-TOC (`validate_geotiff_health`):**
+   - Antes de adicionar qualquer arquivo ao mapa, o plugin inspeciona a contagem física de bandas, dimensões espaciais, resolução, CRS e integridade estatística dos pixels.
+   - Rasters com desvio padrão zero, flat-zero ou NoData integral (all-NaN) são sumariamente rejeitados e excluídos do disco com geração de logs estruturados em JSON, impedindo que dados defeituosos corrompam sessões de trabalho no ArcMap.
+3. **Simbologia RGB Dinâmica no ArcMap:**
+   - Para rasters com 3 ou mais bandas, o ArcObjects vincula automaticamente o `IRasterRGBRenderer` atualizado com as bandas iniciais, garantindo renderização colorida em tela sem recorrer à escala de cinza padrão da Banda 1.
+
+---
+
 ## 7. Atualizações e Manutenção
 
-O CGMA ArcGEE Explorer conta com sistema próprio e autônomo de atualização:
+O CGMA ArcGEE Explorer conta com uma arquitetura de atualização **transacional e à prova de falhas** (módulo `gee_updater.py`):
 
 <p align="center">
   <img src="docs/images/sobre_dialog.png" alt="Assistente de Atualizações" width="450" />
 </p>
 
-### Verificação Automática ao Iniciar
-A cada abertura, o plugin verifica silenciosamente no GitHub se há uma versão mais recente disponível. Se houver, uma mensagem discreta aparecerá na barra de status indicando a nova versão.
+### 🛡️ Princípios de Confiabilidade do Atualizador:
+1. **Validações Prévias Rígidas (Pre-flight Checks):**
+   - **Para GitHub / Git:** Testa conectividade de rede com timeout, valida se o branch remoto existe, verifica permissões de escrita e inspeciona o status do repositório local. Se houver alterações locais não salvas (*dirty working tree*) ou divergência de commits, a atualização é interrompida com orientações claras para evitar conflitos de merge ou perda de código.
+   - **Para Arquivo .ZIP:** Executa verificação física CRC-32 de todos os blocos compactados (`testzip`), proteção contra ataques **Zip Slip / Path Traversal** (bloqueio de referências `..` e dispositivos do Windows), validação de componentes essenciais (`config.xml`, `gee_gui.py`, `gee_bridge.py`, `gee_core.py`) e cálculo rigoroso de espaço livre em disco ($3\times$ descompactado + 50 MB de margem de segurança).
+2. **Snapshot de Backup e Retenção Automática:**
+   - Antes de modificar qualquer arquivo, o sistema cria um snapshot completo da instalação em `%LOCALAPPDATA%\CGMA_ArcGEE\backups\backup_<versao>_<data>`, salvando o `.esriaddin`, o `AssemblyCache` e um manifesto com hashes SHA-256. Uma política de retenção mantém os 5 backups mais recentes.
+3. **Staging Isolado e Transação Desacoplada:**
+   - A preparação ocorre em diretório temporário isolado (`%TEMP%\arcgee_stage_*`).
+   - A aplicação é delegada a um runner em lote desanexado (`apply_arcgee_update_*.bat`), contornando o travamento de arquivos de processos em execução no Windows (`WinError 32 / Acesso Negado`).
+4. **Rollback Automático Instantâneo:**
+   - Se ocorrer erro em qualquer etapa da cópia ou no *smoke test* pós-instalação, o script reverte automaticamente a instalação para o backup funcional anterior, recompila os binários `.pyc` e notifica o usuário via pop-up nativo.
+5. **Logs Estruturados e Feedback Amigável:**
+   - Mensagens de erro contam com diagnósticos em português, causas e passos práticos de solução, enquanto logs detalhados e *tracebacks* são salvos em `%LOCALAPPDATA%\CGMA_ArcGEE\logs\arcgee_updater.log`.
 
 ### Formas de Atualizar:
 1. **Pela Interface Gráfica:**
    - Acesse **Configurações (⚙)** > clique em **`[ 🔄 Abrir Assistente de Atualização (GitHub / ZIP) ]`**.
-   - Escolha **"Atualizar Diretamente via GitHub"** (faz o download do código mais recente, compila o Add-In e recarrega tudo em 1 clique).
-   - Ou escolha **"Selecionar Arquivo ZIP e Atualizar"** caso esteja trabalhando em um ambiente sem acesso direto ao GitHub.
+   - Escolha **"Atualizar Diretamente via GitHub"** (detecta repositório Git ou faz download do pacote oficial com barra de progresso, valida e instala).
+   - Ou escolha **"Selecionar Arquivo ZIP e Atualizar"** para pacotes manuais offline.
 2. **Por Linha de Comando:**
-   - Feche o ArcMap e execute o arquivo **`atualizar.bat`** na raiz da pasta do plugin.
+   - Feche o ArcMap e execute o arquivo **`install.bat`** ou **`deploy.ps1`** na raiz da pasta do plugin.
+
 
 ### Como Desinstalar:
 - Para remover o plugin por completo de forma limpa, feche o ArcMap e dê um duplo clique em **`desinstalar.bat`**. O script encerra processos residuais, desinstala o arquivo `.esriaddin` e limpa o diretório de cache do ArcGIS.

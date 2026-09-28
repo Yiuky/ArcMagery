@@ -26,3 +26,6 @@ env/
 
 # Keep empty_group_template.lyr
 !arcgis_addin/Install/empty_group_template.lyr
+!test_gee_updater.py
+!test_raster_health.py
+

@@ -138,6 +138,10 @@ def cmd_download(args):
             crs=args.crs
         )
         print(json.dumps({'success': True, 'file': out_tif}))
+    except gee_core.RasterHealthCheckError as ex:
+        sys.stderr.write("[ArcGEE][HealthCheckError] " + str(ex) + "\n")
+        sys.stderr.flush()
+        print(json.dumps({'success': False, 'message': str(ex), 'diagnostics': ex.diagnostics}))
     except Exception as e:
         print(json.dumps({'success': False, 'message': str(e)}))
 

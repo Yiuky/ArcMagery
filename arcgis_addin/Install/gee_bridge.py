@@ -681,26 +681,117 @@ def save_plugin_settings(settings):
         print("Erro salvando configuracoes:", e)
         return False
 
+def is_math_expr(text):
+    """
+    Verifica de forma robusta se a string de entrada representa uma expressao/formula
+    matematica (ex: '(SR_B5 - SR_B4) / (SR_B5 + SR_B4)') ou uma lista de bandas
+    (ex: 'SR_B3, SR_B4, SR_B5, SR_B7' ou '(SR_B3, SR_B4, SR_B5, SR_B7)' ou 'B3-B5, B7').
+    """
+    if not text:
+        return False
+    t = str(text).strip()
+    if not t:
+        return False
+
+    while (t.startswith('(') and t.endswith(')')) or (t.startswith('[') and t.endswith(']')):
+        t = t[1:-1].strip()
+
+    if any(op in t for op in ['+', '*', '/', '^', '%']):
+        return True
+
+    import re
+    if re.search(r'\b(sqrt|exp|log|log10|sin|cos|tan|min|max|abs)\s*\(', t, re.IGNORECASE):
+        return True
+
+    if '-' in t:
+        parts = [p.strip() for p in re.split(r'[,;\s]+', t) if p.strip()]
+        for p in parts:
+            if '-' in p:
+                sub = p.split('-')
+                if len(sub) == 2 and re.match(r'^(SR_|ST_)?B\d+[A-Za-z]?$', sub[0], re.I) and re.match(r'^(SR_|ST_)?B\d+[A-Za-z]?$', sub[1], re.I):
+                    continue
+                else:
+                    return True
+
+    return False
+
+def parse_bands(text, sensor=None):
+    """
+    Interpreta e normaliza uma lista de bandas customizadas, suportando:
+    - Separadores por virgula, ponto e virgula ou espacos
+    - Delimitadores externos como parenteses (B3, B4) ou colchetes [B3, B4]
+    - Expansao inteligente de intervalos com hifen (ex: 'B3-B5' -> ['SR_B3', 'SR_B4', 'SR_B5'])
+    - Mapeamento e normalizacao de prefixos para Landsat (SR_ / ST_) e Sentinel-2
+    - Compatibilidade estrita com Landsat 5 TM (onde B6 termica e ST_B6, e nao existe SR_B6)
+    """
+    if not text:
+        return []
+    import re
+    t = str(text).strip()
+    while (t.startswith('(') and t.endswith(')')) or (t.startswith('[') and t.endswith(']')):
+        t = t[1:-1].strip()
+
+    raw_items = [b.strip().upper() for b in re.split(r'[,;\s]+', t) if b.strip()]
+    expanded = []
+
+    for item in raw_items:
+        item = item.strip("()[]")
+        if not item:
+            continue
+
+        if '-' in item:
+            sub = item.split('-')
+            if len(sub) == 2 and re.match(r'^(SR_|ST_)?B\d+$', sub[0]) and re.match(r'^(SR_|ST_)?B\d+$', sub[1]):
+                prefix = 'SR_' if ('SR_' in sub[0] or 'SR_' in sub[1]) else ''
+                m1 = re.search(r'\d+', sub[0])
+                m2 = re.search(r'\d+', sub[1])
+                if m1 and m2:
+                    n1 = int(m1.group())
+                    n2 = int(m2.group())
+                    step = 1 if n1 <= n2 else -1
+                    for n in range(n1, n2 + step, step):
+                        expanded.append("%sB%d" % (prefix, n))
+                    continue
+        expanded.append(item)
+
+    out = []
+    sens = (sensor or '').upper()
+
+    for b in expanded:
+        if sens in ['L8', 'L7', 'L5', 'L4']:
+            if b.startswith('B') and not b.startswith(('SR_', 'ST_')):
+                if b == 'B10' and sens == 'L8':
+                    out.append('ST_B10')
+                elif b == 'B6' and sens in ['L7', 'L5', 'L4']:
+                    out.append('ST_B6')
+                else:
+                    out.append('SR_' + b)
+            else:
+                out.append(b)
+        elif sens == 'S2':
+            if b.startswith('SR_'):
+                out.append(b.replace('SR_', ''))
+            elif b.startswith('ST_'):
+                out.append(b.replace('ST_', ''))
+            else:
+                out.append(b)
+        else:
+            out.append(b)
+
+    if sens in ['L5', 'L4', 'L7']:
+        out = [('ST_B6' if x == 'SR_B6' else x) for x in out]
+
+    return out
+
 def resolve_rgb_band_indices(sensor, comp_code, custom_bands=None, band_count=None):
     """Retorna os indices 0-based [R, G, B] para a simbologia do raster baixado,
     preservando todas as bandas no raster e direcionando as cores iniciais."""
-    def is_math_expr(text):
-        if not text:
-            return False
-        return any(op in text for op in ['+', '-', '*', '/', '(', ')', '^'])
-
     raster_bands = []
     if custom_bands:
-        if isinstance(custom_bands, (list, tuple)):
-            raster_bands = [str(b).strip() for b in custom_bands if str(b).strip()]
-        else:
-            import re
-            raster_bands = [b.strip() for b in re.split(r'[,;\s]+', str(custom_bands)) if b.strip()]
-
-        # Se o usuario especificou bandas personalizadas e ha pelo menos 3 bandas,
-        # a ordem digitada define diretamente a composicao RGB inicial (R=0, G=1, B=2)
-        if len(raster_bands) >= 3 and not is_math_expr(str(custom_bands)):
-            return (0, 1, 2)
+        if not is_math_expr(str(custom_bands)):
+            raster_bands = parse_bands(str(custom_bands), sensor)
+            if len(raster_bands) >= 3:
+                return (0, 1, 2)
     
     comp_info = COMPOSITIONS.get(sensor, {}).get(comp_code, {})
     if not raster_bands:
@@ -789,7 +880,9 @@ def apply_stretch_and_stats(lyr_file_path, settings=None, rgb_bands=None):
                     rgb_rend.RedBandIndex = int(rgb_bands[0])
                     rgb_rend.GreenBandIndex = int(rgb_bands[1])
                     rgb_rend.BlueBandIndex = int(rgb_bands[2])
-                    renderer = rgb_rend.QueryInterface(esriCarto.IRasterRenderer)
+                    rend_base = rgb_rend.QueryInterface(esriCarto.IRasterRenderer)
+                    rend_base.Update()
+                    renderer = rend_base
                     raster_layer.Renderer = renderer
                 except Exception as e_set_bands:
                     print("Erro configurando bandas RGB:", e_set_bands)
@@ -831,6 +924,12 @@ def apply_stretch_and_stats(lyr_file_path, settings=None, rgb_bands=None):
             stretch2.StretchStatsType = stats_val
         except Exception as e:
             print("Erro aplicando StretchStatsType:", e)
+
+        try:
+            rend_base = renderer.QueryInterface(esriCarto.IRasterRenderer)
+            rend_base.Update()
+        except Exception:
+            pass
 
         raster_layer.Renderer = renderer
         lf.Save()

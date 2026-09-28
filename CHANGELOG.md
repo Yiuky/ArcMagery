@@ -4,6 +4,32 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.10.0] - 2026-09-28
+
+### 🌟 Adicionado & Aprimorado
+- **Validação Atômica Pós-Processamento (Health Check Defensivo de Raster):**
+  - Implementada a engine multi-camadas `validate_geotiff_health` para inspeção rigorosa do produto antes da entrega ao usuário:
+    - **Contagem Estrita de Bandas:** Valida que `raster.count == len(selected_bands)`. Se 4 bandas foram solicitadas, o arquivo final conterá obrigatoriamente 4 canais.
+    - **Integridade Espacial e CRS:** Asserção de dimensões válidas ($W > 0, H > 0$), resolução espacial no geotransform e definição de projeção.
+    - **Análise Per-Band de Dados:** Detecção proativa e bloqueio de rasters com dados nulos, all-NaN ou constantes vazias (`stdDev == 0.0` com `mean == 0.0`).
+  - **Descarte Atômico e Diagnósticos Estruturados:** Em caso de falha, descarta imediatamente o arquivo defeituoso e tiles temporários, grava diagnósticos estruturados em JSON e levanta a exceção tipada `RasterHealthCheckError`.
+- **Discriminador Robusto de Bandas vs. Fórmulas Matemáticas (`is_math_expr` / `parse_bands`):**
+  - Suporte a listas de bandas envolvidas em parênteses `(SR_B3, SR_B4, SR_B5, SR_B7)` ou colchetes `[SR_B3, ...]` sem falso positivo de fórmula matemática.
+  - Expansão inteligente de intervalos por hífen (ex: `B3-B5, B7` ou `SR_B3-SR_B5, SR_B7` expande automaticamente para `['SR_B3', 'SR_B4', 'SR_B5', 'SR_B7']`).
+  - Normalização automática para satélites da série Landsat (prefixos `SR_` ópticos e `ST_` termais) e Sentinel-2, com tratamento específico para Landsat 5 TM (`ST_B6`, eliminando erros por `SR_B6`).
+- **Mecanismo de Atualização Transacional e Atômico (`gee_updater.py`):**
+  - Pré-validações rígidas (*pre-flight checks*) tanto para Git (conectividade, status de working tree, divergência) quanto para arquivos ZIP (integridade de checksum/hash, proteção contra Zip Slip, espaço em disco e permissões).
+  - Snapshot completo de segurança e backup pré-atualização com retenção automática dos 5 backups mais recentes e reversão (*rollback*) automática em caso de interrupção ou falha.
+  - Janela modal amigável com orientações práticas de resolução (*remediation steps*).
+
+### 🛡️ Corrigido
+- **Correção Definitiva do Colapso de Bandas no Landsat 5 / Multibanda:**
+  - Corrigido o gargalo onde expressões com parênteses eram enviadas ao motor de expressões do GEE, que retornava apenas a última banda como índice monocanal `CUSTOM_INDEX` (Float32).
+  - Corrigido o empilhamento nos mosaicos espaciais particionados (`merge_geotiff_tiles`): inclusão mandatória de `bandList` no GDAL nativo, no subprocesso Python QGIS e flags `-b` no GDAL CLI, garantindo que todas as bandas dos quadrantes sejam preservadas.
+  - Corrigida a renderização ArcObjects no ArcMap: inclusão da chamada mandatória `rend_base.Update()` ao configurar o `IRasterRGBRenderer`, eliminando o fallback silencioso para exibição em escala de cinza (`RasterStretchRenderer`).
+
+---
+
 ## [1.8.0] - 2026-09-25
 
 ### 🌟 Adicionado
