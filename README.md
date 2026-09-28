@@ -14,7 +14,7 @@
   <a href="https://earthengine.google.com/"><img src="https://img.shields.io/badge/Google%20Earth%20Engine-API-4285F4.svg?logo=googleearthengine&logoColor=white" alt="Google Earth Engine"></a>
   <a href="https://data.inpe.br/stac/browser/"><img src="https://img.shields.io/badge/INPE-STAC%20CBERS-00843D.svg" alt="STAC INPE"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-2.7%20%7C%203.10+-3776AB.svg?logo=python&logoColor=white" alt="Python"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.0.0-28A745.svg" alt="Versão v2.0.0"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.1.0-28A745.svg" alt="Versão v2.1.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License MIT"></a>
 </p>
 
@@ -101,12 +101,13 @@ Detalhes técnicos, convenções e armadilhas conhecidas estão em [AGENTS.md](A
 - **Google Earth Engine:** configure o Project ID (**Configurar Projeto GEE**), escolha o
   sensor, a composição, o período e a área, e clique em **Buscar Imagens no GEE**. Depois
   selecione a cena e clique em **Carregar no ArcMap**.
-- **Google Earth / XYZ:** botão **Google Earth / CBERS**, aba *Google Earth / Mosaicos XYZ*.
+- **Google Earth / XYZ:** barra **Fonte de imagens** › **Google Earth / Mosaicos XYZ...**.
   Escolha a fonte e o zoom (a estimativa de tiles e m/pixel aparece na hora) e clique em
   **Baixar mosaico e carregar no ArcMap**.
-- **CBERS / Amazônia-1:** mesma janela, aba *CBERS / Amazônia-1 (INPE)*. Escolha a coleção e o
-  período, clique em **Buscar cenas**, confira a *Cobertura da AOI %* e a miniatura, escolha o
-  produto (cor natural, falsa cor, multibanda ou pancromática) e clique em **Baixar recorte**.
+- **CBERS / Amazônia-1:** na janela principal, barra **Fonte de imagens** › *CBERS / Amazônia-1
+  (INPE)*. O fluxo é o mesmo do GEE: escolha a coleção (satélite), o produto (composição), o
+  período e a área, e clique em **Buscar Cenas no INPE**. Confira a *Cobertura da AOI %* e a
+  **Miniatura**, e use **Carregar no ArcMap**. Não exige login no GEE.
 
 > ⚠️ **Termos de Uso:** o download em massa de tiles do **Google** e do **Bing** fora das APIs
 > oficiais viola os Termos de Serviço desses provedores. O ArcMagery exibe um aviso antes do
@@ -132,7 +133,7 @@ set ARCMAGERY_GEE_PROJECT=<id>   :: inclui teste real no Earth Engine
 
 ```bat
 python build_release.py
-gh release create v2.0.0 dist\ArcMagery-2.0.0.zip dist\SHA256SUMS.txt --title "ArcMagery v2.0.0" --notes-file CHANGELOG.md
+gh release create v2.1.0 dist\ArcMagery-2.1.0.zip dist\SHA256SUMS.txt --title "ArcMagery v2.1.0" --notes-file CHANGELOG.md
 ```
 
 ---

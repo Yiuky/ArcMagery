@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Janela Google Earth / CBERS (Python 2.7 + Tk 8.5): funcoes puras e fumaca da interface."""
+"""Janela Google Earth / Mosaicos XYZ (Python 2.7 + Tk 8.5): funcoes puras e fumaca da interface."""
 from __future__ import print_function
 
 import os
@@ -14,14 +14,6 @@ import gee_bridge
 
 
 class PureHelpersTest(unittest.TestCase):
-    def test_dates(self):
-        d0, d1 = sg.validate_date_range(u'01/01/2025', u'31/12/2025')
-        self.assertEqual((d0.year, d1.month), (2025, 12))
-        with self.assertRaises(ValueError):
-            sg.validate_date_range(u'31/12/2025', u'01/01/2025')
-        with self.assertRaises(ValueError):
-            sg.parse_br_date(u'2025-01-01')
-
     def test_parse_progress(self):
         self.assertEqual(sg.parse_progress('[ArcGEE] PROGRESS 12/40 tiles'), (12, 40))
         self.assertEqual(sg.parse_progress(u'[ArcGEE] PROGRESS 55/100'), (55, 100))
@@ -35,12 +27,6 @@ class PureHelpersTest(unittest.TestCase):
         self.assertEqual(sg.bbox_from_geojson_data(fc), [-57.0, -16.0, -55.0, -14.0])
         with self.assertRaises(ValueError):
             sg.bbox_from_geojson_data({'type': 'FeatureCollection', 'features': []})
-
-    def test_modes_match_backend_rules(self):
-        self.assertEqual(sg.modes_for_collection('CB4-PAN5M-L4-DN-1'), ['pan'])
-        self.assertEqual(sg.modes_for_collection('CB4A-WPM-PCA-FUSED-1'), ['fused'])
-        self.assertIn('pan', sg.modes_for_collection('CB4A-WPM-L4-DN-1'))
-        self.assertEqual(sg.modes_for_collection('CB4-MUX-L4-SR-1'), ['rgb', 'false', 'multi'])
 
     def test_filenames(self):
         self.assertEqual(sg.safe_filename(u'CBERS 4A/WPM:ção'), u'CBERS_4A_WPM_o')
@@ -112,21 +98,6 @@ class DialogSmokeTest(unittest.TestCase):
         self.dlg._update_estimate()
         self.assertIn(u'até 19', self.dlg.lbl_estimate.cget('text'))
 
-    def test_collection_modes_refresh(self):
-        idx = [c[0] for c in sg.CBERS_COLLECTIONS].index('CB4-PAN5M-L4-DN-1')
-        self.dlg.cbo_collection.current(idx)
-        self.dlg._refresh_modes()
-        self.assertEqual(tuple(self.dlg.cbo_mode['values']), (u'Pancromática',))
-
-    def test_fill_tree(self):
-        items = [{'id': 'CENA1', 'collection': 'CB4-MUX-L4-SR-1', 'date': '2025-05-01', 'cloud_cover': 3.2, 'coverage_pct': 100.0},
-                 {'id': 'CENA2', 'collection': 'CB4A-WPM-L4-DN-1', 'date': '2025-04-01', 'cloud_cover': None, 'coverage_pct': 51.0}]
-        self.dlg._fill_tree(items, [0, 0, 1, 1])
-        rows = [self.dlg.tree.item(i, 'values') for i in self.dlg.tree.get_children()]
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[1][3], u'n/d')
-        self.assertEqual(rows[0][4], u'100')
-
     def test_xyz_worker_calls_backend_and_loads_rgb(self):
         calls = {}
 
@@ -161,39 +132,9 @@ class DialogSmokeTest(unittest.TestCase):
         self.assertIn(u'Concluído', self.dlg.lbl_xyz_status.cget('text'))
         self.assertEqual(str(self.dlg.btn_xyz.cget('state')), 'normal')
 
-    def test_cbers_worker_uses_backend_rgb_indices(self):
-        loads = []
-        self._patch_bridge('run_backend_cmd', lambda cmd, p, on_progress=None, python_exe=None: {
-            'success': True, 'file': u'C:\\tmp\\c.tif', 'rgb_bands': [2, 1, 0]})
-        self._patch_bridge('send_arcmap_command', lambda a, timeout=120: loads.append(a) or {'success': True})
-        self._patch_bridge('find_python3_gdal', lambda: 'py3.exe')
-        tmp = tempfile.mkdtemp()
-        try:
-            self.dlg._cbers_download_worker({'items': [{'id': 'CENA1', 'collection': 'CB4-MUX-L4-SR-1', 'date': '2025-05-01'}],
-                                             'mode': 'multi', 'out_dir': tmp, 'bbox': [-56.1, -15.6, -56.0, -15.5],
-                                             'area': None})
-        finally:
-            shutil.rmtree(tmp)
-        self.parent.pump()
-        self.assertEqual(loads[0]['rgb_bands'], [2, 1, 0])
-        self.assertEqual(loads[0]['group'], sg.CBERS_GROUP)
-        self.assertIn(u'1 de 1', self.dlg.lbl_cbers_status.cget('text'))
-
-    def test_backend_failure_is_shown(self):
-        self._patch_bridge('run_backend_cmd', lambda *a, **k: {'success': False, 'message': u'A cena não cobre a área'})
-        self._patch_bridge('send_arcmap_command', lambda a, timeout=120: {'success': True})
-        self._patch_bridge('find_python3_gdal', lambda: 'py3.exe')
-        shown = []
-        orig = sg.messagebox.showwarning
-        sg.messagebox.showwarning = lambda *a, **k: shown.append(a)
-        try:
-            self.dlg._cbers_download_worker({'items': [{'id': 'C', 'collection': 'CB4-MUX-L4-SR-1'}], 'mode': 'rgb',
-                                             'out_dir': tempfile.gettempdir(), 'bbox': [0, 0, 1, 1], 'area': None})
-            self.parent.pump()
-        finally:
-            sg.messagebox.showwarning = orig
-        self.assertIn(u'não cobre', self.dlg.lbl_cbers_status.cget('text'))
-        self.assertTrue(shown)
+    def test_dialog_is_xyz_only(self):
+        self.assertFalse(hasattr(self.dlg, "tree"))
+        self.assertIn(u"Google Earth", self.dlg.top.title())
 
 
 if __name__ == '__main__':

@@ -4,6 +4,29 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.1.0] - 2026-09-28
+
+### 🌟 Aprimorado
+- **CBERS / Amazônia-1 integrado à janela principal:** a nova barra **Fonte de imagens** alterna entre *Google Earth Engine* e *CBERS / Amazônia-1 (INPE)*. A troca adapta a janela:
+  - a lista de satélites passa a mostrar as 12 coleções do INPE, com período, resolução e bandas no quadro informativo;
+  - a lista de composições passa a oferecer cor natural, falsa cor, multibanda, pancromática e fusionada;
+  - o botão de busca muda para "Buscar Cenas no INPE";
+  - os campos exclusivos do GEE (bandas personalizadas, modo de carga, tamanho do pixel) ficam desabilitados, porque o recorte do INPE é sempre na grade nativa.
+- **O CBERS usa os recursos da janela principal:**
+  - mesmo período e mesma área (extensão da tela ou AOI);
+  - mesma tabela de resultados, com a coluna *Órbita/Ponto · Cobertura da AOI %*;
+  - mesma fila de download e multicore;
+  - mesmo "Carregar" e "Substituir no TOC";
+  - mesmo agrupamento no TOC (padrão `INPE_<coleção>_<produto>_<data>`).
+  - Não exige login no Google Earth Engine.
+- **Botão [ Miniatura ]** na janela principal, para cenas do GEE e do INPE.
+- A janela separada passa a ser só **Google Earth / Mosaicos XYZ**, com acesso pela barra *Fonte de imagens*.
+
+### 🧪 Testes
+- `tests/arcmap/test_inpe_integration.py`: monta a janela principal real (com a ponte simulada) e percorre troca de fonte → busca → tabela → download → `load_layer` com `rgb_bands`, e confirma que o fluxo do GEE continua igual.
+
+---
+
 ## [2.0.0] - 2026-09-28
 
 O projeto passa a se chamar **ArcMagery**. O identificador do Add-In (`AddInID`), os nomes internos dos módulos e as pastas de dados (`%APPDATA%\ArcGEE`, `%LOCALAPPDATA%\CGMA_ArcGEE`) foram mantidos para que as instalações existentes continuem atualizando e preservem configurações e backups.

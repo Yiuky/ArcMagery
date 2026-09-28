@@ -318,13 +318,16 @@ Clique no botão **`[ ⚙ Configurações ]`** no canto superior direito para ac
 
 ---
 
-### 6.10 Google Earth / Mosaicos XYZ e CBERS / Amazônia-1 (v2.0)
+### 6.10 Fontes de imagens: GEE, CBERS / Amazônia-1 e Google Earth (v2.1)
 
-Clique em **`[ Google Earth / CBERS ]`** na barra superior. A janela tem uma área comum
-(**Área de interesse**: extensão atual do ArcMap ou camada vetorial AOI; **Pasta de saída**)
-e duas abas.
+Logo abaixo da barra superior fica a barra **Fonte de imagens**:
+* **Google Earth Engine (Sentinel-2 / Landsat):** o fluxo descrito nas seções 6.1 a 6.9.
+* **CBERS / Amazônia-1 (INPE):** usa a **mesma janela e o mesmo fluxo** (veja abaixo).
+* **Google Earth / Mosaicos XYZ...:** abre uma janela própria (veja abaixo).
 
-#### Aba *Google Earth / Mosaicos XYZ*
+#### Google Earth / Mosaicos XYZ
+A janela tem a **Área de interesse** (extensão atual do ArcMap ou camada vetorial AOI) e a
+**Pasta de saída**.
 1. Escolha a **Fonte**: Google Earth / Satélite, Google Híbrido, Esri World Imagery, Esri Clarity ou Bing Aerial.
 2. Ajuste o **Zoom**. A estimativa aparece na hora: quantidade de tiles, dimensões, m/pixel no
    terreno e volume de download (zoom 18 ≈ 0,57 m/pixel; zoom 19 ≈ 0,29 m/pixel em MT).
@@ -340,8 +343,14 @@ e duas abas.
   massa fora das APIs oficiais viola os Termos de Serviço desses provedores. Prefira a Esri ou o
   CBERS para uso institucional.
 
-#### Aba *CBERS / Amazônia-1 (INPE)*
-1. Escolha a **Coleção**:
+#### CBERS / Amazônia-1 (INPE), na janela principal
+Selecione **CBERS / Amazônia-1 (INPE)** na barra *Fonte de imagens*. A janela se adapta:
+* **Satélite / Sensor** passa a listar as coleções do INPE, e **Composição** passa a listar os
+  produtos. Os campos exclusivos do GEE (bandas personalizadas, modo de carga e tamanho do pixel)
+  ficam desabilitados, porque o recorte é sempre na grade nativa da cena.
+* Não é preciso estar conectado ao Google Earth Engine.
+
+1. Escolha a **coleção** em *Satélite / Sensor*:
 
    | Coleção | Resolução | Produtos |
    |---|---|---|
@@ -351,12 +360,13 @@ e duas abas.
    | CBERS-4/4A WFI e Amazônia-1 WFI | 55–64 m | cor natural, falsa cor, multibanda |
    | CBERS-4 PAN 10 m / 5 m | 10 m / 5 m | falsa cor e multibanda / pancromática |
 
-2. Informe o **Período** (DD/MM/AAAA) e, se quiser, o limite de **nuvens**. Coleções DN não
-   informam nuvens e sempre aparecem.
-3. Clique em **Buscar cenas**. A coluna **Cobertura da AOI %** mostra quanto da área cada cena
-   cobre de fato; cenas que não cobrem a área são omitidas.
-4. Selecione uma ou mais cenas. Use **Miniatura** para inspecionar a cena, escolha o **Produto**
-   e clique em **Baixar recorte e carregar no ArcMap**.
+2. Escolha o **produto** em *Composição* e informe o **período** e a **área**, como no GEE.
+3. Clique em **Buscar Cenas no INPE**. A coluna *Órbita/Ponto · Cobertura* mostra quanto da área
+   cada cena cobre de fato; cenas que não cobrem a área são omitidas. Coleções DN não informam
+   nuvens (`n/d`).
+4. Selecione uma ou mais cenas e use **[ Miniatura ]** para inspecionar. Clique em
+   **[ Carregar no ArcMap ]**: as cenas entram na fila de download, e o "Substituir no TOC" e o
+   agrupamento também funcionam.
 
 * **Somente o recorte é transferido:** o ArcMagery lê por HTTP apenas a janela de pixels da
   área, na grade e resolução **nativas** da cena (UTM/WGS84), sem reamostragem.

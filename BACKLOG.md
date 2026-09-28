@@ -12,7 +12,7 @@ rodar os testes.
   real, de uma entrada no checklist manual (seção **V**).
 - Prioridade: **P0** (bloqueia uso/segurança) · **P1** (resultado errado ou travamento) ·
   **P2** (robustez e experiência) · **P3** (melhoria e refatoração).
-- Estado de referência: v2.0.0, branch `feature/arcmagery-2.0`, 2026-09-28.
+- Estado de referência: v2.1.0, branch `feature/arcmagery-2.0`, 2026-09-28.
 
 ---
 
@@ -23,7 +23,8 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 
 | ID | Verificar no ArcMap | Arquivos |
 |---|---|---|
-| V-01 | Botão **Google Earth / CBERS** abre a janela, e só uma instância dela é aberta | `gee_gui.py` (`on_open_extra_sources`), `arcmagery_sources_gui.py` |
+| V-01 | Barra **Fonte de imagens**: alternar GEE ↔ CBERS adapta a janela; o botão **Google Earth / Mosaicos XYZ...** abre uma única janela | `gee_gui.on_source_changed`, `on_open_extra_sources` |
+| V-10 | CBERS pela janela principal: buscar, ver a **Miniatura**, carregar 2 cenas (fila) e usar **Substituir no TOC** numa camada CBERS | `gee_gui`, `arcmagery_inpe.py` |
 | V-02 | Mosaico Google/Esri entra no TOC no grupo `ArcMagery - Google Earth / XYZ`, em RGB e na posição correta sobre uma camada de referência | `arcmagery_sources_gui.py`, `gee_bridge.load_into_toc` |
 | V-03 | CBERS multibanda entra com `rgb_bands=[2,1,0]` (cor natural) e a pancromática entra em tons de cinza | `gee_bridge._rgb_override` |
 | V-04 | Dois ArcMaps abertos: cada interface conversa só com o seu ArcMap (arquivos `arcmagery_<PID>_*.json` em `%TEMP%`) | `gee_bridge.IPC_SESSION` |
@@ -37,11 +38,28 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 
 ## P0 — Bloqueia uso ou segurança
 
-### U-01 · Publicar a primeira GitHub Release verificável (v2.0.0)
+### N-09 · Data de captura e imagens históricas do Google Earth ("Data das imagens")
+- **Status:** BLOQUEADO / AGUARDANDO DECISÃO (2026-09-28)
+- **Pedido:** mostrar a data das imagens (como no rodapé do Google Earth Pro e do Google Earth
+  Online) e permitir baixar imagens históricas por data.
+- **Bloqueio:** não existe API pública do Google para isso. Os dados vêm de um banco interno e
+  não documentado do Google Earth (histórico "timemachine"), cujo acesso exige engenharia reversa
+  e decifração do protocolo. A tentativa de pesquisar e implementar esse caminho foi **negada
+  pela política de segurança do ambiente de desenvolvimento**. Além disso, violaria os Termos de
+  Serviço do Google. **Não implemente por esse caminho.**
+- **Alternativas legítimas (a decidir com o mantenedor):**
+  1. **Esri World Imagery com data de captura:** o serviço público de metadados da World Imagery
+     informa, por área, a data da cena, a fonte (Maxar, Airbus...) e a resolução.
+  2. **Esri World Imagery Wayback:** versões históricas publicadas pela Esri desde 2014, com datas
+     de lançamento. Permite escolher uma versão por data e baixar como XYZ, com o mesmo `xyz_core`.
+  3. **CBERS / Sentinel / Landsat:** já datados por cena (INPE e GEE).
+  4. Imagens comerciais datadas (Maxar/Airbus) apenas via licença ou API oficial.
+
+### U-01 · Publicar a primeira GitHub Release verificável (v2.1.0)
 - **Status:** ABERTO (ação do mantenedor)
 - **Problema:** desde a v2.0 o atualizador só instala sem confirmação a partir de uma Release com `SHA256SUMS.txt`. Hoje o repositório **não tem Releases**, então todo usuário verá o aviso "Atualização sem verificação".
-- **Como fazer:** `python build_release.py`, depois `gh release create v2.0.0 dist/ArcMagery-2.0.0.zip dist/SHA256SUMS.txt --title "ArcMagery v2.0.0" --notes-file CHANGELOG.md`.
-- **Aceite:** `gee_updater.fetch_latest_release()` retorna `version=2.0.0` com `zip_url` e `sums_url`.
+- **Como fazer:** `python build_release.py`, depois `gh release create v2.1.0 dist/ArcMagery-2.1.0.zip dist/SHA256SUMS.txt --title "ArcMagery v2.1.0" --notes-file CHANGELOG.md`.
+- **Aceite:** `gee_updater.fetch_latest_release()` retorna `version=2.1.0` com `zip_url` e `sums_url`.
 
 ### U-02 · O script gerado pelo atualizador encerra TODOS os `pythonw.exe`
 - **Status:** ABERTO
@@ -108,7 +126,6 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 
 | ID | Item | Onde | Nota |
 |---|---|---|---|
-| G-03 | Duplo clique em "Carregar" enfileira a mesma cena duas vezes | `gee_gui` (`queued_ids` só é limpo, nunca consultado) | Filtrar IDs já na fila ou em download |
 | G-04 | Fórmula padrão não-S2 `(SR_B5-SR_B4)/…` só é NDVI no L8 (no L5/L7 é outro índice) | `gee_gui` (padrões por sensor) | Criar tabela NIR/Red por sensor |
 | G-05 | Combobox de camadas vetoriais não reflete camadas adicionadas/removidas depois | `gee_gui.sync_arcmap_context` | Sempre atualizar `values` preservando a seleção |
 | G-06 | Validação de entradas: pixel 0/negativo, núcleos 0 (`ThreadPoolExecutor(0)`), buffer negativo | `gee_gui` | Limitar valores antes de salvar/enfileirar |
@@ -165,5 +182,7 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | C-12 | 2.0.0 | Nova fonte CBERS / Amazônia-1 (STAC INPE), com cobertura real da AOI | `tests/backend/test_stac_core.py` |
 | C-13 | 2.0.0 | `gdal.Unlink` no `finally` mascarava o erro real do recorte CBERS | `test_stac_core.py::test_aoi_outside_raster` |
 | C-16 | 2.0.0 | Versão do pacote ZIP lida como "Desconhecida" (namespace do config.xml), o que anulava o bloqueio de downgrade | `test_updater_security.py::RealZipValidationTest` |
+| C-17 | 2.1.0 | CBERS/Amazônia-1 integrado à janela principal (barra *Fonte de imagens*, tabela, fila, TOC) e botão Miniatura | `tests/arcmap/test_inpe_integration.py` |
+| C-18 | 1.12 | Duplo clique não enfileira a mesma cena duas vezes (filtro por `queued_ids`/`current_downloading_ids`, reconferido) | — |
 | C-14 | 1.12 | Troca de sensor durante a busca (token de geração) e limpeza do campo de bandas ao trocar de sensor | Já estavam na v1.12 (reconferido) |
 | C-15 | 1.12 | `eval_code` removido, `gee_config.json` sem o ID de projeto, `.bat` em CRLF | Já estavam na v1.12 |

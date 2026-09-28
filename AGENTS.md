@@ -15,7 +15,7 @@ e carregá-las no TOC. Nome do produto: **ArcMagery**. Os nomes internos `gee_*`
 ArcMap.exe (Python 2.7 32-bit, arcpy)          <- gee_selector_addin.py + gee_bridge.py
    | arquivos JSON por sessao em %TEMP%: arcmagery_<PID-do-ArcMap>_{cmd,reply,context}.json
    v
-pythonw.exe do ArcGIS (Python 2.7, Tkinter)    <- gee_gui.py + arcmagery_sources_gui.py
+pythonw.exe do ArcGIS (Python 2.7, Tkinter)    <- gee_gui.py (+ arcmagery_inpe.py) + arcmagery_sources_gui.py
    | subprocess: backend/run_gee.py <comando> --params-file=<json UTF-8>
    v
 Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core.py | stac_core.py
@@ -40,7 +40,8 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
 | `arcgis_addin/Install/gee_selector_addin.py` | 2.7 | Botão/extensão do ArcMap |
 | `arcgis_addin/Install/gee_bridge.py` | 2.7 (também importável em 3) | IPC, arcpy/TOC, simbologia, chamada ao backend, seleção do Python 3 |
 | `arcgis_addin/Install/gee_gui.py` | 2.7 | Janela principal (GEE), configurações, atualizador. **Arquivo com CRLF** |
-| `arcgis_addin/Install/arcmagery_sources_gui.py` | 2.7 | Janela Google Earth/XYZ + CBERS/INPE |
+| `arcgis_addin/Install/arcmagery_sources_gui.py` | 2.7 | Janela Google Earth / Mosaicos XYZ |
+| `arcgis_addin/Install/arcmagery_inpe.py` | 2.7 | CBERS/Amazônia-1 na janela principal: coleções como "sensores" `INPE:<coleção>`, produtos, busca/recorte/miniatura via backend |
 | `arcgis_addin/Install/gee_updater.py` | 2.7/3 | Atualização (Release + SHA256SUMS, backup, staging, rollback) |
 | `arcgis_addin/Install/backend/` | 3 | **Fonte única** do backend (não existe mais `backend/` na raiz) |
 | `backend/tilemath.py` | **2.7 e 3** | Matemática XYZ usada pelo backend e pela interface. Sem dependências |
@@ -69,6 +70,9 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
   `intersects` como bbox.
 - Mensagens para o usuário em **português**. Ao editar arquivos CRLF, preserve o fim de linha.
 - Termos de Uso: Google/Bing exigem o aviso (`TOS_TEXT`) antes do primeiro download.
+- **Fonte ativa na janela principal:** `var_source` (`gee` | `inpe`). Os códigos de sensor do INPE
+  começam com `INPE:`. Decida sempre por `inpe.is_inpe(sensor)`, nunca por listas fixas de
+  sensores GEE. O download passa por `GEEPluginWindow._download_any`.
 
 ## 5. Ambiente e testes
 
