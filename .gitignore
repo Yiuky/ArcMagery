@@ -28,7 +28,11 @@ env/
 !arcgis_addin/Install/empty_group_template.lyr
 !test_gee_updater.py
 !test_raster_health.py
+!tests/
+!tests/**/
+!tests/**/test_*.py
 
-# Addin build artifacts
+# Release / build artifacts
+dist/
 *.esriaddin
 

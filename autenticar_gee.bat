@@ -1,39 +1,35 @@
 @echo off
 chcp 65001 >nul
-title Autenticação - Google Earth Engine (ArcGIS Plugin)
+setlocal
+title Autenticação - Google Earth Engine (ArcMagery)
 cls
 echo ======================================================================
-echo           AUTENTICADOR DO GOOGLE EARTH ENGINE PARA O ARCGIS
+echo           AUTENTICADOR DO GOOGLE EARTH ENGINE - ARCMAGERY
 echo ======================================================================
 echo.
 echo Este utilitário vai abrir o seu navegador para conectar sua conta Google
 echo ao Google Earth Engine e gerar as credenciais locais.
 echo.
 
-set PY3_CMD=
-if exist "C:\CGMA_GEE_PLUGIN\venv\Scripts\python.exe" set PY3_CMD="C:\CGMA_GEE_PLUGIN\venv\Scripts\python.exe"
-if not defined PY3_CMD if exist "C:\PRODUTIVIDADE_SIMCAR_DIGITAL\venv_p3\Scripts\python.exe" set PY3_CMD="C:\PRODUTIVIDADE_SIMCAR_DIGITAL\venv_p3\Scripts\python.exe"
-if not defined PY3_CMD if exist "C:\Python312\python.exe" set PY3_CMD="C:\Python312\python.exe"
-if not defined PY3_CMD if exist "C:\Python311\python.exe" set PY3_CMD="C:\Python311\python.exe"
-if not defined PY3_CMD if exist "C:\Python310\python.exe" set PY3_CMD="C:\Python310\python.exe"
-if not defined PY3_CMD if exist "C:\Program Files\QGIS 3.44.10\apps\Python312\python.exe" set PY3_CMD="C:\Program Files\QGIS 3.44.10\apps\Python312\python.exe"
-if not defined PY3_CMD if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set PY3_CMD="%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
-if not defined PY3_CMD if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" set PY3_CMD="%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+set "PYTHONHOME="
+set "PYTHONPATH="
+set "PY3_CMD="
+:: 1. venv do ArcMagery (criado pelo install.bat)
+if exist "%LOCALAPPDATA%\ArcMagery\venv\Scripts\python.exe" set "PY3_CMD=%LOCALAPPDATA%\ArcMagery\venv\Scripts\python.exe"
+:: 2. venvs de versoes anteriores
+if not defined PY3_CMD if exist "%LOCALAPPDATA%\ArcGEE\venv\Scripts\python.exe" set "PY3_CMD=%LOCALAPPDATA%\ArcGEE\venv\Scripts\python.exe"
+if not defined PY3_CMD if exist "C:\CGMA_GEE_PLUGIN\venv\Scripts\python.exe" set "PY3_CMD=C:\CGMA_GEE_PLUGIN\venv\Scripts\python.exe"
 
 if not defined PY3_CMD (
-    for /f "tokens=*" %%i in ('where python 2^>nul') do (
-        %%i -c "import sys; sys.exit(0 if sys.version_info[0]>=3 else 1)" 2>nul
-        if not errorlevel 1 (
-            set PY3_CMD="%%i"
-            goto :found_py3
-        )
-    )
+    echo [ERRO] Ambiente Python do ArcMagery nao encontrado.
+    echo        Execute primeiro o install.bat.
+    pause
+    exit /b 1
 )
 
-:found_py3
-if not defined PY3_CMD (
-    echo [ERRO] Python 3 nao encontrado automaticamente.
-    echo Instale o Python 3 ou especifique o caminho completo.
+"%PY3_CMD%" -c "import ee" 2>nul
+if errorlevel 1 (
+    echo [ERRO] earthengine-api ausente em "%PY3_CMD%". Execute o install.bat novamente.
     pause
     exit /b 1
 )
@@ -41,18 +37,18 @@ if not defined PY3_CMD (
 echo Python 3 detectado: %PY3_CMD%
 echo.
 echo Iniciando autenticacao do Google Earth Engine...
-%PY3_CMD% -c "import ee; ee.Authenticate()"
+"%PY3_CMD%" -c "import ee; ee.Authenticate()"
 if errorlevel 1 (
     echo.
     echo [AVISO] Tentando autenticacao via CLI earthengine...
-    %PY3_CMD% -m ee.cli.eecli authenticate
+    "%PY3_CMD%" -m ee.cli.eecli authenticate
 )
 
 echo.
 echo ======================================================================
 echo          VERIFICANDO CONEXAO COM O GOOGLE EARTH ENGINE...
 echo ======================================================================
-%PY3_CMD% -c "import ee; ee.Initialize(); print('SUCESSO: Conectado ao GEE!')" 2>nul
+"%PY3_CMD%" -c "import ee; ee.Initialize(); print('SUCESSO: Conectado ao GEE!')" 2>nul
 if errorlevel 1 (
     echo.
     echo [OBSERVAÇÃO] Se for solicitado um ID de Projeto Google Cloud,

@@ -1,93 +1,104 @@
 @echo off
 chcp 65001 >nul
-title Instalador - CGMA ArcGEE Explorer v1.12
+setlocal
+title Instalador - ArcMagery v2.0.0
 cls
 echo ======================================================================
-echo          CGMA ARCGEE EXPLORER - INSTALADOR AUTOMATIZADO (v1.12)
-echo         Google Earth Engine integrado ao ArcGIS Desktop 10.8.2
+echo              ARCMAGERY - INSTALADOR AUTOMATIZADO (v2.0.0)
+echo   Google Earth Engine, Google Earth e CBERS/INPE no ArcGIS Desktop 10.8
 echo ======================================================================
 echo.
 
-set SCRIPT_DIR=%~dp0
-set PYTHON27=C:\Python27\ArcGIS10.8\python.exe
-set REGADDIN="C:\Program Files (x86)\Common Files\ArcGIS\bin\ESRIRegAddIn.exe"
-set ADDIN_UUID={ceae58c4-c44e-4edd-b8f4-1ba7d13b6b7d}
-set USER_ADDIN_DIR=%USERPROFILE%\Documents\ArcGIS\AddIns\Desktop10.8\%ADDIN_UUID%
-set CACHE_DIR=%LOCALAPPDATA%\ESRI\Desktop10.8\AssemblyCache\%ADDIN_UUID%
+set "SCRIPT_DIR=%~dp0"
+set "PYTHON27=C:\Python27\ArcGIS10.8\python.exe"
+set "REGADDIN=C:\Program Files (x86)\Common Files\ArcGIS\bin\ESRIRegAddIn.exe"
+set "ADDIN_UUID={ceae58c4-c44e-4edd-b8f4-1ba7d13b6b7d}"
+set "USER_ADDIN_DIR=%USERPROFILE%\Documents\ArcGIS\AddIns\Desktop10.8\%ADDIN_UUID%"
+set "CACHE_DIR=%LOCALAPPDATA%\ESRI\Desktop10.8\AssemblyCache\%ADDIN_UUID%"
+set "VENV_DIR=%LOCALAPPDATA%\ArcMagery\venv"
+set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
+set "FAILED="
 
-:: 1. Verificar presenca do ArcGIS Desktop 10.8
+:: Nunca herdar o Python 2.7 do ArcGIS no Python 3 (e vice-versa)
+set "PYTHONHOME="
+set "PYTHONPATH="
+
+:: 1. ArcGIS Desktop 10.8 / Python 2.7
 echo [1/5] Verificando instalacao do ArcGIS Desktop 10.8...
 if not exist "%PYTHON27%" (
     echo [ALERTA] Python 2.7 do ArcGIS nao encontrado em "%PYTHON27%".
-    echo Certifique-se de que o ArcGIS Desktop 10.8 esteja instalado nesta maquina.
-    echo.
+    echo          Certifique-se de que o ArcGIS Desktop 10.8 esteja instalado nesta maquina.
 ) else (
     echo [OK] ArcGIS Desktop 10.8 e Python 2.7 detectados.
     "%PYTHON27%" -c "import comtypes" 2>nul
     if errorlevel 1 (
         echo [INFO] Modulo comtypes ausente no Python 2.7. Tentando instalar via pip...
         "%PYTHON27%" -m pip install comtypes --quiet 2>nul
-        if errorlevel 1 (
-            echo [INFO] pip nao configurado no Python 2.7. O plugin utilizara o mecanismo nativo ArcPy com 100%% de compatibilidade.
-        ) else (
-            echo [OK] Modulo comtypes instalado com sucesso no Python 2.7.
-        )
+        if errorlevel 1 echo [INFO] pip indisponivel no Python 2.7: a simbologia usara o mecanismo nativo ArcPy.
     ) else (
         echo [OK] Modulo comtypes disponivel no Python 2.7.
     )
 )
 
-:: 2. Detectar e preparar ambiente Python 3 para o Google Earth Engine
+:: 2. Python 3 do backend: venv PROPRIO do ArcMagery (nao altera o QGIS nem outros projetos)
 echo.
-echo [2/5] Verificando ambiente Python 3 para o Google Earth Engine...
-set PY3_CMD=
-if exist "C:\CGMA_GEE_PLUGIN\venv\Scripts\python.exe" set PY3_CMD="C:\CGMA_GEE_PLUGIN\venv\Scripts\python.exe"
-if not defined PY3_CMD if exist "C:\Python312\python.exe" set PY3_CMD="C:\Python312\python.exe"
-if not defined PY3_CMD if exist "C:\Python311\python.exe" set PY3_CMD="C:\Python311\python.exe"
-if not defined PY3_CMD if exist "C:\Python310\python.exe" set PY3_CMD="C:\Python310\python.exe"
-if not defined PY3_CMD if exist "C:\Program Files\QGIS 3.44.10\apps\Python312\python.exe" set PY3_CMD="C:\Program Files\QGIS 3.44.10\apps\Python312\python.exe"
-if not defined PY3_CMD if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set PY3_CMD="%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
-if not defined PY3_CMD if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" set PY3_CMD="%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
-
-if not defined PY3_CMD (
-    for /f "tokens=*" %%i in ('where python 2^>nul') do (
-        %%i -c "import sys; sys.exit(0 if sys.version_info[0]>=3 else 1)" 2>nul
-        if not errorlevel 1 (
-            set PY3_CMD="%%i"
-            goto :found_py3
-        )
+echo [2/5] Preparando ambiente Python 3 isolado em "%VENV_DIR%"...
+set "BASE_PY="
+:: 2a. Preferencia: Python do QGIS/OSGeo4W (ja traz GDAL, numpy e Pillow - necessarios ao CBERS)
+for /d %%D in ("C:\Program Files\QGIS 3*" "C:\OSGeo4W" "C:\OSGeo4W64") do (
+    for /d %%P in ("%%~D\apps\Python3*") do (
+        if exist "%%~P\python.exe" set "BASE_PY=%%~P\python.exe"
     )
 )
-
-:found_py3
-if defined PY3_CMD (
-    echo [OK] Python 3 encontrado: %PY3_CMD%
-    echo Instalando / atualizando a biblioteca earthengine-api...
-    %PY3_CMD% -m pip install --upgrade -r "%SCRIPT_DIR%requirements.txt" --quiet
-    if not errorlevel 1 (
-        echo [OK] Biblioteca earthengine-api configurada com sucesso.
-    ) else (
-        echo [AVISO] Nao foi possivel instalar via pip automaticamente. Verifique a conexao de internet.
-    )
-) else (
-    echo [AVISO] Python 3 nao encontrado automaticamente nas pastas comuns.
-    echo O plugin tentara utilizar o Python 3 do QGIS ou do sistema quando for aberto.
-    echo Caso necessario, instale o Python 3.10+ e execute: pip install earthengine-api
+:: 2b. Alternativa: Python 3 oficial (o CBERS exigira GDAL; Google Earth funciona com Pillow)
+if not defined BASE_PY for %%P in ("%LOCALAPPDATA%\Programs\Python\Python312\python.exe" "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" "%LOCALAPPDATA%\Programs\Python\Python310\python.exe" "C:\Python312\python.exe" "C:\Python311\python.exe" "C:\Python310\python.exe") do (
+    if not defined BASE_PY if exist "%%~P" set "BASE_PY=%%~P"
 )
 
-:: 3. Sincronizar arquivos do backend para a pasta Install do Add-in
+if exist "%VENV_PY%" goto :venv_ready
+if not defined BASE_PY (
+    echo [ERRO] Nenhum Python 3 encontrado ^(QGIS 3.x ou Python 3.10+^).
+    echo        Instale o QGIS 3.x ^(recomendado^) ou o Python 3 e execute este instalador novamente.
+    set "FAILED=1"
+    goto :step3
+)
+echo [INFO] Criando venv a partir de: %BASE_PY%
+"%BASE_PY%" -I -m venv --system-site-packages "%VENV_DIR%"
+if errorlevel 1 (
+    echo [ERRO] Falha ao criar o ambiente virtual.
+    set "FAILED=1"
+    goto :step3
+)
+
+:venv_ready
+echo [INFO] Instalando dependencias ^(earthengine-api, Pillow, ...^)...
+:: Sem --upgrade em -r: numpy/GDAL herdados do QGIS nao sao substituidos (ABI do GDAL)
+"%VENV_PY%" -m pip install -r "%SCRIPT_DIR%requirements.txt" --disable-pip-version-check --quiet
+if errorlevel 1 (
+    echo [ERRO] Falha no pip. Verifique a conexao de internet/proxy.
+    set "FAILED=1"
+    goto :step3
+)
+"%VENV_PY%" -m pip install --upgrade earthengine-api --disable-pip-version-check --quiet
+"%VENV_PY%" -c "import ee; print('[OK] earthengine-api', ee.__version__)"
+if errorlevel 1 set "FAILED=1"
+"%VENV_PY%" -c "from osgeo import gdal; print('[OK] GDAL', gdal.__version__, '(CBERS/INPE habilitado)')" 2>nul
+if errorlevel 1 echo [AVISO] GDAL indisponivel neste Python: o download CBERS/INPE requer o QGIS 3.x instalado.
+
+:step3
+:: 3. Empacotar o Add-in (backend autocontido em arcgis_addin\Install\backend)
 echo.
 echo [3/5] Empacotando Add-in autocontido (.esriaddin)...
-if not exist "%SCRIPT_DIR%arcgis_addin\Install\backend" mkdir "%SCRIPT_DIR%arcgis_addin\Install\backend"
-copy /Y "%SCRIPT_DIR%backend\*.py" "%SCRIPT_DIR%arcgis_addin\Install\backend\" >nul
-copy /Y "%SCRIPT_DIR%backend\*.json" "%SCRIPT_DIR%arcgis_addin\Install\backend\" >nul
-
 if exist "%PYTHON27%" (
-    cd /d "%SCRIPT_DIR%arcgis_addin"
+    pushd "%SCRIPT_DIR%arcgis_addin"
     "%PYTHON27%" makeaddin.py
-    cd /d "%SCRIPT_DIR%"
-) else (
-    echo Utilizando pacote pre-construido GEE_Image_Selector.esriaddin.
+    if errorlevel 1 set "FAILED=1"
+    popd
+)
+if not exist "%SCRIPT_DIR%arcgis_addin\GEE_Image_Selector.esriaddin" (
+    echo [ERRO] Pacote GEE_Image_Selector.esriaddin nao foi gerado.
+    set "FAILED=1"
+    goto :summary
 )
 
 :: 4. Instalar o Add-In no diretorio oficial do ArcGIS Desktop 10.8
@@ -95,38 +106,45 @@ echo.
 echo [4/5] Instalando Add-In no ArcGIS Desktop...
 if not exist "%USER_ADDIN_DIR%" mkdir "%USER_ADDIN_DIR%"
 copy /Y "%SCRIPT_DIR%arcgis_addin\GEE_Image_Selector.esriaddin" "%USER_ADDIN_DIR%\" >nul
+if errorlevel 1 set "FAILED=1"
 
-:: Limpar cache do AssemblyCache para forcar recarregamento
+:: Atualizar o AssemblyCache (inclusive a subpasta backend) para evitar codigo antigo em cache
 if exist "%CACHE_DIR%" (
-    del /Q /F "%CACHE_DIR%\*.pyc" 2>nul
-    del /Q /F "%CACHE_DIR%\*.pyo" 2>nul
-    copy /Y "%SCRIPT_DIR%arcgis_addin\Install\*" "%CACHE_DIR%\" >nul 2>nul
+    del /S /Q /F "%CACHE_DIR%\*.pyc" >nul 2>nul
+    xcopy /S /E /Y /I /Q "%SCRIPT_DIR%arcgis_addin\Install\*" "%CACHE_DIR%\" >nul
+    if errorlevel 1 set "FAILED=1"
+    copy /Y "%SCRIPT_DIR%arcgis_addin\config.xml" "%CACHE_DIR%\" >nul
 )
 
-if exist %REGADDIN% (
-    %REGADDIN% /s "%SCRIPT_DIR%arcgis_addin\GEE_Image_Selector.esriaddin"
-)
+if exist "%REGADDIN%" "%REGADDIN%" /s "%SCRIPT_DIR%arcgis_addin\GEE_Image_Selector.esriaddin"
 
-:: 5. Registrar caixa de ferramentas ArcToolbox
+:: 5. Caixa de ferramentas ArcToolbox
 echo.
 echo [5/5] Registrando Caixa de Ferramentas ArcToolbox (.pyt)...
-set USER_TOOLBOX_DIR=%USERPROFILE%\Documents\ArcGIS
+set "USER_TOOLBOX_DIR=%USERPROFILE%\Documents\ArcGIS"
 if not exist "%USER_TOOLBOX_DIR%" mkdir "%USER_TOOLBOX_DIR%"
 copy /Y "%SCRIPT_DIR%pyt\GEE_Tools.pyt" "%USER_TOOLBOX_DIR%\" >nul
 
+:summary
 echo.
 echo ======================================================================
-echo         INSTALACAO CONCLUIDA COM SUCESSO NO ARCGIS 10.8!
+if defined FAILED (
+    echo      INSTALACAO CONCLUIDA COM ERROS - revise as mensagens acima.
+    echo ======================================================================
+    pause
+    exit /b 1
+)
+echo              INSTALACAO CONCLUIDA COM SUCESSO!
 echo ======================================================================
 echo.
 echo PASSOS PARA USAR NO ARCMAP:
 echo   1. Abra o ArcMap 10.8.
-echo   2. Va no menu: Customize ^> Toolbars e marque "CGMA ArcGEE Explorer" (ou "GEE Image Selector").
-echo   3. Clique no botao "ArcGEE Explorer" na barra de ferramentas.
-echo   4. No topo da janela, clique em "Configurar Projeto GEE"
-echo      para conectar com seu ID de projeto Google Cloud / Earth Engine.
+echo   2. Menu Customize ^> Toolbars: marque "ArcMagery".
+echo   3. Clique no botao "ArcMagery" da barra de ferramentas.
+echo   4. Google Earth Engine: clique em "Configurar Projeto GEE" e informe seu Project ID.
+echo   5. Google Earth e CBERS/INPE: botao "Google Earth / CBERS" no topo da janela.
 echo.
-echo Para autenticar o GEE agora via linha de comando, execute:
-echo   autenticar_gee.bat
+echo Para autenticar o GEE agora, execute: autenticar_gee.bat
 echo.
 pause
+exit /b 0

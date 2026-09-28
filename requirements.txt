@@ -1,2 +1,10 @@
-# Dependencias Python 3 para o CGMA ArcGEE Explorer
+# Dependencias Python 3 do backend ArcMagery.
+# O install.bat cria um venv proprio em %LOCALAPPDATA%\ArcMagery\venv (com --system-site-packages
+# sobre o Python do QGIS) e instala estes pacotes SEM --upgrade, para nao substituir o numpy
+# do qual o GDAL do QGIS depende.
 earthengine-api>=0.1.350
+Pillow>=9.0
+numpy>=1.21
+# GDAL (osgeo) NAO e instalado via pip: vem do Python do QGIS/OSGeo4W, herdado pelo venv.
+# Necessario para: CBERS/INPE (leitura parcial HTTP), merge de quadrantes GEE e health check.
+# O Google Earth / XYZ funciona sem GDAL (Pillow + numpy).

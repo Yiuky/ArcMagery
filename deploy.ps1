@@ -1,4 +1,7 @@
+# Deploy de desenvolvimento: copia arcgis_addin\Install para o AssemblyCache do ArcMap e
+# recompila os .pyc. Execute a partir da raiz do repositorio com o ArcMap FECHADO.
 $ErrorActionPreference = "Stop"
+Set-Location -Path $PSScriptRoot
 
 $docsDir = [Environment]::GetFolderPath('MyDocuments')
 $localAppData = $env:LOCALAPPDATA
@@ -10,24 +13,33 @@ $addinDestDir = Join-Path $docsDir "ArcGIS\AddIns\Desktop10.8\$uuid"
 $addinDest = Join-Path $addinDestDir "GEE_Image_Selector.esriaddin"
 $cacheDir = Join-Path $localAppData "ESRI\Desktop10.8\AssemblyCache\$uuidUpper"
 
-if (-not (Test-Path $addinDestDir)) {
-    New-Item -ItemType Directory -Path $addinDestDir -Force | Out-Null
-}
-if (-not (Test-Path $cacheDir)) {
-    New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
-}
+try {
+    if (Get-Process -Name ArcMap -ErrorAction SilentlyContinue) {
+        throw "Feche o ArcMap antes do deploy (arquivos do Add-In ficam bloqueados)."
+    }
+    foreach ($d in @($addinDestDir, $cacheDir)) {
+        if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+    }
 
-if (Test-Path $addinSrc) {
-    Copy-Item $addinSrc $addinDest -Force
+    if (Test-Path $addinSrc) { Copy-Item $addinSrc $addinDest -Force }
+    Copy-Item "arcgis_addin\Install\*" $cacheDir -Recurse -Force
+    Copy-Item "arcgis_addin\config.xml" $cacheDir -Force
+    Get-ChildItem -Path $cacheDir -Filter "*.pyc" -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
+
+    # Encerrar apenas a GUI do ArcMagery (nunca outros pythonw.exe do usuario)
+    Get-CimInstance Win32_Process -Filter "Name = 'pythonw.exe'" |
+        Where-Object { $_.CommandLine -like '*gee_gui.py*' } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+    $py27 = "C:\Python27\ArcGIS10.8\python.exe"
+    if (Test-Path $py27) {
+        & $py27 -c "import compileall, sys; ok = compileall.compile_dir(r'$cacheDir', quiet=1, maxlevels=0); sys.exit(0 if ok else 1)"
+        if ($LASTEXITCODE -ne 0) { throw "Falha ao compilar os modulos Python 2.7 no AssemblyCache." }
+    }
+    Write-Output "DEPLOY_COMPLETE"
+    exit 0
 }
-Copy-Item "arcgis_addin\Install\*" $cacheDir -Recurse -Force
-Copy-Item "arcgis_addin\config.xml" $cacheDir -Force
-Get-ChildItem -Path $cacheDir -Filter "*.pyc" -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
-Stop-Process -Name pythonw -Force -ErrorAction SilentlyContinue
-
-if (Test-Path "C:\Python27\ArcGIS10.8\python.exe") {
-    & "C:\Python27\ArcGIS10.8\python.exe" -c "import py_compile, os; cache=r'$cacheDir'; py_compile.compile(os.path.join(cache, 'gee_selector_addin.py')); py_compile.compile(os.path.join(cache, 'gee_bridge.py')); py_compile.compile(os.path.join(cache, 'gee_gui.py')); py_compile.compile(os.path.join(cache, 'gee_updater.py')); print('Cache pyc compiled successfully!')"
+catch {
+    Write-Error "DEPLOY_FAILED: $($_.Exception.Message)"
+    exit 1
 }
-
-Write-Output "DEPLOY_COMPLETE"
-
