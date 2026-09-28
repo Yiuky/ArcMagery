@@ -8,11 +8,24 @@ import sys
 import os
 import json
 import argparse
-import urllib.request
 
 # Adicionar pasta atual ao path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import gee_core
+
+
+class _LazyGeeCore(object):
+    """Importa gee_core (e o earthengine-api) apenas quando um comando GEE e executado.
+    Assim as fontes Google Earth/XYZ e CBERS/INPE funcionam mesmo num Python sem 'ee'."""
+    _mod = None
+
+    def __getattr__(self, name):
+        if _LazyGeeCore._mod is None:
+            import gee_core as _gc
+            _LazyGeeCore._mod = _gc
+        return getattr(_LazyGeeCore._mod, name)
+
+
+gee_core = _LazyGeeCore()
 
 def cmd_check(args):
     ok, msg = gee_core.init_gee(args.project)
@@ -87,13 +100,12 @@ def cmd_thumb(args):
         )
         if args.out:
             os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
-            urllib.request.urlretrieve(url, args.out)
+            gee_core.download_url_with_timeout(url, args.out, timeout=60, max_retries=2)
             gif_path = os.path.splitext(args.out)[0] + ".gif"
             try:
                 from PIL import Image
-                im = Image.open(args.out)
-                # Redimensionar se necessário e salvar como GIF
-                im.save(gif_path, "GIF")
+                with Image.open(args.out) as im:
+                    im.convert("RGB").save(gif_path, "GIF")  # Tk 8.5 do ArcGIS so exibe GIF
             except Exception:
                 gif_path = None
             print(json.dumps({'success': True, 'url': url, 'file': args.out, 'gif': gif_path}))
@@ -144,6 +156,134 @@ def cmd_download(args):
         print(json.dumps({'success': False, 'message': str(ex), 'diagnostics': ex.diagnostics}))
     except Exception as e:
         print(json.dumps({'success': False, 'message': str(e)}))
+
+# ------------------------------------------------------------------------------------------
+# Fontes adicionais (sem Earth Engine): Google Earth / XYZ e CBERS / Amazonia-1 (STAC INPE).
+# Recebem o dicionario de parametros do --params-file diretamente (sem argparse).
+# ------------------------------------------------------------------------------------------
+def _parse_bbox(value):
+    if value is None or value == '':
+        return None
+    if isinstance(value, (list, tuple)):
+        vals = [float(v) for v in value]
+    else:
+        vals = [float(v.strip()) for v in str(value).split(',')]
+    if len(vals) != 4:
+        raise ValueError("bbox deve ter 4 valores: min_lon,min_lat,max_lon,max_lat")
+    return vals
+
+
+def _bbox_from_geojson_file(path):
+    with open(path, 'r', encoding='utf-8') as f:
+        gj = json.load(f)
+    xs, ys = [], []
+
+    def walk(c):
+        if isinstance(c, (list, tuple)) and c and isinstance(c[0], (int, float)):
+            xs.append(float(c[0]))
+            ys.append(float(c[1]))
+        elif isinstance(c, (list, tuple)):
+            for sub in c:
+                walk(sub)
+
+    feats = gj.get('features') if gj.get('type') == 'FeatureCollection' else [gj]
+    for ft in feats:
+        geom = ft.get('geometry', ft) if isinstance(ft, dict) else None
+        if geom:
+            walk(geom.get('coordinates', []))
+    if not xs:
+        raise ValueError("GeoJSON sem coordenadas: %s" % path)
+    return [min(xs), min(ys), max(xs), max(ys)]
+
+
+def _resolve_bbox(p):
+    if p.get('geojson_file'):
+        if not os.path.exists(p['geojson_file']):
+            raise ValueError("Arquivo GeoJSON da AOI nao encontrado: %s" % p['geojson_file'])
+        return _bbox_from_geojson_file(p['geojson_file'])
+    bbox = _parse_bbox(p.get('bbox'))
+    if not bbox:
+        raise ValueError("Filtro espacial obrigatorio: informe bbox ou geojson_file.")
+    return bbox
+
+
+def src_sources_info(p):
+    import xyz_core
+    import stac_core
+    return {
+        'success': True,
+        'providers': dict((k, {'label': v['label'], 'max_zoom': v['max_zoom'],
+                               'tos_warning': v['tos_warning'], 'attribution': v['attribution']})
+                          for k, v in xyz_core.PROVIDERS.items()),
+        'collections': dict((k, {'label': v['label'], 'res': v['res'],
+                                 'modes': stac_core.available_modes(k)})
+                            for k, v in stac_core.COLLECTIONS.items()),
+        'modes': stac_core.MODES,
+        'gdal': xyz_core.HAS_GDAL, 'pil': xyz_core.HAS_PIL,
+    }
+
+
+def src_xyz_estimate(p):
+    import tilemath
+    return dict(tilemath.estimate(_resolve_bbox(p), int(p.get('zoom', 17))), success=True)
+
+
+def src_xyz_download(p):
+    import xyz_core
+    res = xyz_core.download_mosaic(
+        _resolve_bbox(p), int(p.get('zoom', 17)), provider=p.get('provider', 'esri'),
+        out_tif=p.get('out'), workers=int(p.get('workers', 8)),
+        max_tiles=int(p.get('max_tiles', xyz_core.DEFAULT_MAX_TILES)),
+        compression=p.get('compression', 'JPEG'), target_crs=p.get('crs') or None,
+        keep_cache=bool(p.get('keep_cache', False)))
+    return dict(res, success=True)
+
+
+def src_stac_search(p):
+    import stac_core
+    items = stac_core.search(
+        p.get('collections') or p.get('collection'), _resolve_bbox(p),
+        start_date=p.get('start_date'), end_date=p.get('end_date'),
+        max_cloud=p.get('max_cloud'), max_items=int(p.get('max_items', 100)),
+        min_coverage=float(p['min_coverage']) if p.get('min_coverage') not in (None, '') else 0.5)
+    return {'success': True, 'items': items, 'count': len(items)}
+
+
+def src_stac_thumb(p):
+    import stac_core
+    return dict(stac_core.thumbnail(p.get('collection'), p.get('item_id'), out_png=p.get('out'),
+                                    href=p.get('href')), success=True)
+
+
+def src_stac_download(p):
+    import stac_core
+    return dict(stac_core.download(p.get('collection'), p.get('item_id'), _resolve_bbox(p),
+                                   out_tif=p.get('out'), mode=p.get('mode', 'rgb')), success=True)
+
+
+SOURCE_COMMANDS = {
+    'sources_info': src_sources_info,
+    'xyz_estimate': src_xyz_estimate,
+    'xyz_download': src_xyz_download,
+    'stac_search': src_stac_search,
+    'stac_thumb': src_stac_thumb,
+    'stac_download': src_stac_download,
+}
+
+
+def run_source_command(name, params):
+    """Executa um comando de fonte adicional e imprime UMA linha JSON (contrato com a ponte Py2)."""
+    try:
+        result = SOURCE_COMMANDS[name](params)
+    except Exception as e:
+        result = {'success': False, 'message': str(e)}
+    sys.stdout.write(json.dumps(result) + "\n")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    # O GDAL/curl pode manter threads que travam o encerramento normal do interpretador
+    # (observado com /vsicurl/). Todo o resultado ja foi entregue: encerrar imediatamente.
+    os._exit(0 if result.get('success') else 1)
+
 
 def main():
     parser = argparse.ArgumentParser(description="GEE CLI Backend para ArcGIS")
@@ -219,6 +359,9 @@ def main():
         cmd_name = data.get("command")
         if not cmd_name and len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
             cmd_name = sys.argv[1]
+        if cmd_name in SOURCE_COMMANDS:
+            run_source_command(cmd_name, data)
+            return
         
         cli_tokens = [cmd_name] if cmd_name else []
         for k, v in data.items():
