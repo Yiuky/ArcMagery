@@ -12,7 +12,7 @@ rodar os testes.
   real, de uma entrada no checklist manual (seção **V**).
 - Prioridade: **P0** (bloqueia uso/segurança) · **P1** (resultado errado ou travamento) ·
   **P2** (robustez e experiência) · **P3** (melhoria e refatoração).
-- Estado de referência: v2.1.0, branch `feature/arcmagery-2.0`, 2026-09-28.
+- Estado de referência: v2.2.0, branch `feature/arcmagery-2.0`, 2026-09-28.
 
 ---
 
@@ -24,6 +24,7 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | ID | Verificar no ArcMap | Arquivos |
 |---|---|---|
 | V-01 | Barra **Fonte de imagens**: alternar GEE ↔ CBERS adapta a janela; o botão **Google Earth / Mosaicos XYZ...** abre uma única janela | `gee_gui.on_source_changed`, `on_open_extra_sources` |
+| V-11 | Carregar uma imagem multibanda (ex.: CBERS multibanda, S2 B8-B4-B3) e uma de 1 banda (NDVI): Properties › Symbology mostra RGB Composite com as bandas pedidas / Stretched, com o Stretch e a origem das estatísticas das Configurações | `arcmagery_symbology.py`, `gee_bridge.load_into_toc` |
 | V-10 | CBERS pela janela principal: buscar, ver a **Miniatura**, carregar 2 cenas (fila) e usar **Substituir no TOC** numa camada CBERS | `gee_gui`, `arcmagery_inpe.py` |
 | V-02 | Mosaico Google/Esri entra no TOC no grupo `ArcMagery - Google Earth / XYZ`, em RGB e na posição correta sobre uma camada de referência | `arcmagery_sources_gui.py`, `gee_bridge.load_into_toc` |
 | V-03 | CBERS multibanda entra com `rgb_bands=[2,1,0]` (cor natural) e a pancromática entra em tons de cinza | `gee_bridge._rgb_override` |
@@ -55,11 +56,11 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
   3. **CBERS / Sentinel / Landsat:** já datados por cena (INPE e GEE).
   4. Imagens comerciais datadas (Maxar/Airbus) apenas via licença ou API oficial.
 
-### U-01 · Publicar a primeira GitHub Release verificável (v2.1.0)
+### U-01 · Publicar a primeira GitHub Release verificável (v2.2.0)
 - **Status:** ABERTO (ação do mantenedor)
 - **Problema:** desde a v2.0 o atualizador só instala sem confirmação a partir de uma Release com `SHA256SUMS.txt`. Hoje o repositório **não tem Releases**, então todo usuário verá o aviso "Atualização sem verificação".
-- **Como fazer:** `python build_release.py`, depois `gh release create v2.1.0 dist/ArcMagery-2.1.0.zip dist/SHA256SUMS.txt --title "ArcMagery v2.1.0" --notes-file CHANGELOG.md`.
-- **Aceite:** `gee_updater.fetch_latest_release()` retorna `version=2.1.0` com `zip_url` e `sums_url`.
+- **Como fazer:** `python build_release.py`, depois `gh release create v2.2.0 dist/ArcMagery-2.2.0.zip dist/SHA256SUMS.txt --title "ArcMagery v2.2.0" --notes-file CHANGELOG.md`.
+- **Aceite:** `gee_updater.fetch_latest_release()` retorna `version=2.2.0` com `zip_url` e `sums_url`.
 
 ### U-02 · O script gerado pelo atualizador encerra TODOS os `pythonw.exe`
 - **Status:** ABERTO
@@ -142,6 +143,7 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | B-07 | Tiles temporários do GEE não são removidos em caso de falha; `tempfile.mktemp` | `gee_core.download_geotiff` | `try/finally` + `mkstemp` |
 | U-05 | O passo 7 do atualizador (sincronizar repositório de desenvolvimento) sobrescreve edições locais no canal ZIP | `gee_updater` (template) | Remover: o atualizador não deve mexer no repositório |
 | U-06 | `desinstalar.bat`: `rd /s /q` sem checar erro nem se o ArcMap está aberto | `desinstalar.bat` | Mesmo padrão do `install.bat` v2.0 |
+| N-10 | Percent Clip: percentuais por camada não são expostos pelo ArcObjects 10.8 (vale o padrão do ArcMap). Avaliar se `IRasterDefaultsEnv7.MinPercent/MaxPercent` deve ser ajustado pelo plugin (altera um padrão global do usuário) | `arcmagery_symbology.py` | Decisão do mantenedor |
 | N-07 | Rede com inspeção SSL que não confia no bundle do Windows: não há opção de CA na interface | `stac_core.configure_gdal_http` | Campo "CA bundle (.pem)" nas Configurações → `GDAL_CURL_CA_BUNDLE` |
 
 ---
@@ -182,6 +184,8 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | C-12 | 2.0.0 | Nova fonte CBERS / Amazônia-1 (STAC INPE), com cobertura real da AOI | `tests/backend/test_stac_core.py` |
 | C-13 | 2.0.0 | `gdal.Unlink` no `finally` mascarava o erro real do recorte CBERS | `test_stac_core.py::test_aoi_outside_raster` |
 | C-16 | 2.0.0 | Versão do pacote ZIP lida como "Desconhecida" (namespace do config.xml), o que anulava o bloqueio de downgrade | `test_updater_security.py::RealZipValidationTest` |
+| C-19 | 2.2.0 | Simbologia garantida: bandas RGB + Stretch aplicados, relidos e conferidos; camada localizada pelo caminho exato (e 8.3); aviso quando não garantida; botões Composição/Forçar RGB/Garantir Stretch removidos | `tests/arcmap/test_symbology.py` |
+| C-20 | 2.2.0 | "Aplicar stretch" das Configurações redefinia as bandas para 1-2-3; salvar Configurações apagava as demais opções | `test_symbology.py::test_restretch_preserves_band_combination` |
 | C-17 | 2.1.0 | CBERS/Amazônia-1 integrado à janela principal (barra *Fonte de imagens*, tabela, fila, TOC) e botão Miniatura | `tests/arcmap/test_inpe_integration.py` |
 | C-18 | 1.12 | Duplo clique não enfileira a mesma cena duas vezes (filtro por `queued_ids`/`current_downloading_ids`, reconferido) | — |
 | C-14 | 1.12 | Troca de sensor durante a busca (token de geração) e limpeza do campo de bandas ao trocar de sensor | Já estavam na v1.12 (reconferido) |

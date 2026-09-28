@@ -1239,6 +1239,16 @@ def resolve_rgb_band_indices(sensor, comp_code, custom_bands=None, band_count=No
     return (0, 1 if bc > 1 else 0, 2 if bc > 2 else 0)
 
 def apply_stretch_and_stats(lyr_file_path, settings=None, rgb_bands=None):
+    """Aplica bandas RGB + Stretch/Estatisticas a um .lyr e CONFERE relendo do disco
+    (motor arcmagery_symbology). Retorna True/False; o motivo da falha vai para o log."""
+    if not settings:
+        settings = load_plugin_settings()
+    warning = _prepare_layer_symbology(lyr_file_path, settings, rgb_bands)
+    return not warning
+
+
+def _legacy_apply_stretch_and_stats(lyr_file_path, settings=None, rgb_bands=None):
+    # [Obsoleto] Implementacao anterior, sem verificacao. Mantida apenas como referencia.
     """Aplica configuracoes de Stretch (Standard Deviations, Percent Clip, etc) 
     e Statistics (AreaOfView / Display Extent) ao arquivo de camada .lyr via ArcObjects.
     Garante que rasters com 3 ou mais bandas utilizem IRasterRGBRenderer (RGB Composite)."""
@@ -1819,6 +1829,33 @@ def _rgb_override(rgb_bands):
         pass
     return None
 
+SYMBOLOGY_WARNING_PREFIX = u"ATENÇÃO"
+
+def _prepare_layer_symbology(lyr_path, settings, rgb_indices):
+    """Grava bandas RGB + Stretch no .lyr e confere relendo do disco. Retorna aviso ('' se ok)."""
+    try:
+        import arcmagery_symbology as symbology
+        symbology.apply_to_layer_file(lyr_path, settings, rgb_bands=rgb_indices)
+        return u""
+    except Exception as e:
+        _log_debug("_prepare_layer_symbology: %s" % e)
+        return unicode(e) if not isinstance(e, unicode) else e
+
+def _ensure_live_symbology(tif_path, settings, rgb_indices, layer_name, previous_warning=u"", focus_map=None):
+    """Confere a camada viva (e corrige se preciso). Retorna o texto de retorno para a GUI:
+    ' | Simbologia conferida (...)' ou ' | ATENÇÃO: ...' quando nao foi possivel garantir."""
+    try:
+        import arcmagery_symbology as symbology
+        ok, msg, _states = symbology.ensure_layer_symbology(tif_path, settings, rgb_bands=rgb_indices,
+                                                            layer_name=layer_name, focus_map=focus_map)
+    except Exception as e:
+        ok, msg = False, u"Simbologia não pôde ser verificada: %s" % e
+    _log_debug("_ensure_live_symbology(%s): %s %s" % (layer_name, ok, msg))
+    if ok:
+        return u" | " + msg
+    detail = msg if not previous_warning else u"%s | %s" % (previous_warning, msg)
+    return u" | %s: %s" % (SYMBOLOGY_WARNING_PREFIX, detail)
+
 def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_code=None, sensor=None, custom_bands=None, rgb_bands=None):
     """Adiciona o arquivo GeoTIFF baixado diretamente no TOC do ArcMap sem duplicar,
     garantindo que camadas multibanda entrem NATIVAMENTE no modo RGB Composite como padrao."""
@@ -1894,11 +1931,10 @@ def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_c
                 except Exception: pass
 
             # 4. Configurar Stretch e bandas RGB no arquivo de camada (.lyr)
+            rgb_indices = None
             if band_count >= 3:
                 rgb_indices = _rgb_override(rgb_bands) or resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
-                apply_stretch_and_stats(persistent_lyr, settings, rgb_bands=rgb_indices)
-            else:
-                apply_stretch_and_stats(persistent_lyr, settings, rgb_bands=None)
+            symbology_warning = _prepare_layer_symbology(persistent_lyr, settings, rgb_indices)
 
             layer_obj = arcpy.mapping.Layer(persistent_lyr)
             layer_obj.name = layer_name
@@ -1916,22 +1952,8 @@ def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_c
             else:
                 arcpy.mapping.AddLayer(df, layer_obj, "TOP")
 
-            # 6.0 Forcar e Validar Simbologia RGB Composite imediatamente na camada viva do TOC
-            rgb_feedback_msg = ""
-            if band_count >= 3:
-                rgb_indices = _rgb_override(rgb_bands) or resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
-                ok_rgb, msg_rgb = force_single_layer_rgb(
-                    layer_name=layer_name,
-                    rgb_bands=rgb_indices,
-                    settings=settings,
-                    tif_path=tif_path,
-                    group_name=group_name,
-                    comp_code=comp_code,
-                    sensor=sensor,
-                    custom_bands=custom_bands
-                )
-                rgb_feedback_msg = (" | " + msg_rgb) if msg_rgb else ""
-                _log_debug("load_into_toc: force_single_layer_rgb -> %s (%s)" % (str(ok_rgb), msg_rgb))
+            # 6.0 Conferir (e corrigir) bandas + Stretch na camada viva, localizada pelo caminho exato
+            rgb_feedback_msg = _ensure_live_symbology(tif_path, settings, rgb_indices, layer_name, symbology_warning)
 
             # Garantir visibilidade configurada no TOC (inclusive quando inserido em grupo)
             try:
@@ -2055,11 +2077,10 @@ def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=No
                 try: arcpy.Delete_management(temp_lyr_name)
                 except Exception: pass
 
+            rgb_indices = None
             if band_count >= 3:
                 rgb_indices = _rgb_override(rgb_bands) or resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
-                apply_stretch_and_stats(persistent_lyr, settings, rgb_bands=rgb_indices)
-            else:
-                apply_stretch_and_stats(persistent_lyr, settings, rgb_bands=None)
+            symbology_warning = _prepare_layer_symbology(persistent_lyr, settings, rgb_indices)
 
             target_visible = getattr(target_lyr, 'visible', True)
             new_obj = arcpy.mapping.Layer(persistent_lyr)
@@ -2069,21 +2090,8 @@ def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=No
             arcpy.mapping.InsertLayer(df, target_lyr, new_obj, "BEFORE")
             arcpy.mapping.RemoveLayer(df, target_lyr)
 
-            # Forcar e Validar Simbologia RGB Composite imediatamente apos substituicao
-            rgb_feedback_msg = ""
-            if band_count >= 3:
-                rgb_indices = _rgb_override(rgb_bands) or resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
-                ok_rgb, msg_rgb = force_single_layer_rgb(
-                    layer_name=new_layer_name,
-                    rgb_bands=rgb_indices,
-                    settings=settings,
-                    tif_path=tif_path,
-                    comp_code=comp_code,
-                    sensor=sensor,
-                    custom_bands=custom_bands
-                )
-                rgb_feedback_msg = (" | " + msg_rgb) if msg_rgb else ""
-                _log_debug("replace_in_toc: force_single_layer_rgb -> %s (%s)" % (str(ok_rgb), msg_rgb))
+            # Conferir (e corrigir) bandas + Stretch na camada nova, localizada pelo caminho exato
+            rgb_feedback_msg = _ensure_live_symbology(tif_path, settings, rgb_indices, new_layer_name, symbology_warning)
 
             try:
                 for lyr in arcpy.mapping.ListLayers(mxd, "", df):
@@ -2211,6 +2219,23 @@ def apply_stretch_to_toc_layer(target_layer_name=None, settings=None):
         rasters_to_update = resolve_target_raster_layers(mxd, df, target_layer_name)
         if not rasters_to_update:
             return False, u"Nenhuma camada raster compatível encontrada no TOC para o alvo especificado."
+
+        # Motor verificado: reaplica o Stretch mantendo as bandas RGB atuais de cada camada
+        try:
+            import arcmagery_symbology as symbology
+            paths = [getattr(l, 'dataSource', None) for l in rasters_to_update]
+            updated, problems = symbology.restretch_layers(settings, only_paths=[p for p in paths if p])
+            arcpy.RefreshTOC()
+            arcpy.RefreshActiveView()
+            st_name = settings.get('stretch_type', 'Standard Deviations')
+            stats_type = settings.get('statistics_type', 'From Current Display Extent')
+            msg = u"Stretch '%s' (estatísticas: %s) conferido em %d camada(s), bandas preservadas." % (
+                st_name, stats_type, updated)
+            if problems:
+                return False, msg + u" Problemas: " + u" | ".join(problems[:5])
+            return True, msg
+        except Exception as e_sym:
+            _log_debug("apply_stretch_to_toc_layer: motor de simbologia indisponivel (%s); usando legado" % e_sym)
 
         prev_add = arcpy.env.addOutputsToMap
         arcpy.env.addOutputsToMap = False

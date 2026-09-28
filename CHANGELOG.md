@@ -4,6 +4,24 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.2.0] - 2026-09-28
+
+### 🛡️ Simbologia garantida na carga
+- **Novo motor `arcmagery_symbology.py`:** o renderer é montado de uma vez (RGB Composite com as bandas escolhidas, ou Stretched para uma banda), com tipo de stretch, nº de desvios padrão e origem das estatísticas (DRA). O `.lyr` é gravado e **relido do disco** para conferir cada propriedade, incluindo o stretch.
+- **Camada viva localizada pelo caminho exato do arquivo** (`IRasterLayer.FilePath`), com expansão de nomes curtos 8.3 do `%TEMP%`. Antes era por nome aproximado, e a simbologia podia cair numa camada anterior de nome parecido; essa era a causa provável do *"às vezes o stretch falha"*. A camada é conferida depois da inserção e corrigida se preciso.
+- Rasters de **uma banda** (índices, pancromática) agora também têm stretch aplicado e conferido.
+- Quando a simbologia não pode ser garantida (ex.: `comtypes` ausente), o usuário recebe **aviso** em vez de sucesso silencioso.
+- **Configurações › Aplicar e garantir stretch** preserva a combinação de bandas de cada camada; antes redefinia para 1-2-3.
+- **Configurações:** salvar ou aplicar não apaga mais outras opções (Python 3 escolhido, pasta de saída, aceite dos Termos de Uso).
+
+### ♻️ Removido
+- Botões **Composição**, **Forçar RGB** e **Garantir Stretch** da janela principal: a carga já entra composta e com stretch conferido.
+
+### 🧪 Testes
+- `tests/arcmap/test_symbology.py` exercita o **ArcObjects real** fora do ArcMap: `.lyr` → inserção num `.mxd` com `arcpy.mapping` → leitura via COM. Cobre todos os tipos de stretch, uma banda, correção da camada certa sem tocar vizinhas de nome parecido, caminho 8.3 e preservação de bandas.
+
+---
+
 ## [2.1.0] - 2026-09-28
 
 ### 🌟 Aprimorado

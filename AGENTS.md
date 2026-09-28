@@ -42,6 +42,7 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
 | `arcgis_addin/Install/gee_gui.py` | 2.7 | Janela principal (GEE), configurações, atualizador. **Arquivo com CRLF** |
 | `arcgis_addin/Install/arcmagery_sources_gui.py` | 2.7 | Janela Google Earth / Mosaicos XYZ |
 | `arcgis_addin/Install/arcmagery_inpe.py` | 2.7 | CBERS/Amazônia-1 na janela principal: coleções como "sensores" `INPE:<coleção>`, produtos, busca/recorte/miniatura via backend |
+| `arcgis_addin/Install/arcmagery_symbology.py` | 2.7 | Simbologia garantida (ArcObjects/comtypes): monta, grava, relê e confere bandas RGB + Stretch; localiza camadas pelo caminho exato |
 | `arcgis_addin/Install/gee_updater.py` | 2.7/3 | Atualização (Release + SHA256SUMS, backup, staging, rollback) |
 | `arcgis_addin/Install/backend/` | 3 | **Fonte única** do backend (não existe mais `backend/` na raiz) |
 | `backend/tilemath.py` | **2.7 e 3** | Matemática XYZ usada pelo backend e pela interface. Sem dependências |
@@ -68,6 +69,9 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
 - **CBERS:** recorte por `srcWin` em pixels inteiros (grade nativa, sem reamostragem). Rejeite
   recortes 100% NoData. O footprint real vem de `coverage_pct`, porque o servidor do INPE trata
   `intersects` como bbox.
+- **Simbologia:** nunca aplique renderer "no escuro". Use `arcmagery_symbology` (construct → save → reler →
+  `compare`) e localize camadas por `IRasterLayer.FilePath` (via `normalize_path`, que expande 8.3),
+  nunca por nome. O ArcObjects pode ser testado fora do ArcMap (ver `tests/arcmap/test_symbology.py`).
 - Mensagens para o usuário em **português**. Ao editar arquivos CRLF, preserve o fim de linha.
 - Termos de Uso: Google/Bing exigem o aviso (`TOS_TEXT`) antes do primeiro download.
 - **Fonte ativa na janela principal:** `var_source` (`gee` | `inpe`). Os códigos de sensor do INPE

@@ -442,6 +442,7 @@ class GEESettingsDialog(object):
                 'aoi_buffer_meters': _safe_float(self.var_aoi_buffer.get(), 1000.0),
                 'load_layer_visible': bool(self.var_layer_visible.get())
             }
+            new_settings = dict(gee_bridge.load_plugin_settings(), **new_settings)
             gee_bridge.save_plugin_settings(new_settings)
             if hasattr(self.parent, 'settings'):
                 self.parent.settings = new_settings
@@ -465,6 +466,7 @@ class GEESettingsDialog(object):
                 'aoi_buffer_meters': _safe_float(self.var_aoi_buffer.get(), 1000.0),
                 'load_layer_visible': bool(self.var_layer_visible.get())
             }
+            new_settings = dict(gee_bridge.load_plugin_settings(), **new_settings)
             if gee_bridge.save_plugin_settings(new_settings):
                 if hasattr(self.parent, 'settings'):
                     self.parent.settings = new_settings
@@ -545,7 +547,7 @@ class GEEAboutDialog(object):
         info_frame.pack(fill=tk.X, pady=(0, 10))
 
         info_text = (
-            u"• Versão: v2.1.0 (ArcMagery: GEE e CBERS/INPE na janela principal, Google Earth / XYZ)\n"
+            u"• Versão: v2.2.0 (ArcMagery: GEE, CBERS/INPE e Google Earth / XYZ, simbologia garantida)\n"
             u"• Organização: Coordenadoria de Geoprocessamento e Monitoramento Ambiental\n"
             u"  Secretaria de Estado de Meio Ambiente de Mato Grosso (CGMA / SEMA-MT)\n"
             u"• Desenvolvedor: Joberth Firmino Gambati\n"
@@ -923,7 +925,7 @@ class GEEUpdaterDialog(object):
         threading.Thread(target=worker).start()
 
 
-CURRENT_VERSION = "2.1.0"
+CURRENT_VERSION = "2.2.0"
 APP_NAME = u"ArcMagery"
 APP_WINDOW_TITLE = u"ArcMagery (ArcGIS 10.8)  |  v" + CURRENT_VERSION
 
@@ -1393,17 +1395,6 @@ class GEEPluginWindow(object):
             if hasattr(self, 'btn_thumb'):
                 self.btn_thumb.config(state=tk.NORMAL if count == 1 else tk.DISABLED)
 
-            # 6. Botoes de Acao (Camada / Grupo / Todo o TOC)
-            # (composicoes GEE nao se aplicam a produtos do INPE)
-            if hasattr(self, 'btn_apply_comp_toc'):
-                comp_ok = has_toc_raster and not is_dl and not self.is_inpe_source()
-                self.btn_apply_comp_toc.config(state=tk.NORMAL if comp_ok else tk.DISABLED)
-
-            if hasattr(self, 'btn_force_rgb'):
-                self.btn_force_rgb.config(state=tk.NORMAL if (has_toc_raster and not is_dl) else tk.DISABLED)
-
-            if hasattr(self, 'btn_apply_stretch'):
-                self.btn_apply_stretch.config(state=tk.NORMAL if has_toc_raster else tk.DISABLED)
 
         except Exception as e:
             print("Erro ao atualizar estado dos botoes:", e)
@@ -1877,7 +1868,7 @@ class GEEPluginWindow(object):
         self.txt_group_name.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # Mapeamento e Operacoes de Camadas no TOC
-        replace_box = ttk.LabelFrame(info_actions, text=u" Gerenciamento e Alvo no TOC ", padding=(4, 3))
+        replace_box = ttk.LabelFrame(info_actions, text=u" Substituir camada existente no TOC ", padding=(4, 3))
         replace_box.pack(anchor=tk.W, fill=tk.X, pady=(2, 4))
 
         row_cbo = ttk.Frame(replace_box)
@@ -1897,27 +1888,8 @@ class GEEPluginWindow(object):
             command=self.on_replace_selected_background
         )
         self.btn_replace_toc.pack(side=tk.LEFT, padx=(0, 4))
-
-        self.btn_apply_comp_toc = ttk.Button(
-            row_btns,
-            text=u"🎨 [ Composição ]",
-            command=self.on_apply_comp_to_toc_layer
-        )
-        self.btn_apply_comp_toc.pack(side=tk.LEFT, padx=(0, 4))
-
-        self.btn_force_rgb = ttk.Button(
-            row_btns,
-            text=u"🌈 [ Forçar RGB ]",
-            command=self.on_force_rgb_to_toc
-        )
-        self.btn_force_rgb.pack(side=tk.LEFT, padx=(0, 4))
-
-        self.btn_apply_stretch = ttk.Button(
-            row_btns,
-            text=u"⚡ [ Garantir Stretch ]",
-            command=self.on_apply_stretch_to_toc
-        )
-        self.btn_apply_stretch.pack(side=tk.LEFT)
+        ttk.Label(row_btns, text=u"(bandas e stretch são aplicados e conferidos automaticamente na carga)",
+                  font=("Segoe UI", 8), foreground="#566573").pack(side=tk.LEFT, padx=(6, 0))
 
         # Botoes de Acao Principais
         btn_bar = ttk.Frame(info_actions)
@@ -2692,216 +2664,6 @@ class GEEPluginWindow(object):
         t.daemon = True
         t.start()
 
-    def on_apply_comp_to_toc_layer(self):
-        """Aplica a composicao de bandas selecionada na combobox diretamente no alvo selecionado (camada, grupo ou todo o TOC)"""
-        target_layer = self.cbo_toc_rasters.get().strip()
-        if not target_layer or target_layer in ("Nenhuma camada raster no TOC", "Nenhuma camada encontrada"):
-            messagebox.showwarning("Aviso", "Selecione qual alvo do TOC você deseja alterar na lista ao lado.", parent=self.root)
-            return
-
-        sensor = self.get_selected_sensor_code()
-        comp = self.get_selected_composition_code()
-
-        r_layers = self.arcmap_context.get('raster_layers', [])
-        target_rasters = gee_bridge.resolve_layer_names(target_layer, r_layers)
-        if not target_rasters:
-            messagebox.showwarning("Aviso", u"Nenhuma camada raster correspondente encontrada para '%s'." % target_layer, parent=self.root)
-            return
-
-        total = len(target_rasters)
-        if target_layer.startswith("[Todo o TOC]"):
-            desc = u"em todo o TOC (%d camada%s)" % (total, "s" if total > 1 else "")
-        elif target_layer.startswith("[Grupo]"):
-            desc = u"no grupo '%s' (%d camada%s)" % (target_layer.replace("[Grupo]", "").strip(), total, "s" if total > 1 else "")
-        else:
-            desc = u"na camada '%s'" % target_layer
-
-        self.set_progress(10, u"Alterando composição para %s %s..." % (comp, desc))
-        self.btn_apply_comp_toc.config(state=tk.DISABLED)
-
-        def worker():
-            success_count = 0
-            errors = []
-            try:
-                for idx, r_name in enumerate(target_rasters):
-                    pct = int(10 + (float(idx) / float(total)) * 80)
-                    leaf = r_name.split('\\')[-1]
-                    self.post_to_gui(lambda p=pct, l=leaf: self.set_progress(p, u"Aplicando %s em '%s'..." % (comp, l)))
-
-                    rep = gee_bridge.send_arcmap_command({
-                        'action': 'change_composition',
-                        'target_layer': r_name,
-                        'comp': comp,
-                        'sensor': sensor
-                    }, timeout=60)
-
-                    if rep.get('success'):
-                        success_count += 1
-                    else:
-                        errors.append(leaf + u": " + rep.get('message', u'Falha'))
-
-                def finish():
-                    if success_count > 0:
-                        self.set_progress(100, u"Composição alterada com sucesso!")
-                        msg = u"Composição '%s' aplicada em %d camada(s) [%s]!" % (comp, success_count, desc)
-                        if errors:
-                            msg += u"\n\nAvisos:\n" + u"\n".join(errors[:3])
-                        messagebox.showinfo("Sucesso", msg, parent=self.root)
-                    else:
-                        err_m = u"; ".join(errors[:3]) if errors else u"Falha ao alterar composição"
-                        self.set_progress(0, "Falha: " + err_m[:50])
-                        messagebox.showwarning("Aviso ArcMap", "ArcMap retornou: " + err_m, parent=self.root)
-
-                self.post_to_gui(finish)
-            except Exception as ex:
-                def on_err():
-                    self.set_progress(0, "Erro: " + str(ex)[:50])
-                    messagebox.showerror("Erro", str(ex), parent=self.root)
-                self.post_to_gui(on_err)
-            finally:
-                self.post_to_gui(self.update_action_buttons_state)
-
-        t = threading.Thread(target=worker)
-        t.daemon = True
-        t.start()
-
-    def on_apply_stretch_to_toc(self):
-        """Garante e aplica as configurações ativas de Stretch e DRA nas camadas raster do ArcMap (camada, grupo ou todo o TOC)"""
-        target_layer = self.cbo_toc_rasters.get().strip() if hasattr(self, 'cbo_toc_rasters') else ""
-        if not target_layer or target_layer in ("Nenhuma camada raster no TOC", "Nenhuma camada encontrada"):
-            target_layer = None
-
-        r_layers = self.arcmap_context.get('raster_layers', [])
-        target_rasters = gee_bridge.resolve_layer_names(target_layer, r_layers)
-        if not target_rasters:
-            messagebox.showwarning("Aviso", u"Nenhuma camada raster compatível encontrada no TOC.", parent=self.root)
-            return
-
-        total = len(target_rasters)
-        if not target_layer or target_layer.startswith("[Todo o TOC]"):
-            desc = u"em todo o TOC (%d camada%s)" % (total, "s" if total > 1 else "")
-        elif target_layer.startswith("[Grupo]"):
-            desc = u"no grupo '%s' (%d camada%s)" % (target_layer.replace("[Grupo]", "").strip(), total, "s" if total > 1 else "")
-        else:
-            desc = u"na camada '%s'" % target_layer
-
-        self.set_progress(10, u"Aplicando e garantindo configurações de stretch %s..." % desc)
-        if hasattr(self, 'btn_apply_stretch'):
-            self.btn_apply_stretch.config(state=tk.DISABLED)
-
-        def worker():
-            success_count = 0
-            errors = []
-            try:
-                for idx, r_name in enumerate(target_rasters):
-                    pct = int(10 + (float(idx) / float(total)) * 80)
-                    leaf = r_name.split('\\')[-1]
-                    self.post_to_gui(lambda p=pct, l=leaf: self.set_progress(p, u"Aplicando Stretch em '%s'..." % l))
-
-                    rep = gee_bridge.apply_stretch(r_name, settings=self.settings, timeout=60)
-                    if rep.get('success'):
-                        success_count += 1
-                    else:
-                        errors.append(leaf + u": " + rep.get('message', u'Falha'))
-
-                def finish():
-                    if success_count > 0:
-                        msg = u"Configurações de stretch garantidas com sucesso em %d camada(s) [%s]!" % (success_count, desc)
-                        if errors:
-                            msg += u"\n\nAvisos:\n" + u"\n".join(errors[:3])
-                        self.set_progress(100, msg)
-                        messagebox.showinfo(u"Stretch Garantido", msg, parent=self.root)
-                    else:
-                        err_m = u"; ".join(errors[:3]) if errors else u'Falha ao aplicar stretch.'
-                        self.set_progress(0, u"Aviso: " + err_m[:50])
-                        messagebox.showwarning(u"Aviso ArcMap", err_m, parent=self.root)
-                self.post_to_gui(finish)
-            except Exception as ex:
-                def on_err():
-                    self.set_progress(0, u"Erro: " + str(ex)[:50])
-                    messagebox.showerror(u"Erro", str(ex), parent=self.root)
-                self.post_to_gui(on_err)
-            finally:
-                self.post_to_gui(self.update_action_buttons_state)
-
-        t = threading.Thread(target=worker)
-        t.daemon = True
-        t.start()
-
-    def on_force_rgb_to_toc(self):
-        """Força a alteração de simbologia para 'RGB Composite' (camada, grupo ou todo o TOC)"""
-        target_layer = self.cbo_toc_rasters.get().strip() if hasattr(self, 'cbo_toc_rasters') else ""
-        if not target_layer or target_layer in ("Nenhuma camada raster no TOC", "Nenhuma camada encontrada"):
-            target_layer = None
-
-        r_layers = self.arcmap_context.get('raster_layers', [])
-        target_rasters = gee_bridge.resolve_layer_names(target_layer, r_layers)
-        if not target_rasters:
-            messagebox.showwarning("Aviso", u"Nenhuma camada raster compatível encontrada no TOC.", parent=self.root)
-            return
-
-        total = len(target_rasters)
-        if not target_layer or target_layer.startswith("[Todo o TOC]"):
-            desc = u"em todo o TOC (%d camada%s)" % (total, "s" if total > 1 else "")
-        elif target_layer.startswith("[Grupo]"):
-            desc = u"no grupo '%s' (%d camada%s)" % (target_layer.replace("[Grupo]", "").strip(), total, "s" if total > 1 else "")
-        else:
-            desc = u"na camada '%s'" % target_layer
-
-        self.set_progress(10, u"Forçando e validando simbologia RGB Composite %s..." % desc)
-        if hasattr(self, 'btn_force_rgb'):
-            self.btn_force_rgb.config(state=tk.DISABLED)
-
-        sensor = self.get_selected_sensor_code()
-        comp = self.get_selected_composition_code()
-        custom_bands = self.txt_custom_bands.get().strip() if hasattr(self, 'txt_custom_bands') else None
-
-        def worker():
-            success_count = 0
-            errors = []
-            try:
-                for idx, r_name in enumerate(target_rasters):
-                    pct = int(10 + (float(idx) / float(total)) * 80)
-                    leaf = r_name.split('\\')[-1]
-                    self.post_to_gui(lambda p=pct, l=leaf: self.set_progress(p, u"Validando RGB em '%s'..." % l))
-
-                    rep = gee_bridge.force_rgb_composite(
-                        layer_name=r_name,
-                        sensor=sensor,
-                        comp=comp,
-                        custom_bands=custom_bands,
-                        settings=self.settings,
-                        timeout=60
-                    )
-                    if rep.get('success'):
-                        success_count += 1
-                    else:
-                        errors.append(leaf + u": " + rep.get('message', u'Falha'))
-
-                def finish():
-                    if success_count > 0:
-                        msg = u"Simbologia corrigida com sucesso para RGB Composite em %d camada(s) [%s]!" % (success_count, desc)
-                        if errors:
-                            msg += u"\n\nAvisos:\n" + u"\n".join(errors[:3])
-                        self.set_progress(100, msg)
-                        messagebox.showinfo(u"RGB Composite Validado", msg, parent=self.root)
-                    else:
-                        err_m = u"; ".join(errors[:3]) if errors else u"Erro ao corrigir simbologia."
-                        self.set_progress(0, u"Aviso: " + err_m[:50])
-                        messagebox.showwarning(u"Aviso ArcMap", err_m, parent=self.root)
-                self.post_to_gui(finish)
-            except Exception as ex:
-                def on_err():
-                    self.set_progress(0, u"Erro: " + str(ex)[:50])
-                    messagebox.showerror(u"Erro", str(ex), parent=self.root)
-                self.post_to_gui(on_err)
-            finally:
-                self.post_to_gui(self.update_action_buttons_state)
-
-        t = threading.Thread(target=worker)
-        t.daemon = True
-        t.start()
-
     def _enqueue_download_task(self, image_ids, bbox, replace_map=None, auto_zoom=False):
         if replace_map is None:
             replace_map = {}
@@ -3100,6 +2862,19 @@ class GEEPluginWindow(object):
 
             self.post_to_gui(finish_queue)
 
+    def _warn_if_symbology_not_guaranteed(self, rep, layer_title):
+        """load_layer/replace_layer retornam sucesso mesmo se bandas/stretch nao puderem ser
+        garantidos; nesse caso a mensagem traz o prefixo de aviso e o usuario e informado."""
+        msg = rep.get('message') or u''
+        if not isinstance(msg, unicode):
+            msg = unicode(msg, 'utf-8', 'replace')
+        if getattr(gee_bridge, 'SYMBOLOGY_WARNING_PREFIX', u'ATENÇÃO') in msg:
+            detail = msg.split(u' | ', 1)[-1]
+            self.post_to_gui(lambda: messagebox.showwarning(
+                u"Simbologia", u"A camada '%s' foi carregada, mas:\n\n%s" % (layer_title, detail), parent=self.root))
+            return True
+        return False
+
     def _download_any(self, img_id, sensor, comp, out_tif, custom_bands, load_mode, bbox, geojson_file,
                       pixel_size, on_progress=None):
         """Baixa uma cena do GEE ou recorta uma cena do INPE; a resposta traz 'file' (e 'rgb_bands')."""
@@ -3213,6 +2988,7 @@ class GEEPluginWindow(object):
                         }, timeout=120)
 
                     if rep.get('success'):
+                        self._warn_if_symbology_not_guaranteed(rep, layer_title)
                         return True, short_name, None
                     else:
                         return False, short_name, rep.get('message', '')
@@ -3311,6 +3087,7 @@ class GEEPluginWindow(object):
                     if rep.get('success'):
                         loaded_count += 1
                         self.set_row_status(short_name, u"✓ Carregado", tag="loaded")
+                        self._warn_if_symbology_not_guaranteed(rep, layer_title)
                     else:
                         self.set_row_status(short_name, u"Falha", tag="error")
                         err_msg = rep.get('message', '')

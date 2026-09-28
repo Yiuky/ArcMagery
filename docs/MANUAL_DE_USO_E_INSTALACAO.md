@@ -266,8 +266,13 @@ Com uma ou mais imagens selecionadas na grade:
   Baixa a cena selecionada com 100% de resolução nativa (particionando automaticamente se exceder 48 MB), projeta para as coordenadas do mapa e insere o raster na Tabela de Conteúdos (**TOC**) do ArcMap com **renderização nativa RGB Composite** (`IRasterRGBRenderer`), abrindo os canais Red, Green e Blue no TOC.
 * **`[ Substituir no TOC ]`**:
   Atualiza uma camada raster previamente carregada, substituindo seus dados pela nova data sem bagunçar a ordem das camadas no mapa.
-* **`[ Aplicar Composição ]` e `[ ⚡ Garantir Stretch ]`**:
-  Aplica instantaneamente novas combinações de bandas ou restaura o realce dinâmico (DRA) em camadas existentes no TOC sem precisar refazer downloads.
+* **Simbologia garantida na carga (v2.2):** toda imagem entra no TOC exatamente como foi pedida e
+  configurada. Imagens multibanda entram em **RGB Composite com as bandas escolhidas**; imagens de
+  uma banda (índices, pancromática) entram em **Stretched**. O **Stretch** das Configurações
+  (tipo, nº de desvios padrão e origem das estatísticas/DRA) é gravado na camada e **conferido
+  depois de inserida**. Se algo não puder ser garantido, um aviso é exibido; a camada nunca
+  entra "errada em silêncio". Por isso os antigos botões *Composição*, *Forçar RGB* e
+  *Garantir Stretch* foram removidos.
 
 ---
 
@@ -279,7 +284,11 @@ Clique no botão **`[ ⚙ Configurações ]`** no canto superior direito para ac
 1. **Métodos de Realce (Stretch):**
    - **Standard Deviations (Desvio Padrão):** Padrão industrial para sensoriamento remoto (ex: `2.0` desvios padrão).
    - **Dynamic Range Adjustment (DRA):** Realce dinâmico em tempo real ajustado à extensão visível na tela.
-   - **Percent Clip:** Realce cortando extremos de histograma (ex: 2% a 98%).
+   - **Percent Clip:** Realce cortando extremos do histograma. Os percentuais de corte seguem o padrão do
+     ArcMap (*Customize › ArcMap Options › Raster › Raster Dataset*); o ArcObjects 10.8 não permite
+     defini-los por camada.
+   - O botão **Aplicar e Garantir Stretch Atual nas Camadas do ArcMap** reaplica o stretch a todas as
+     camadas raster do mapa, **preservando a combinação de bandas** de cada uma.
    - **Minimum-Maximum:** Distribui o contraste entre os valores absolutos mínimo e máximo.
 2. **Visualização de Camadas no TOC (Novidade v1.7):**
    - **Ativado:** As imagens entram marcadas (`[x]`) e desenhadas no mapa.

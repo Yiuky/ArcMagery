@@ -2,7 +2,7 @@
   <Name>ArcMagery</Name>
   <AddInID>{ceae58c4-c44e-4edd-b8f4-1ba7d13b6b7d}</AddInID>
   <Description>ArcMagery - Imagens de satelite no ArcMap 10.8: Google Earth Engine, Google Earth / mosaicos XYZ e CBERS / Amazonia-1 (STAC INPE).</Description>
-  <Version>2.1.0</Version>
+  <Version>2.2.0</Version>
   <Author>Joberth Gambati</Author>
   <Company>SEMA-MT</Company>
   <Date>28/09/2026</Date>

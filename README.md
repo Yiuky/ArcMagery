@@ -14,7 +14,7 @@
   <a href="https://earthengine.google.com/"><img src="https://img.shields.io/badge/Google%20Earth%20Engine-API-4285F4.svg?logo=googleearthengine&logoColor=white" alt="Google Earth Engine"></a>
   <a href="https://data.inpe.br/stac/browser/"><img src="https://img.shields.io/badge/INPE-STAC%20CBERS-00843D.svg" alt="STAC INPE"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-2.7%20%7C%203.10+-3776AB.svg?logo=python&logoColor=white" alt="Python"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.1.0-28A745.svg" alt="Versão v2.1.0"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.2.0-28A745.svg" alt="Versão v2.2.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License MIT"></a>
 </p>
 
@@ -133,7 +133,7 @@ set ARCMAGERY_GEE_PROJECT=<id>   :: inclui teste real no Earth Engine
 
 ```bat
 python build_release.py
-gh release create v2.1.0 dist\ArcMagery-2.1.0.zip dist\SHA256SUMS.txt --title "ArcMagery v2.1.0" --notes-file CHANGELOG.md
+gh release create v2.2.0 dist\ArcMagery-2.2.0.zip dist\SHA256SUMS.txt --title "ArcMagery v2.2.0" --notes-file CHANGELOG.md
 ```
 
 ---
