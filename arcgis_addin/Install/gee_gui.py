@@ -25,6 +25,11 @@ try:
 except ImportError:
     concurrent = None
 
+try:
+    unicode
+except NameError:
+    unicode = str
+
 class SafeStream(object):
     def __init__(self, log_path=None):
         self.log_path = log_path
@@ -518,7 +523,7 @@ class GEEAboutDialog(object):
 
         lbl_sub = tk.Label(
             title_box,
-            text=u"Google Earth Engine Explorer for ArcGIS Desktop 10.8 (ArcMap)  |  v1.11",
+            text=u"Google Earth Engine Explorer for ArcGIS Desktop 10.8 (ArcMap)  |  v1.12",
             font=("Segoe UI", 9, "italic"),
             fg="#566573"
         )
@@ -539,7 +544,7 @@ class GEEAboutDialog(object):
         info_frame.pack(fill=tk.X, pady=(0, 10))
 
         info_text = (
-            u"• Versão: v1.11 (Correção de Deadlock no Pipe, Busca Acelerada no GEE & Validação Atômica)\n"
+            u"• Versão: v1.12 (Padrão RGB Composite Nativo, Ações Multi-Escopo em Grupos/TOC & Sincronização Dinâmica)\n"
             u"• Organização: Coordenadoria de Geoprocessamento e Monitoramento Ambiental\n"
             u"  Secretaria de Estado de Meio Ambiente de Mato Grosso (CGMA / SEMA-MT)\n"
             u"• Desenvolvedor: Joberth Firmino Gambati\n"
@@ -695,7 +700,7 @@ class GEEUpdaterDialog(object):
 
         lbl_head = tk.Label(
             pad,
-            text=u"Atualização do CGMA ArcGEE Explorer (v1.11)",
+            text=u"Atualização do CGMA ArcGEE Explorer (v1.12)",
             font=("Segoe UI", 12, "bold"),
             fg="#1b4f72"
         )
@@ -894,7 +899,7 @@ class GEEUpdaterDialog(object):
         threading.Thread(target=worker).start()
 
 
-CURRENT_VERSION = "1.11"
+CURRENT_VERSION = "1.12"
 
 SENSOR_METADATA = {
     'S2': {
@@ -1042,7 +1047,7 @@ def normalize_date(d_str):
 class GEEPluginWindow(object):
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title(u"CGMA ArcGEE Explorer (ArcGIS 10.8)  |  v1.11")
+        self.root.title(u"CGMA ArcGEE Explorer (ArcGIS 10.8)  |  v1.12")
         self.root.geometry("1100x740")
         self.root.minsize(960, 640)
         setup_window_icon(self.root)
@@ -1282,10 +1287,14 @@ class GEEPluginWindow(object):
 
             # 3. Verificar raster no TOC
             has_toc_raster = False
+            is_single_layer = False
+            cur_toc = ""
             if hasattr(self, 'cbo_toc_rasters'):
                 cur_toc = self.cbo_toc_rasters.get().strip()
-                if cur_toc and cur_toc not in ("Nenhuma camada raster no TOC", "Nenhuma camada encontrada"):
+                if cur_toc and cur_toc not in (u"Nenhuma camada raster no TOC", u"Nenhuma camada encontrada"):
                     has_toc_raster = True
+                    if not cur_toc.startswith(u"[Todo o TOC]") and not cur_toc.startswith(u"[Grupo]"):
+                        is_single_layer = True
 
             is_dl = getattr(self, 'is_downloading', False)
 
@@ -1302,20 +1311,20 @@ class GEEPluginWindow(object):
                         state=tk.NORMAL if count >= 1 else tk.DISABLED
                     )
 
-            # 5. Botao Substituir no TOC
+            # 5. Botao Substituir no TOC (apenas camada individual)
             if hasattr(self, 'btn_replace_toc'):
                 if is_dl:
                     self.btn_replace_toc.config(
                         text=u"[ + Enfileirar Substituição ]",
-                        state=tk.NORMAL if (count == 1 and has_toc_raster) else tk.DISABLED
+                        state=tk.NORMAL if (count == 1 and is_single_layer) else tk.DISABLED
                     )
                 else:
                     self.btn_replace_toc.config(
                         text=u"[ Substituir no TOC ]",
-                        state=tk.NORMAL if (count == 1 and has_toc_raster) else tk.DISABLED
+                        state=tk.NORMAL if (count == 1 and is_single_layer) else tk.DISABLED
                     )
 
-            # 6. Outros botoes
+            # 6. Botoes de Acao (Camada / Grupo / Todo o TOC)
             if hasattr(self, 'btn_apply_comp_toc'):
                 self.btn_apply_comp_toc.config(state=tk.NORMAL if (has_toc_raster and not is_dl) else tk.DISABLED)
 
@@ -1323,7 +1332,7 @@ class GEEPluginWindow(object):
                 self.btn_force_rgb.config(state=tk.NORMAL if (has_toc_raster and not is_dl) else tk.DISABLED)
 
             if hasattr(self, 'btn_apply_stretch'):
-                self.btn_apply_stretch.config(state=tk.NORMAL)
+                self.btn_apply_stretch.config(state=tk.NORMAL if has_toc_raster else tk.DISABLED)
 
         except Exception as e:
             print("Erro ao atualizar estado dos botoes:", e)
@@ -1467,18 +1476,29 @@ class GEEPluginWindow(object):
             self.update_map_scale_display()
 
             if new_time != old_time:
-                # Atualizar lista de camadas raster se houver novidades
-                rasters = ctx.get('raster_layers', [])
-                if rasters:
-                    cur = self.cbo_toc_rasters.get()
-                    self.cbo_toc_rasters['values'] = rasters
-                    if not cur or cur not in rasters:
+                # Atualizar lista de alvos (TOC / Grupos / Camadas) se houver novidades
+                r_layers = ctx.get('raster_layers', [])
+                grp_list = ctx.get('groups_with_rasters', [])
+                targets = gee_bridge.build_toc_targets(r_layers, grp_list)
+
+                cur = self.cbo_toc_rasters.get() if hasattr(self, 'cbo_toc_rasters') else ""
+                if hasattr(self, 'cbo_toc_rasters'):
+                    self.cbo_toc_rasters['values'] = targets
+                    sel_target = ctx.get('selected_target')
+                    if sel_target and sel_target in targets and (not cur or cur in (u"Nenhuma camada raster no TOC", u"")):
+                        self.cbo_toc_rasters.set(sel_target)
+                    elif cur and cur in targets:
+                        self.cbo_toc_rasters.set(cur)
+                    elif targets:
                         self.cbo_toc_rasters.current(0)
+                    self.update_action_buttons_state()
+
                 # Atualizar camadas vetoriais
                 vectors = ctx.get('vector_layers', [])
-                if vectors and (not self.cbo_layers['values'] or self.cbo_layers['values'][0] == "Nenhuma camada encontrada"):
-                    self.cbo_layers['values'] = vectors
-                    self.cbo_layers.current(0)
+                if hasattr(self, 'cbo_layers'):
+                    if vectors and (not self.cbo_layers['values'] or self.cbo_layers['values'][0] == "Nenhuma camada encontrada"):
+                        self.cbo_layers['values'] = vectors
+                        self.cbo_layers.current(0)
 
     def setup_ui(self):
         # 1. Barra de Topo: Status de Conexao, Projeto e Escala Atual
@@ -1494,7 +1514,7 @@ class GEEPluginWindow(object):
         # Badge de Versao bem visivel
         self.lbl_v_badge = tk.Label(
             self.top_frame,
-            text=u" v1.11 ",
+            text=u" v1.12 ",
             font=("Segoe UI", 9, "bold"),
             bg="#1b4f72",
             fg="#ffffff",
@@ -1769,16 +1789,16 @@ class GEEPluginWindow(object):
         self.txt_group_name = ttk.Entry(grp_frame, width=28)
         self.txt_group_name.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        # Mapeamento e Substituicao de Camadas no TOC
-        replace_box = ttk.LabelFrame(info_actions, text=u" Gerenciamento da Camada no TOC ", padding=(4, 3))
+        # Mapeamento e Operacoes de Camadas no TOC
+        replace_box = ttk.LabelFrame(info_actions, text=u" Gerenciamento e Alvo no TOC ", padding=(4, 3))
         replace_box.pack(anchor=tk.W, fill=tk.X, pady=(2, 4))
 
         row_cbo = ttk.Frame(replace_box)
         row_cbo.pack(anchor=tk.W, fill=tk.X, pady=(1, 2))
-        ttk.Label(row_cbo, text="Camada no TOC:", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(row_cbo, text="Alvo no TOC:", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(0, 4))
         self.cbo_toc_rasters = ttk.Combobox(row_cbo, state="readonly", width=22)
         self.cbo_toc_rasters.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
-        btn_refresh_toc = ttk.Button(row_cbo, text="Atualizar", width=9, command=self.refresh_toc_rasters)
+        btn_refresh_toc = ttk.Button(row_cbo, text="Atualizar", width=9, command=self.on_btn_refresh_toc_clicked)
         btn_refresh_toc.pack(side=tk.LEFT, padx=(0, 2))
 
         row_btns = ttk.Frame(replace_box)
@@ -1830,7 +1850,7 @@ class GEEPluginWindow(object):
 
         self.lbl_progress = ttk.Label(
             status_bar_frame,
-            text=u"Pronto. (CGMA ArcGEE Explorer v1.11 - Resolução Nativa Estrita 100%)",
+            text=u"Pronto. (CGMA ArcGEE Explorer v1.12 - Resolução Nativa Estrita 100%)",
             anchor=tk.W
         )
         self.lbl_progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 6))
@@ -1913,18 +1933,38 @@ class GEEPluginWindow(object):
         self.update_default_group_name()
         self.refresh_toc_rasters()
 
+    def on_btn_refresh_toc_clicked(self):
+        """Solicita ao ArcMap para re-exportar o contexto imediatamente e atualiza a combobox com todos os alvos e grupos"""
+        def async_refresh():
+            try:
+                gee_bridge.send_arcmap_command({'action': 'refresh_context'}, timeout=3)
+            except Exception:
+                pass
+            self.post_to_gui(self.refresh_toc_rasters)
+
+        t = threading.Thread(target=async_refresh)
+        t.daemon = True
+        t.start()
+        self.refresh_toc_rasters()
+
     def refresh_toc_rasters(self):
         try:
             self.sync_arcmap_context()
-            rasters = self.arcmap_context.get('raster_layers', [])
-            if rasters:
-                cur = self.cbo_toc_rasters.get()
-                self.cbo_toc_rasters['values'] = rasters
-                if not cur or cur not in rasters:
-                    self.cbo_toc_rasters.current(0)
-            else:
-                self.cbo_toc_rasters['values'] = ["Nenhuma camada raster no TOC"]
+            r_layers = self.arcmap_context.get('raster_layers', [])
+            grp_list = self.arcmap_context.get('groups_with_rasters', [])
+            targets = gee_bridge.build_toc_targets(r_layers, grp_list)
+
+            cur = self.cbo_toc_rasters.get()
+            self.cbo_toc_rasters['values'] = targets
+
+            sel_target = self.arcmap_context.get('selected_target')
+            if sel_target and sel_target in targets:
+                self.cbo_toc_rasters.set(sel_target)
+            elif cur and cur in targets:
+                self.cbo_toc_rasters.set(cur)
+            elif targets:
                 self.cbo_toc_rasters.current(0)
+
             self.refresh_tree_status_columns()
             self.update_action_buttons_state()
         except Exception as e:
@@ -2474,9 +2514,21 @@ class GEEPluginWindow(object):
             messagebox.showwarning("Aviso", "Selecione uma imagem na tabela para substituir.", parent=self.root)
             return
 
-        target_layer = self.cbo_toc_rasters.get()
+        target_layer = self.cbo_toc_rasters.get().strip()
         if not target_layer or target_layer in ("Nenhuma camada raster no TOC", "Nenhuma camada encontrada"):
             messagebox.showwarning("Aviso", "Selecione qual camada do TOC voce deseja substituir na lista ao lado.", parent=self.root)
+            return
+
+        if target_layer.startswith("[Todo o TOC]") or target_layer.startswith("[Grupo]"):
+            messagebox.showwarning(
+                u"Substituição Inválida",
+                u"A substituição direta de arquivo só pode ser realizada sobre uma camada raster individual.\n\n"
+                u"Para aplicar alterações de composição e realce sobre um Grupo ou sobre Todo o TOC, utilize os botões:\n"
+                u" • [ Composição ]\n"
+                u" • [ Forçar RGB ]\n"
+                u" • [ Garantir Stretch ]",
+                parent=self.root
+            )
             return
 
         def async_prep_and_replace():
@@ -2500,33 +2552,62 @@ class GEEPluginWindow(object):
         t.start()
 
     def on_apply_comp_to_toc_layer(self):
-        """Aplica a composicao de bandas selecionada na combobox diretamente na camada selecionada no TOC"""
-        target_layer = self.cbo_toc_rasters.get()
+        """Aplica a composicao de bandas selecionada na combobox diretamente no alvo selecionado (camada, grupo ou todo o TOC)"""
+        target_layer = self.cbo_toc_rasters.get().strip()
         if not target_layer or target_layer in ("Nenhuma camada raster no TOC", "Nenhuma camada encontrada"):
-            messagebox.showwarning("Aviso", "Selecione qual camada do TOC voce deseja alterar na lista ao lado.", parent=self.root)
+            messagebox.showwarning("Aviso", "Selecione qual alvo do TOC você deseja alterar na lista ao lado.", parent=self.root)
             return
 
         sensor = self.get_selected_sensor_code()
         comp = self.get_selected_composition_code()
 
-        self.set_progress(10, "Alterando composicao da camada '%s' para %s no ArcMap..." % (target_layer, comp))
+        r_layers = self.arcmap_context.get('raster_layers', [])
+        target_rasters = gee_bridge.resolve_layer_names(target_layer, r_layers)
+        if not target_rasters:
+            messagebox.showwarning("Aviso", u"Nenhuma camada raster correspondente encontrada para '%s'." % target_layer, parent=self.root)
+            return
+
+        total = len(target_rasters)
+        if target_layer.startswith("[Todo o TOC]"):
+            desc = u"em todo o TOC (%d camada%s)" % (total, "s" if total > 1 else "")
+        elif target_layer.startswith("[Grupo]"):
+            desc = u"no grupo '%s' (%d camada%s)" % (target_layer.replace("[Grupo]", "").strip(), total, "s" if total > 1 else "")
+        else:
+            desc = u"na camada '%s'" % target_layer
+
+        self.set_progress(10, u"Alterando composição para %s %s..." % (comp, desc))
         self.btn_apply_comp_toc.config(state=tk.DISABLED)
 
         def worker():
+            success_count = 0
+            errors = []
             try:
-                rep = gee_bridge.send_arcmap_command({
-                    'action': 'change_composition',
-                    'target_layer': target_layer,
-                    'comp': comp,
-                    'sensor': sensor
-                }, timeout=30)
+                for idx, r_name in enumerate(target_rasters):
+                    pct = int(10 + (float(idx) / float(total)) * 80)
+                    leaf = r_name.split('\\')[-1]
+                    self.post_to_gui(lambda p=pct, l=leaf: self.set_progress(p, u"Aplicando %s em '%s'..." % (comp, l)))
+
+                    rep = gee_bridge.send_arcmap_command({
+                        'action': 'change_composition',
+                        'target_layer': r_name,
+                        'comp': comp,
+                        'sensor': sensor
+                    }, timeout=60)
+
+                    if rep.get('success'):
+                        success_count += 1
+                    else:
+                        errors.append(leaf + u": " + rep.get('message', u'Falha'))
 
                 def finish():
-                    if rep.get('success'):
-                        self.set_progress(100, "Composicao alterada com sucesso!")
-                        messagebox.showinfo("Sucesso", rep.get('message', 'Composicao alterada no ArcMap!'), parent=self.root)
+                    if success_count > 0:
+                        self.set_progress(100, u"Composição alterada com sucesso!")
+                        msg = u"Composição '%s' aplicada em %d camada(s) [%s]!" % (comp, success_count, desc)
+                        if errors:
+                            msg += u"\n\nAvisos:\n" + u"\n".join(errors[:3])
+                        messagebox.showinfo("Sucesso", msg, parent=self.root)
                     else:
-                        err_m = rep.get('message', 'Falha ao alterar composicao')
+                        err_m = u"; ".join(errors[:3]) if errors else u"Falha ao alterar composição"
                         self.set_progress(0, "Falha: " + err_m[:50])
                         messagebox.showwarning("Aviso ArcMap", "ArcMap retornou: " + err_m, parent=self.root)
 
@@ -2544,26 +2625,53 @@ class GEEPluginWindow(object):
         t.start()
 
     def on_apply_stretch_to_toc(self):
-        """Garante e aplica as configurações ativas de Stretch e DRA nas camadas raster do ArcMap"""
+        """Garante e aplica as configurações ativas de Stretch e DRA nas camadas raster do ArcMap (camada, grupo ou todo o TOC)"""
         target_layer = self.cbo_toc_rasters.get().strip() if hasattr(self, 'cbo_toc_rasters') else ""
         if not target_layer or target_layer in ("Nenhuma camada raster no TOC", "Nenhuma camada encontrada"):
             target_layer = None
 
-        desc = (u"na camada '%s'" % target_layer) if target_layer else u"em todas as camadas raster do TOC"
+        r_layers = self.arcmap_context.get('raster_layers', [])
+        target_rasters = gee_bridge.resolve_layer_names(target_layer, r_layers)
+        if not target_rasters:
+            messagebox.showwarning("Aviso", u"Nenhuma camada raster compatível encontrada no TOC.", parent=self.root)
+            return
+
+        total = len(target_rasters)
+        if not target_layer or target_layer.startswith("[Todo o TOC]"):
+            desc = u"em todo o TOC (%d camada%s)" % (total, "s" if total > 1 else "")
+        elif target_layer.startswith("[Grupo]"):
+            desc = u"no grupo '%s' (%d camada%s)" % (target_layer.replace("[Grupo]", "").strip(), total, "s" if total > 1 else "")
+        else:
+            desc = u"na camada '%s'" % target_layer
+
         self.set_progress(10, u"Aplicando e garantindo configurações de stretch %s..." % desc)
         if hasattr(self, 'btn_apply_stretch'):
             self.btn_apply_stretch.config(state=tk.DISABLED)
 
         def worker():
+            success_count = 0
+            errors = []
             try:
-                rep = gee_bridge.apply_stretch(target_layer, settings=self.settings)
-                def finish():
+                for idx, r_name in enumerate(target_rasters):
+                    pct = int(10 + (float(idx) / float(total)) * 80)
+                    leaf = r_name.split('\\')[-1]
+                    self.post_to_gui(lambda p=pct, l=leaf: self.set_progress(p, u"Aplicando Stretch em '%s'..." % l))
+
+                    rep = gee_bridge.apply_stretch(r_name, settings=self.settings, timeout=60)
                     if rep.get('success'):
-                        msg = rep.get('message', u'Configurações de stretch garantidas com sucesso!')
+                        success_count += 1
+                    else:
+                        errors.append(leaf + u": " + rep.get('message', u'Falha'))
+
+                def finish():
+                    if success_count > 0:
+                        msg = u"Configurações de stretch garantidas com sucesso em %d camada(s) [%s]!" % (success_count, desc)
+                        if errors:
+                            msg += u"\n\nAvisos:\n" + u"\n".join(errors[:3])
                         self.set_progress(100, msg)
                         messagebox.showinfo(u"Stretch Garantido", msg, parent=self.root)
                     else:
-                        err_m = rep.get('message', u'Falha ao aplicar stretch.')
+                        err_m = u"; ".join(errors[:3]) if errors else u'Falha ao aplicar stretch.'
                         self.set_progress(0, u"Aviso: " + err_m[:50])
                         messagebox.showwarning(u"Aviso ArcMap", err_m, parent=self.root)
                 self.post_to_gui(finish)
@@ -2580,12 +2688,25 @@ class GEEPluginWindow(object):
         t.start()
 
     def on_force_rgb_to_toc(self):
-        """Força a alteração de simbologia para 'RGB Composite', garantindo bandas distintas e verificação automatizada"""
+        """Força a alteração de simbologia para 'RGB Composite' (camada, grupo ou todo o TOC)"""
         target_layer = self.cbo_toc_rasters.get().strip() if hasattr(self, 'cbo_toc_rasters') else ""
         if not target_layer or target_layer in ("Nenhuma camada raster no TOC", "Nenhuma camada encontrada"):
             target_layer = None
 
-        desc = (u"na camada '%s'" % target_layer) if target_layer else u"no TOC"
+        r_layers = self.arcmap_context.get('raster_layers', [])
+        target_rasters = gee_bridge.resolve_layer_names(target_layer, r_layers)
+        if not target_rasters:
+            messagebox.showwarning("Aviso", u"Nenhuma camada raster compatível encontrada no TOC.", parent=self.root)
+            return
+
+        total = len(target_rasters)
+        if not target_layer or target_layer.startswith("[Todo o TOC]"):
+            desc = u"em todo o TOC (%d camada%s)" % (total, "s" if total > 1 else "")
+        elif target_layer.startswith("[Grupo]"):
+            desc = u"no grupo '%s' (%d camada%s)" % (target_layer.replace("[Grupo]", "").strip(), total, "s" if total > 1 else "")
+        else:
+            desc = u"na camada '%s'" % target_layer
+
         self.set_progress(10, u"Forçando e validando simbologia RGB Composite %s..." % desc)
         if hasattr(self, 'btn_force_rgb'):
             self.btn_force_rgb.config(state=tk.DISABLED)
@@ -2595,21 +2716,36 @@ class GEEPluginWindow(object):
         custom_bands = self.txt_custom_bands.get().strip() if hasattr(self, 'txt_custom_bands') else None
 
         def worker():
+            success_count = 0
+            errors = []
             try:
-                rep = gee_bridge.force_rgb_composite(
-                    layer_name=target_layer,
-                    sensor=sensor,
-                    comp=comp,
-                    custom_bands=custom_bands,
-                    settings=self.settings
-                )
-                def finish():
+                for idx, r_name in enumerate(target_rasters):
+                    pct = int(10 + (float(idx) / float(total)) * 80)
+                    leaf = r_name.split('\\')[-1]
+                    self.post_to_gui(lambda p=pct, l=leaf: self.set_progress(p, u"Validando RGB em '%s'..." % l))
+
+                    rep = gee_bridge.force_rgb_composite(
+                        layer_name=r_name,
+                        sensor=sensor,
+                        comp=comp,
+                        custom_bands=custom_bands,
+                        settings=self.settings,
+                        timeout=60
+                    )
                     if rep.get('success'):
-                        msg = rep.get('message', u"Simbologia corrigida com sucesso para RGB Composite!")
+                        success_count += 1
+                    else:
+                        errors.append(leaf + u": " + rep.get('message', u'Falha'))
+
+                def finish():
+                    if success_count > 0:
+                        msg = u"Simbologia corrigida com sucesso para RGB Composite em %d camada(s) [%s]!" % (success_count, desc)
+                        if errors:
+                            msg += u"\n\nAvisos:\n" + u"\n".join(errors[:3])
                         self.set_progress(100, msg)
                         messagebox.showinfo(u"RGB Composite Validado", msg, parent=self.root)
                     else:
-                        err_m = rep.get('message', u"Erro ao corrigir simbologia.")
+                        err_m = u"; ".join(errors[:3]) if errors else u"Erro ao corrigir simbologia."
                         self.set_progress(0, u"Aviso: " + err_m[:50])
                         messagebox.showwarning(u"Aviso ArcMap", err_m, parent=self.root)
                 self.post_to_gui(finish)

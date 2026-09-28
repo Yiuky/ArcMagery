@@ -2,7 +2,7 @@
   <Name>CGMA ArcGEE Explorer</Name>
   <AddInID>{ceae58c4-c44e-4edd-b8f4-1ba7d13b6b7d}</AddInID>
   <Description>CGMA ArcGEE Explorer - Integracao do Google Earth Engine para ArcGIS Desktop 10.8 (ArcMap).</Description>
-  <Version>1.11</Version>
+  <Version>1.12</Version>
   <Author>Joberth Gambati</Author>
   <Company>SEMA-MT</Company>
   <Date>28/09/2026</Date>

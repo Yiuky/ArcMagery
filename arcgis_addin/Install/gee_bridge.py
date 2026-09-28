@@ -17,6 +17,11 @@ try:
 except ImportError:
     arcpy = None
 
+try:
+    unicode
+except NameError:
+    unicode = str
+
 class SafeStream(object):
     def __init__(self, log_path=None):
         self.log_path = log_path
@@ -98,9 +103,23 @@ def get_esricarto_olb_path():
                     return p
         except Exception:
             pass
+    import glob
+    globs_to_check = [
+        r"C:\Program Files (x86)\ArcGIS\Desktop*\com\esriCarto.olb",
+        r"C:\Program Files\ArcGIS\Desktop*\com\esriCarto.olb",
+        r"D:\Program Files (x86)\ArcGIS\Desktop*\com\esriCarto.olb",
+        r"D:\ArcGIS\Desktop*\com\esriCarto.olb",
+        r"E:\ArcGIS\Desktop*\com\esriCarto.olb",
+    ]
+    for pat in globs_to_check:
+        matches = glob.glob(pat)
+        if matches and os.path.exists(matches[0]):
+            return matches[0]
+
     defaults = [
         r"C:\Program Files (x86)\ArcGIS\Desktop10.8\com\esriCarto.olb",
         r"C:\Program Files\ArcGIS\Desktop10.8\com\esriCarto.olb",
+        r"C:\Program Files (x86)\ArcGIS\Desktop10.9\com\esriCarto.olb",
         r"C:\Program Files (x86)\ArcGIS\Desktop10.7\com\esriCarto.olb",
         r"C:\Program Files (x86)\ArcGIS\Desktop10.6\com\esriCarto.olb",
     ]
@@ -646,6 +665,130 @@ def get_arcmap_raster_layers():
         print("Erro listando camadas raster:", e)
         return []
 
+def get_arcmap_toc_groups():
+    """Lista todos os nomes de grupos de camadas (Group Layers) presentes no TOC"""
+    if not arcpy:
+        return []
+    groups = []
+    try:
+        mxd = arcpy.mapping.MapDocument("CURRENT")
+        layers = arcpy.mapping.ListLayers(mxd)
+        for lyr in layers:
+            try:
+                if getattr(lyr, 'isGroupLayer', False):
+                    n = getattr(lyr, 'name', None)
+                    if n and n not in groups:
+                        groups.append(n)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return groups
+
+def build_toc_targets(r_layers, groups_with_rasters=None):
+    """Gera a lista padronizada e robusta de alvos do TOC:
+    1. [Todo o TOC] (se houver rasters)
+    2. [Grupo] <nome_do_grupo> (para todos os grupos que contêm rasters)
+    3. <nome_da_camada> (para cada camada raster individual)
+    Extrai grupos tanto da lista informada quanto diretamente do caminho hierárquico (longName) dos rasters.
+    """
+    if not r_layers:
+        return [u"Nenhuma camada raster no TOC"]
+
+    extracted_groups = []
+    if groups_with_rasters:
+        for g in groups_with_rasters:
+            if g and g not in extracted_groups:
+                extracted_groups.append(g)
+
+    # Sempre extrair grupos tambem diretamente do longName das camadas (ex: Grupo\Cena -> Grupo)
+    for r in r_layers:
+        r_str = unicode(r).strip()
+        if u"\\" in r_str:
+            parts = [p.strip() for p in r_str.split(u"\\") if p.strip()]
+            for g in parts[:-1]:
+                if g and g not in extracted_groups:
+                    extracted_groups.append(g)
+
+    targets = [u"[Todo o TOC]"]
+    for g in extracted_groups:
+        g_lbl = u"[Grupo] " + unicode(g)
+        if g_lbl not in targets:
+            targets.append(g_lbl)
+
+    for r in r_layers:
+        r_lbl = unicode(r).strip()
+        if r_lbl and r_lbl not in targets:
+            targets.append(r_lbl)
+
+    return targets
+
+def resolve_layer_names(target_str, raster_layers):
+    """Resolve os nomes de camadas raster (strings) correspondentes a um alvo selecionado:
+    - None / vazio / [Todo o TOC] / TODAS -> todas as camadas de raster_layers
+    - [Grupo] Nome -> camadas cujo caminho longName inicia com Nome\\ ou contem \\Nome\\
+    - Camada individual -> a camada correspondente em raster_layers
+    """
+    if not raster_layers:
+        return []
+
+    t_str = unicode(target_str or "").strip()
+    if not t_str or t_str.startswith(u"[Todo o TOC]") or t_str in (u"TODAS", u"Todas as camadas", u"Nenhuma camada raster no TOC"):
+        return list(raster_layers)
+
+    if t_str.startswith(u"[Grupo]"):
+        grp = t_str.replace(u"[Grupo]", u"").strip().lower()
+        matched = []
+        for r in raster_layers:
+            r_low = unicode(r).strip().lower()
+            if r_low.startswith(grp + u"\\") or (u"\\" + grp + u"\\") in r_low or r_low == grp:
+                matched.append(r)
+        if matched:
+            return matched
+
+    # Buscar por nome exato (longName ou leaf name)
+    clean_target = t_str.lower()
+    for r in raster_layers:
+        r_low = unicode(r).strip().lower()
+        if r_low == clean_target:
+            return [r]
+        leaf = r_low.split(u"\\")[-1]
+        if leaf == clean_target:
+            return [r]
+
+    # Fallback substring
+    matched = []
+    for r in raster_layers:
+        if clean_target in unicode(r).strip().lower():
+            matched.append(r)
+    if matched:
+        return matched
+
+    return [t_str]
+
+def get_arcmap_selected_layer():
+    """Identifica o nome da camada ou grupo atualmente selecionado no TOC do ArcMap via ArcObjects"""
+    try:
+        import comtypes.client
+        esriCarto = comtypes.client.GetModule(get_esricarto_olb_path())
+        app = comtypes.client.CreateObject("esriFramework.AppRef")
+        mx_doc = getattr(app, 'Document', None)
+        if not mx_doc:
+            return None, False
+        sel = getattr(mx_doc, 'SelectedLayer', None)
+        if not sel:
+            return None, False
+        name = getattr(sel, 'Name', '')
+        is_grp = False
+        try:
+            if sel.QueryInterface(esriCarto.IGroupLayer):
+                is_grp = True
+        except Exception:
+            pass
+        return name, is_grp
+    except Exception:
+        return None, False
+
 def export_layer_to_geojson(layer_name, out_geojson, buffer_meters=None):
     """Exporta o retangulo envolvente (envelope) da camada ativa para GeoJSON em WGS84 com buffer opcional em metros"""
     if not arcpy:
@@ -1160,20 +1303,28 @@ def find_live_raster_layer(layer_name=None):
         # 1. Se layer_name foi fornecido, buscar na arvore recursiva do mapa
         if layer_name and unicode(layer_name).strip():
             clean_target = unicode(layer_name).strip().lower()
+            leaf_target = clean_target.split(u"\\")[-1].strip()
             p_enum = focus_map.Layers(None, True)
             p_enum.Reset()
             lyr = p_enum.Next()
             while lyr:
                 try:
                     c_name = unicode(lyr.Name).strip().lower()
-                    if c_name == clean_target or c_name == (clean_target + ".tif") or (clean_target in c_name):
+                    if (c_name == clean_target or 
+                        c_name == leaf_target or
+                        c_name == (clean_target + u".tif") or 
+                        c_name == (leaf_target + u".tif") or
+                        clean_target in c_name or 
+                        leaf_target in c_name or 
+                        c_name in clean_target):
                         rl = lyr.QueryInterface(esriCarto.IRasterLayer)
                         return mx_doc, focus_map, lyr, rl
                 except Exception:
                     pass
                 lyr = p_enum.Next()
+            return mx_doc, focus_map, None, None
 
-        # 2. Se nao encontrou por nome, tentar a camada selecionada no TOC (SelectedLayer)
+        # 2. Se nao foi fornecido nome, tentar a camada selecionada no TOC (SelectedLayer)
         try:
             sel = getattr(mx_doc, 'SelectedLayer', None)
             if sel:
@@ -1182,7 +1333,7 @@ def find_live_raster_layer(layer_name=None):
         except Exception:
             pass
 
-        # 3. Fallback: primeira camada raster encontrada no mapa
+        # 3. Fallback somente se layer_name nao foi informado: primeira camada raster encontrada no mapa
         p_enum = focus_map.Layers(None, True)
         p_enum.Reset()
         lyr = p_enum.Next()
@@ -1198,6 +1349,69 @@ def find_live_raster_layer(layer_name=None):
     except Exception as e:
         _log_debug("find_live_raster_layer falhou: " + str(e))
         return None, None, None, None
+
+def resolve_target_raster_layers(mxd, df, target_name=None):
+    """Localiza e retorna lista de objetos de camada raster (arcpy.mapping.Layer)
+    correspondentes ao alvo selecionado:
+    - [Todo o TOC] ou None ou vazio ou 'TODAS' -> Todas as camadas raster do TOC
+    - [Grupo] Nome -> Todas as camadas raster pertencentes ao grupo especificado
+    - Nome de Grupo -> Todas as camadas raster do grupo
+    - Nome de Camada -> A camada raster individual correspondente
+    Se nenhum alvo for informado, verifica se ha um grupo ou raster selecionado no ArcMap via ArcObjects.
+    """
+    if not arcpy:
+        return []
+    try:
+        all_layers = arcpy.mapping.ListLayers(mxd, "", df)
+        rasters = [l for l in all_layers if not l.isGroupLayer and l.isRasterLayer]
+        if not rasters:
+            return []
+
+        target_str = unicode(target_name or "").strip()
+
+        # Se target_str nao foi explicitado ou vazio, consultar se ha selecao ativa no ArcMap
+        if not target_str or target_str.lower() in (u"none", u"null", u""):
+            sel_name, is_grp = get_arcmap_selected_layer()
+            if sel_name:
+                if is_grp:
+                    target_str = u"[Grupo] " + sel_name
+                else:
+                    target_str = sel_name
+
+        # 1. Alvo: Todo o TOC
+        if not target_str or target_str.startswith(u"[Todo o TOC]") or target_str in (u"TODAS", u"Todas as camadas", u"Nenhuma camada raster no TOC"):
+            return rasters
+
+        # 2. Alvo: Grupo com prefixo [Grupo]
+        if target_str.startswith(u"[Grupo]"):
+            grp = target_str.replace(u"[Grupo]", u"").strip().lower()
+            matched = [l for l in rasters if l.longName.lower().startswith(grp + u"\\") or (u"\\" + grp + u"\\") in l.longName.lower() or l.name.lower() == grp]
+            if matched:
+                return matched
+
+        # 3. Alvo: Nome de Grupo direto
+        for l in all_layers:
+            if l.isGroupLayer and (l.name.lower() == target_str.lower() or l.longName.lower() == target_str.lower()):
+                grp = l.name.lower()
+                matched = [r for r in rasters if r.longName.lower().startswith(grp + u"\\") or (u"\\" + grp + u"\\") in r.longName.lower()]
+                if matched:
+                    return matched
+
+        # 4. Alvo: Camada raster individual (por longName ou name)
+        clean_target = target_str.lower()
+        for l in rasters:
+            if l.longName.lower() == clean_target or l.name.lower() == clean_target:
+                return [l]
+
+        # 5. Fallback por sufixo ou substring
+        for l in rasters:
+            if l.longName.lower().endswith(u"\\" + clean_target) or clean_target in l.name.lower():
+                return [l]
+
+        return []
+    except Exception as e_res:
+        _log_debug("resolve_target_raster_layers erro: " + str(e_res))
+        return []
 
 def _apply_rgb_to_com_layer(rl, r_idx, g_idx, b_idx, settings=None):
     """Configura e aplica IRasterRGBRenderer diretamente no objeto IRasterLayer COM ao vivo."""
@@ -1300,6 +1514,140 @@ def _interrogate_and_verify_rgb(rl, exp_r=None, exp_g=None, exp_b=None):
     except Exception as e:
         return False, u"Excecao durante interrogacao da camada: " + str(e)
 
+def force_single_layer_rgb(
+    layer_name=None,
+    rgb_bands=None,
+    settings=None,
+    tif_path=None,
+    group_name=None,
+    comp_code=None,
+    sensor=None,
+    custom_bands=None,
+    max_retries=2
+):
+    """Aplica e valida a simbologia RGB Composite em uma camada raster especifica.
+    Tenta primeiro via ArcObjects COM e, caso falhe ou COM nao esteja disponivel,
+    aplica a Acao Corretiva Nativa do ArcPy (MakeRasterLayer -> SaveToLayerFile -> InsertLayer -> RemoveLayer).
+    """
+    if not settings:
+        settings = load_plugin_settings()
+
+    _log_debug("force_single_layer_rgb iniciado para layer '%s'" % str(layer_name))
+
+    # 1. Tentar localizar camada viva no ArcMap via ArcObjects
+    mx_doc, focus_map, lyr, rl = find_live_raster_layer(layer_name)
+    r_idx, g_idx, b_idx = (0, 1, 2)
+
+    if rl:
+        total_bands = getattr(rl, 'BandCount', 1)
+        if total_bands < 3:
+            return False, u"A camada possui apenas %d banda(s); RGB Composite exige no minimo 3 bandas." % total_bands
+
+        if not rgb_bands or len(rgb_bands) < 3:
+            rgb_bands = resolve_rgb_band_indices(sensor, comp_code, custom_bands, total_bands)
+
+        r_idx = max(0, min(int(rgb_bands[0]), total_bands - 1))
+        g_idx = max(0, min(int(rgb_bands[1]), total_bands - 1))
+        b_idx = max(0, min(int(rgb_bands[2]), total_bands - 1))
+
+        if r_idx == g_idx:
+            g_idx = (r_idx + 1) % total_bands
+        if b_idx == r_idx or b_idx == g_idx:
+            for cand in range(total_bands):
+                if cand != r_idx and cand != g_idx:
+                    b_idx = cand
+                    break
+
+        # Tentativa COM 1
+        try:
+            _apply_rgb_to_com_layer(rl, r_idx, g_idx, b_idx, settings)
+        except Exception as e_app1:
+            _log_debug("Tentativa COM 1 falhou: " + str(e_app1))
+
+        ok_v1, res_v1 = _interrogate_and_verify_rgb(rl, r_idx, g_idx, b_idx)
+        if ok_v1:
+            _refresh_arcmap_views(mx_doc)
+            msg_ok = u"Simbologia RGB Composite aplicada e validada com sucesso na camada '%s'!" % (layer_name or "")
+            return True, msg_ok
+
+        # Tentativa COM 2
+        try:
+            _apply_rgb_to_com_layer(rl, r_idx, g_idx, b_idx, settings)
+        except Exception as e_app2:
+            _log_debug("Tentativa COM 2 falhou: " + str(e_app2))
+
+        ok_v2, res_v2 = _interrogate_and_verify_rgb(rl, r_idx, g_idx, b_idx)
+        if ok_v2:
+            _refresh_arcmap_views(mx_doc)
+            msg_ok = u"Simbologia RGB Composite aplicada e validada apos reaplicacao na camada '%s'!" % (layer_name or "")
+            return True, msg_ok
+
+    # Se COM nao conseguiu validar ou falhou, usar ACAO CORRETIVA NATIVA DO ARCPY (100% compativel)
+    _log_debug("Iniciando Acao Corretiva Nativa ArcPy para '%s'..." % str(layer_name))
+    try:
+        mxd_curr = arcpy.mapping.MapDocument("CURRENT")
+        df_curr = arcpy.mapping.ListDataFrames(mxd_curr)[0]
+        actual_name = getattr(lyr, 'Name', layer_name) if lyr else layer_name
+        target_lyr_obj = None
+        for l_chk in arcpy.mapping.ListLayers(mxd_curr, "", df_curr):
+            if not l_chk.isGroupLayer and (l_chk.name == actual_name or (layer_name and (layer_name in l_chk.name or l_chk.name in layer_name))):
+                target_lyr_obj = l_chk
+                break
+
+        if target_lyr_obj:
+            if not tif_path:
+                tif_path = getattr(target_lyr_obj, 'dataSource', None)
+
+            if tif_path and os.path.exists(tif_path):
+                desc_tif = arcpy.Describe(tif_path)
+                t_bands = getattr(desc_tif, 'bandCount', None) or getattr(desc_tif, 'BandCount', 1)
+                if t_bands < 3:
+                    return False, u"Raster possui apenas %d banda(s)." % t_bands
+
+                if not rgb_bands or len(rgb_bands) < 3:
+                    rgb_bands = resolve_rgb_band_indices(sensor, comp_code, custom_bands, t_bands)
+                r_idx, g_idx, b_idx = rgb_bands[:3]
+
+                is_visible = getattr(target_lyr_obj, 'visible', True)
+                readd_tmp_name = "gee_readd_" + uuid.uuid4().hex[:8]
+                if arcpy.Exists(readd_tmp_name):
+                    try: arcpy.Delete_management(readd_tmp_name)
+                    except Exception: pass
+
+                arcpy.MakeRasterLayer_management(tif_path, readd_tmp_name)
+                cache_dir = os.path.join(tempfile.gettempdir(), 'arcgee_lyr_cache')
+                if not os.path.exists(cache_dir):
+                    try: os.makedirs(cache_dir)
+                    except Exception: pass
+
+                readd_lyr = os.path.join(cache_dir, "readd_" + str(int(time.time())) + ".lyr")
+                if os.path.exists(readd_lyr):
+                    try: os.remove(readd_lyr)
+                    except Exception: pass
+
+                arcpy.SaveToLayerFile_management(readd_tmp_name, readd_lyr)
+                if arcpy.Exists(readd_tmp_name):
+                    try: arcpy.Delete_management(readd_tmp_name)
+                    except Exception: pass
+
+                apply_stretch_and_stats(readd_lyr, settings, rgb_bands=(r_idx, g_idx, b_idx))
+
+                new_obj = arcpy.mapping.Layer(readd_lyr)
+                new_obj.name = target_lyr_obj.name
+                new_obj.visible = is_visible
+
+                arcpy.mapping.InsertLayer(df_curr, target_lyr_obj, new_obj, "BEFORE")
+                arcpy.mapping.RemoveLayer(df_curr, target_lyr_obj)
+
+                _refresh_arcmap_views(mx_doc)
+                _log_debug("Acao Corretiva Nativa ArcPy concluida com sucesso para '%s'" % str(actual_name))
+                return True, u"Simbologia RGB Composite corrigida com sucesso na camada '%s'!" % unicode(actual_name)
+    except Exception as e_readd:
+        _log_debug("Erro na acao corretiva nativa ArcPy: " + str(e_readd))
+
+    _refresh_arcmap_views(mx_doc)
+    return False, u"Falha ao validar RGB Composite na camada '%s'." % unicode(layer_name or "")
+
 def force_and_validate_rgb_composite(
     layer_name=None,
     rgb_bands=None,
@@ -1311,136 +1659,88 @@ def force_and_validate_rgb_composite(
     custom_bands=None,
     max_retries=2
 ):
-    """Forca e valida que a camada raster no TOC do ArcMap utilize renderizador 'RGB Composite'
-    com bandas R, G e B distintas, com verificacao automatizada imediata e acao corretiva (re-aplicacao/re-adicao).
+    """Forca e valida que a(s) camada(s) raster no TOC do ArcMap utilizem renderizador 'RGB Composite'.
+    Suporta execucao sobre:
+    - Uma camada raster individual
+    - Um Grupo de camadas ([Grupo] Nome)
+    - Todo o TOC ([Todo o TOC])
     
     Retorna (sucesso, mensagem_formatada)."""
+    if not arcpy:
+        return False, "ArcPy nao disponivel."
     if not settings:
         settings = load_plugin_settings()
 
-    _log_debug("force_and_validate_rgb_composite iniciado para layer '%s'" % str(layer_name))
+    _log_debug("force_and_validate_rgb_composite iniciado para alvo '%s'" % str(layer_name))
 
-    # 1. Localizar camada viva no ArcMap via ArcObjects
-    mx_doc, focus_map, lyr, rl = find_live_raster_layer(layer_name)
-    if not rl:
-        return False, u"Camada raster '%s' nao encontrada no TOC do ArcMap." % (layer_name or "")
+    mxd = arcpy.mapping.MapDocument("CURRENT")
+    df = arcpy.mapping.ListDataFrames(mxd)[0]
 
-    # 2. Verificar quantidade de bandas disponiveis
-    total_bands = getattr(rl, 'BandCount', 1)
-    if total_bands < 3:
-        return False, u"A camada possui apenas %d banda(s); renderizacao RGB Composite exige no minimo 3 bandas." % total_bands
+    target_rasters = resolve_target_raster_layers(mxd, df, layer_name)
+    if not target_rasters:
+        return False, u"Nenhuma camada raster compatível encontrada no TOC para '%s'." % (layer_name or "TOC")
 
-    # 3. Determinar indices das bandas R, G, B garantindo que sejam distintos
-    if not rgb_bands or len(rgb_bands) < 3:
-        rgb_bands = resolve_rgb_band_indices(sensor, comp_code, custom_bands, total_bands)
-
-    r_idx = max(0, min(int(rgb_bands[0]), total_bands - 1))
-    g_idx = max(0, min(int(rgb_bands[1]), total_bands - 1))
-    b_idx = max(0, min(int(rgb_bands[2]), total_bands - 1))
-
-    # Garantir bandas estritamente distintas
-    if r_idx == g_idx:
-        g_idx = (r_idx + 1) % total_bands
-    if b_idx == r_idx or b_idx == g_idx:
-        for cand in range(total_bands):
-            if cand != r_idx and cand != g_idx:
-                b_idx = cand
-                break
-
-    # Tentativa 1: Aplicacao direta da simbologia RGB
-    try:
-        _apply_rgb_to_com_layer(rl, r_idx, g_idx, b_idx, settings)
-    except Exception as e_app1:
-        _log_debug("Tentativa 1 falhou ao aplicar RGB: " + str(e_app1))
-
-    # Verificacao Automatizada Imediata (Tentativa 1)
-    ok_v1, res_v1 = _interrogate_and_verify_rgb(rl, r_idx, g_idx, b_idx)
-    if ok_v1:
-        _refresh_arcmap_views(mx_doc)
-        msg_ok = u"Simbologia corrigida com sucesso para RGB Composite (Red: Banda %d, Green: Banda %d, Blue: Banda %d)!" % (
-            r_idx + 1, g_idx + 1, b_idx + 1
+    # Se for exatamente 1 camada individual
+    if len(target_rasters) == 1:
+        lyr = target_rasters[0]
+        actual_path = tif_path or getattr(lyr, 'dataSource', None)
+        return force_single_layer_rgb(
+            layer_name=lyr.name,
+            rgb_bands=rgb_bands,
+            settings=settings,
+            tif_path=actual_path,
+            group_name=group_name,
+            comp_code=comp_code,
+            sensor=sensor,
+            custom_bands=custom_bands,
+            max_retries=max_retries
         )
-        _log_debug("force_and_validate_rgb_composite: " + msg_ok)
-        return True, msg_ok
 
-    _log_debug(u"Aviso: Verificacao da Tentativa 1 falhou (%s). Iniciando Acao Corretiva..." % unicode(res_v1))
+    # Multiplas camadas (Grupo ou Todo o TOC)
+    success_count = 0
+    errors = []
+    for lyr in target_rasters:
+        try:
+            actual_path = getattr(lyr, 'dataSource', None)
+            desc = arcpy.Describe(actual_path) if (actual_path and os.path.exists(actual_path)) else None
+            band_count = getattr(desc, 'bandCount', None) or getattr(desc, 'BandCount', 1) if desc else 1
+            if band_count < 3:
+                continue
 
-    # Tentativa 2: Reaplicacao forcada (Acao Corretiva 1)
-    try:
-        _apply_rgb_to_com_layer(rl, r_idx, g_idx, b_idx, settings)
-    except Exception as e_app2:
-        _log_debug("Tentativa 2 falhou: " + str(e_app2))
+            r_idx, g_idx, b_idx = (0, 1, 2)
+            if rgb_bands and len(rgb_bands) >= 3:
+                r_idx, g_idx, b_idx = rgb_bands[:3]
+            else:
+                r_idx, g_idx, b_idx = resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
 
-    ok_v2, res_v2 = _interrogate_and_verify_rgb(rl, r_idx, g_idx, b_idx)
-    if ok_v2:
-        _refresh_arcmap_views(mx_doc)
-        msg_ok = u"Simbologia corrigida com sucesso para RGB Composite apos reaplicacao (Red: Banda %d, Green: Banda %d, Blue: Banda %d)!" % (
-            r_idx + 1, g_idx + 1, b_idx + 1
+            ok, msg = force_single_layer_rgb(
+                layer_name=lyr.name,
+                rgb_bands=(r_idx, g_idx, b_idx),
+                settings=settings,
+                tif_path=actual_path,
+                comp_code=comp_code,
+                sensor=sensor,
+                custom_bands=custom_bands,
+                max_retries=max_retries
+            )
+            if ok:
+                success_count += 1
+            else:
+                errors.append(unicode(lyr.name) + u": " + unicode(msg))
+        except Exception as e_item:
+            errors.append(unicode(lyr.name) + u": " + unicode(e_item))
+
+    target_desc = unicode(layer_name) if layer_name else u"TOC"
+    if success_count > 0:
+        return True, u"Simbologia RGB Composite aplicada e validada com sucesso em %d camada(s) [%s]!" % (
+            success_count, target_desc
         )
-        _log_debug("force_and_validate_rgb_composite: " + msg_ok)
-        return True, msg_ok
-
-    _log_debug(u"Aviso: Tentativa 2 falhou (%s). Iniciando Acao Corretiva Avancada (remocao e readicao)..." % unicode(res_v2))
-
-    # Tentativa 3: Acao Corretiva Avancada (Remover e Readicionar com template RGB)
-    try:
-        mxd_curr = arcpy.mapping.MapDocument("CURRENT")
-        df_curr = arcpy.mapping.ListDataFrames(mxd_curr)[0]
-        actual_name = getattr(lyr, 'Name', layer_name)
-        target_lyr_obj = None
-        for l_chk in arcpy.mapping.ListLayers(mxd_curr, "", df_curr):
-            if not l_chk.isGroupLayer and (l_chk.name == actual_name or (layer_name and layer_name in l_chk.name)):
-                target_lyr_obj = l_chk
-                break
-
-        if target_lyr_obj:
-            if not tif_path:
-                tif_path = getattr(target_lyr_obj, 'dataSource', None)
-            is_visible = getattr(target_lyr_obj, 'visible', True)
-            arcpy.mapping.RemoveLayer(df_curr, target_lyr_obj)
-
-            if tif_path and os.path.exists(tif_path):
-                cache_dir = os.path.join(tempfile.gettempdir(), 'arcgee_lyr_cache')
-                if not os.path.exists(cache_dir):
-                    try: os.makedirs(cache_dir)
-                    except Exception: pass
-                
-                readd_lyr = os.path.join(cache_dir, "readd_" + str(int(time.time())) + ".lyr")
-                raw_readd = arcpy.mapping.Layer(tif_path)
-                raw_readd.saveACopy(readd_lyr)
-                apply_stretch_and_stats(readd_lyr, settings, rgb_bands=(r_idx, g_idx, b_idx))
-
-                new_obj = arcpy.mapping.Layer(readd_lyr)
-                new_obj.name = actual_name
-                new_obj.visible = is_visible
-
-                target_grp = get_or_create_group_layer(group_name) if group_name else None
-                if target_grp:
-                    arcpy.mapping.AddLayerToGroup(df_curr, target_grp, new_obj, "BOTTOM")
-                else:
-                    arcpy.mapping.AddLayer(df_curr, new_obj, "TOP")
-
-                # Localizar camada readicionada e reaplicar/verificar
-                _mx, _fm, _l, rl_new = find_live_raster_layer(actual_name)
-                if rl_new:
-                    _apply_rgb_to_com_layer(rl_new, r_idx, g_idx, b_idx, settings)
-                    ok_v3, res_v3 = _interrogate_and_verify_rgb(rl_new, r_idx, g_idx, b_idx)
-                    _refresh_arcmap_views(mx_doc)
-                    if ok_v3:
-                        msg_ok = u"Simbologia corrigida com sucesso para RGB Composite apos readicao da camada!"
-                        _log_debug("force_and_validate_rgb_composite: " + msg_ok)
-                        return True, msg_ok
-                    else:
-                        return False, u"Erro ao corrigir simbologia apos readicao: " + unicode(res_v3)
-    except Exception as e_readd:
-        _log_debug("Erro na acao corretiva de readicao: " + str(e_readd))
-
-    _refresh_arcmap_views(mx_doc)
-    return False, u"Erro ao corrigir simbologia: A camada permaneceu no estado invalido (%s)." % unicode(res_v2)
+    else:
+        return False, u"Falha ao validar RGB Composite. Erros: " + u"; ".join(errors[:3])
 
 def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_code=None, sensor=None, custom_bands=None):
     """Adiciona o arquivo GeoTIFF baixado diretamente no TOC do ArcMap sem duplicar,
-    configurando a simbologia RGB com as bandas corretas e preservando todas as bandas (4 ou mais)."""
+    garantindo que camadas multibanda entrem NATIVAMENTE no modo RGB Composite como padrao."""
     if not arcpy:
         return False, "ArcPy nao disponivel."
 
@@ -1488,28 +1788,31 @@ def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_c
             desc = arcpy.Describe(tif_path)
             band_count = getattr(desc, 'bandCount', 1)
 
-            # 3. Carregar GeoTIFF diretamente como Layer (sem MakeRasterLayer temporario!)
-            raw_lyr = arcpy.mapping.Layer(tif_path)
-
-            # 4. Criar copia em cache persistente para aplicar Stretch e bandas RGB via ArcObjects
+            # 3. Criar camada com MakeRasterLayer_management para garantir RGB Composite NATIVO como padrao!
             cache_dir = os.path.join(tempfile.gettempdir(), 'arcgee_lyr_cache')
             if not os.path.exists(cache_dir):
-                try:
-                    os.makedirs(cache_dir)
-                except Exception:
-                    pass
+                try: os.makedirs(cache_dir)
+                except Exception: pass
 
             import re
             safe_id = re.sub(r'[^a-zA-Z0-9_\-]', '_', layer_name)
             persistent_lyr = os.path.join(cache_dir, safe_id + ".lyr")
-            try:
-                if os.path.exists(persistent_lyr):
-                    os.remove(persistent_lyr)
-            except Exception:
-                pass
+            if os.path.exists(persistent_lyr):
+                try: os.remove(persistent_lyr)
+                except Exception: pass
 
-            raw_lyr.saveACopy(persistent_lyr)
+            temp_lyr_name = "gee_tmp_load_" + uuid.uuid4().hex[:8]
+            if arcpy.Exists(temp_lyr_name):
+                try: arcpy.Delete_management(temp_lyr_name)
+                except Exception: pass
 
+            arcpy.MakeRasterLayer_management(tif_path, temp_lyr_name)
+            arcpy.SaveToLayerFile_management(temp_lyr_name, persistent_lyr)
+            if arcpy.Exists(temp_lyr_name):
+                try: arcpy.Delete_management(temp_lyr_name)
+                except Exception: pass
+
+            # 4. Configurar Stretch e bandas RGB no arquivo de camada (.lyr)
             if band_count >= 3:
                 rgb_indices = resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
                 apply_stretch_and_stats(persistent_lyr, settings, rgb_bands=rgb_indices)
@@ -1536,7 +1839,7 @@ def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_c
             rgb_feedback_msg = ""
             if band_count >= 3:
                 rgb_indices = resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
-                ok_rgb, msg_rgb = force_and_validate_rgb_composite(
+                ok_rgb, msg_rgb = force_single_layer_rgb(
                     layer_name=layer_name,
                     rgb_bands=rgb_indices,
                     settings=settings,
@@ -1547,7 +1850,7 @@ def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_c
                     custom_bands=custom_bands
                 )
                 rgb_feedback_msg = (" | " + msg_rgb) if msg_rgb else ""
-                _log_debug("load_into_toc: force_and_validate_rgb_composite -> %s (%s)" % (str(ok_rgb), msg_rgb))
+                _log_debug("load_into_toc: force_single_layer_rgb -> %s (%s)" % (str(ok_rgb), msg_rgb))
 
             # Garantir visibilidade configurada no TOC (inclusive quando inserido em grupo)
             try:
@@ -1599,7 +1902,7 @@ def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_c
         return False, "Erro ao adicionar camada ao TOC: " + str(e)
 
 def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=None, sensor=None, custom_bands=None):
-    """Substitui uma camada existente no TOC pela nova imagem/mosaico baixado, mantendo a posicao exata e preservando todas as bandas"""
+    """Substitui uma camada existente no TOC pela nova imagem/mosaico baixado, mantendo a posicao exata e garantindo RGB Composite nativo"""
     if not arcpy or not target_long_name:
         return False, "Alvo nao fornecido."
     try:
@@ -1647,26 +1950,29 @@ def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=No
             desc = arcpy.Describe(tif_path)
             band_count = getattr(desc, 'bandCount', 1)
 
-            # 3. Carregar GeoTIFF diretamente como Layer (sem MakeRasterLayer temporario!)
-            raw_lyr = arcpy.mapping.Layer(tif_path)
-
+            # 3. Criar camada com MakeRasterLayer_management para garantir RGB Composite NATIVO
             cache_dir = os.path.join(tempfile.gettempdir(), 'arcgee_lyr_cache')
             if not os.path.exists(cache_dir):
-                try:
-                    os.makedirs(cache_dir)
-                except Exception:
-                    pass
+                try: os.makedirs(cache_dir)
+                except Exception: pass
 
             import re
             safe_id = re.sub(r'[^a-zA-Z0-9_\-]', '_', new_layer_name)
             persistent_lyr = os.path.join(cache_dir, safe_id + ".lyr")
-            try:
-                if os.path.exists(persistent_lyr):
-                    os.remove(persistent_lyr)
-            except Exception:
-                pass
+            if os.path.exists(persistent_lyr):
+                try: os.remove(persistent_lyr)
+                except Exception: pass
 
-            raw_lyr.saveACopy(persistent_lyr)
+            temp_lyr_name = "gee_tmp_rep_" + uuid.uuid4().hex[:8]
+            if arcpy.Exists(temp_lyr_name):
+                try: arcpy.Delete_management(temp_lyr_name)
+                except Exception: pass
+
+            arcpy.MakeRasterLayer_management(tif_path, temp_lyr_name)
+            arcpy.SaveToLayerFile_management(temp_lyr_name, persistent_lyr)
+            if arcpy.Exists(temp_lyr_name):
+                try: arcpy.Delete_management(temp_lyr_name)
+                except Exception: pass
 
             if band_count >= 3:
                 rgb_indices = resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
@@ -1686,7 +1992,7 @@ def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=No
             rgb_feedback_msg = ""
             if band_count >= 3:
                 rgb_indices = resolve_rgb_band_indices(sensor, comp_code, custom_bands, band_count)
-                ok_rgb, msg_rgb = force_and_validate_rgb_composite(
+                ok_rgb, msg_rgb = force_single_layer_rgb(
                     layer_name=new_layer_name,
                     rgb_bands=rgb_indices,
                     settings=settings,
@@ -1696,7 +2002,7 @@ def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=No
                     custom_bands=custom_bands
                 )
                 rgb_feedback_msg = (" | " + msg_rgb) if msg_rgb else ""
-                _log_debug("replace_in_toc: force_and_validate_rgb_composite -> %s (%s)" % (str(ok_rgb), msg_rgb))
+                _log_debug("replace_in_toc: force_single_layer_rgb -> %s (%s)" % (str(ok_rgb), msg_rgb))
 
             try:
                 for lyr in arcpy.mapping.ListLayers(mxd, "", df):
@@ -1722,87 +2028,97 @@ def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=No
         return False, "Erro ao substituir camada no TOC: " + str(e)
 
 def change_layer_composition(target_layer_name, composition_code, sensor):
-    """Altera a composicao RGB de uma camada existente no TOC usando as bandas correspondentes sem descartar nenhuma banda"""
-    if not arcpy or not target_layer_name:
-        return False, "Camada alvo nao informada."
+    """Altera a composicao RGB de uma ou mais camadas existentes no TOC (individual, grupo ou todo o TOC)
+    usando as bandas correspondentes sem descartar nenhuma banda."""
+    if not arcpy:
+        return False, "ArcPy nao disponivel."
     try:
         mxd = arcpy.mapping.MapDocument("CURRENT")
         df = arcpy.mapping.ListDataFrames(mxd)[0]
 
-        target_lyr = None
-        for lyr in arcpy.mapping.ListLayers(mxd, "", df):
-            if lyr.longName == target_layer_name or lyr.name == target_layer_name:
-                target_lyr = lyr
-                break
+        target_rasters = resolve_target_raster_layers(mxd, df, target_layer_name)
+        if not target_rasters:
+            return False, u"Nenhuma camada raster compatível encontrada para o alvo '%s'." % (target_layer_name or "TOC")
 
-        if not target_lyr:
-            return False, "Camada '%s' nao encontrada no TOC." % target_layer_name
-
-        data_source = target_lyr.dataSource
-        if not os.path.exists(data_source):
-            return False, "Arquivo raster da camada nao encontrado: " + str(data_source)
-
+        settings = load_plugin_settings()
         prev_add_outputs = arcpy.env.addOutputsToMap
         arcpy.env.addOutputsToMap = False
 
-        band_count = None
-        try:
-            desc = arcpy.Describe(data_source)
-            band_count = getattr(desc, 'bandCount', None) or getattr(desc, 'BandCount', None)
-        except Exception:
-            pass
-
-        temp_lyr_name = "gee_temp_" + uuid.uuid4().hex[:8]
+        updated_count = 0
+        errors = []
 
         try:
-            if arcpy.Exists(temp_lyr_name):
+            for target_lyr in target_rasters:
                 try:
-                    arcpy.Delete_management(temp_lyr_name)
-                except Exception:
-                    pass
-            arcpy.MakeRasterLayer_management(data_source, temp_lyr_name)
-            tmp_lyr_file = os.path.join(tempfile.gettempdir(), temp_lyr_name + ".lyr")
-            try:
-                if os.path.exists(tmp_lyr_file):
-                    os.remove(tmp_lyr_file)
-            except Exception:
-                pass
-            arcpy.SaveToLayerFile_management(temp_lyr_name, tmp_lyr_file)
-            rgb_indices = resolve_rgb_band_indices(sensor, composition_code, None, band_count=band_count)
-            apply_stretch_and_stats(tmp_lyr_file, rgb_bands=rgb_indices)
+                    data_source = getattr(target_lyr, 'dataSource', None)
+                    if not data_source or not os.path.exists(data_source):
+                        continue
 
-            new_obj = arcpy.mapping.Layer(tmp_lyr_file)
-            new_obj.name = target_lyr.name
+                    desc = arcpy.Describe(data_source)
+                    band_count = getattr(desc, 'bandCount', None) or getattr(desc, 'BandCount', 1)
+                    if band_count < 3:
+                        continue
 
-            arcpy.mapping.InsertLayer(df, target_lyr, new_obj, "BEFORE")
-            arcpy.mapping.RemoveLayer(df, target_lyr)
+                    temp_lyr_name = "gee_tmp_comp_" + uuid.uuid4().hex[:8]
+                    if arcpy.Exists(temp_lyr_name):
+                        try: arcpy.Delete_management(temp_lyr_name)
+                        except Exception: pass
 
-            # Forcar e validar RGB na camada recem-inserida
-            force_and_validate_rgb_composite(
-                layer_name=target_lyr.name,
-                rgb_bands=rgb_indices,
-                settings=load_plugin_settings(),
-                tif_path=data_source,
-                comp_code=composition_code,
-                sensor=sensor
-            )
+                    arcpy.MakeRasterLayer_management(data_source, temp_lyr_name)
+                    tmp_lyr_file = os.path.join(tempfile.gettempdir(), temp_lyr_name + ".lyr")
+                    if os.path.exists(tmp_lyr_file):
+                        try: os.remove(tmp_lyr_file)
+                        except Exception: pass
+
+                    arcpy.SaveToLayerFile_management(temp_lyr_name, tmp_lyr_file)
+                    if arcpy.Exists(temp_lyr_name):
+                        try: arcpy.Delete_management(temp_lyr_name)
+                        except Exception: pass
+
+                    rgb_indices = resolve_rgb_band_indices(sensor, composition_code, None, band_count=band_count)
+                    apply_stretch_and_stats(tmp_lyr_file, settings=settings, rgb_bands=rgb_indices)
+
+                    is_visible = getattr(target_lyr, 'visible', True)
+                    orig_name = target_lyr.name
+
+                    new_obj = arcpy.mapping.Layer(tmp_lyr_file)
+                    new_obj.name = orig_name
+                    new_obj.visible = is_visible
+
+                    arcpy.mapping.InsertLayer(df, target_lyr, new_obj, "BEFORE")
+                    arcpy.mapping.RemoveLayer(df, target_lyr)
+
+                    # Forcar e validar RGB na camada recem-inserida
+                    force_single_layer_rgb(
+                        orig_name,
+                        rgb_bands=rgb_indices,
+                        settings=settings,
+                        tif_path=data_source,
+                        comp_code=composition_code,
+                        sensor=sensor
+                    )
+                    updated_count += 1
+                except Exception as ex_item:
+                    errors.append(unicode(target_lyr.name) + u": " + unicode(ex_item))
         finally:
-            if arcpy.Exists(temp_lyr_name):
-                try:
-                    arcpy.Delete_management(temp_lyr_name)
-                except Exception:
-                    pass
             arcpy.env.addOutputsToMap = prev_add_outputs
 
         arcpy.RefreshTOC()
         arcpy.RefreshActiveView()
-        return True, "Composicao da camada '%s' alterada para '%s' com sucesso!" % (target_layer_name, composition_code)
+
+        target_desc = unicode(target_layer_name) if target_layer_name else u"TOC"
+        if updated_count > 0:
+            return True, u"Composição '%s' aplicada com sucesso em %d camada(s) [%s]!" % (
+                composition_code, updated_count, target_desc
+            )
+        else:
+            return False, u"Falha ao alterar composição. Erros: " + u"; ".join(errors[:3])
     except Exception as e:
         return False, "Erro ao alterar composicao: " + str(e)
 
 def apply_stretch_to_toc_layer(target_layer_name=None, settings=None):
     """Aplica e garante as configuracoes de Stretch (ex: Standard Deviations) e DRA (From Current Display Extent)
-    em uma camada especifica ou em todas as camadas raster do TOC, forçando e validando RGB Composite para multibandas."""
+    em uma camada especifica, em um grupo ou em todo o TOC, forcando e validando RGB Composite para multibandas."""
     if not arcpy:
         return False, "ArcPy nao disponivel."
     if not settings:
@@ -1811,14 +2127,9 @@ def apply_stretch_to_toc_layer(target_layer_name=None, settings=None):
         mxd = arcpy.mapping.MapDocument("CURRENT")
         df = arcpy.mapping.ListDataFrames(mxd)[0]
 
-        rasters_to_update = []
-        for lyr in arcpy.mapping.ListLayers(mxd, "", df):
-            if not lyr.isGroupLayer and lyr.isRasterLayer:
-                if not target_layer_name or target_layer_name in ("TODAS", "Todas as camadas", "Nenhuma camada raster no TOC") or lyr.longName == target_layer_name or lyr.name == target_layer_name:
-                    rasters_to_update.append(lyr)
-
+        rasters_to_update = resolve_target_raster_layers(mxd, df, target_layer_name)
         if not rasters_to_update:
-            return False, u"Nenhuma camada raster compatível encontrada no TOC."
+            return False, u"Nenhuma camada raster compatível encontrada no TOC para o alvo especificado."
 
         prev_add = arcpy.env.addOutputsToMap
         arcpy.env.addOutputsToMap = False
@@ -1828,9 +2139,9 @@ def apply_stretch_to_toc_layer(target_layer_name=None, settings=None):
                 try:
                     data_src = getattr(lyr, 'dataSource', None)
                     desc = arcpy.Describe(data_src) if (data_src and os.path.exists(data_src)) else None
-                    b_count = getattr(desc, 'bandCount', 1) if desc else 1
+                    b_count = getattr(desc, 'bandCount', None) or getattr(desc, 'BandCount', 1) if desc else 1
                     if b_count >= 3:
-                        ok_f, msg_f = force_and_validate_rgb_composite(
+                        ok_f, msg_f = force_single_layer_rgb(
                             layer_name=lyr.name,
                             settings=settings,
                             tif_path=data_src
@@ -1860,8 +2171,9 @@ def apply_stretch_to_toc_layer(target_layer_name=None, settings=None):
         st_name = settings.get('stretch_type', 'Standard Deviations')
         std_n = settings.get('stretch_std_param', 2.0)
         stats_type = settings.get('statistics_type', 'From Current Display Extent')
-        return True, u"Stretch garantido em %d camada(s)! [%s (n=%.1f) | DRA: %s]" % (
-            updated_count, st_name, float(std_n), stats_type
+        target_desc = unicode(target_layer_name) if target_layer_name else u"TOC"
+        return True, u"Stretch garantido em %d camada(s) [%s]! [%s (n=%.1f) | DRA: %s]" % (
+            updated_count, target_desc, st_name, float(std_n), stats_type
         )
     except Exception as e:
         return False, u"Erro ao garantir stretch: " + str(e)
@@ -1926,16 +2238,61 @@ def export_arcmap_context():
         bbox = get_arcmap_extent_wgs84()
         v_layers = get_arcmap_layers()
         r_layers = get_arcmap_raster_layers()
+        all_groups = get_arcmap_toc_groups()
+
+        # Determinar quais grupos contem camadas raster (via TOC e via caminho longName dos rasters)
+        groups_with_rasters = []
+        for g in all_groups:
+            g_str = unicode(g).strip().lower()
+            for r in r_layers:
+                r_str = unicode(r).strip().lower()
+                if r_str.startswith(g_str + u"\\") or (u"\\" + g_str + u"\\") in r_str or r_str == g_str:
+                    if g not in groups_with_rasters:
+                        groups_with_rasters.append(g)
+                    break
+
+        # SEMPRE extrair tambem diretamente dos nomes longos dos rasters (ex: Grupo\Cena -> Grupo)
+        for r in r_layers:
+            r_str = unicode(r).strip()
+            if u"\\" in r_str:
+                parts = [p.strip() for p in r_str.split(u"\\") if p.strip()]
+                for grp in parts[:-1]:
+                    if grp and grp not in groups_with_rasters:
+                        groups_with_rasters.append(grp)
+
+        # Construir lista padronizada e unificada de alvos (TOC / Grupos / Camadas)
+        toc_targets = build_toc_targets(r_layers, groups_with_rasters)
+
+        # Detectar se ha alvo selecionado ativamente no ArcMap
+        sel_name, is_grp = get_arcmap_selected_layer()
+        selected_target = None
+        if sel_name:
+            if is_grp:
+                g_target = u"[Grupo] " + unicode(sel_name)
+                if g_target in toc_targets:
+                    selected_target = g_target
+            else:
+                sel_clean = unicode(sel_name).strip().lower()
+                for r in r_layers:
+                    r_clean = unicode(r).strip().lower()
+                    if r_clean == sel_clean or r_clean.endswith(u"\\" + sel_clean) or sel_clean in r_clean:
+                        selected_target = unicode(r)
+                        break
+
         ctx = {
             'scale': scale,
             'bbox': bbox,
             'vector_layers': v_layers,
             'raster_layers': r_layers,
+            'group_layers': all_groups,
+            'groups_with_rasters': groups_with_rasters,
+            'toc_targets': toc_targets,
+            'selected_target': selected_target,
             'time': time.time()
         }
         safe_write_json(CONTEXT_FILE, ctx)
-        _log_debug("export_arcmap_context: scale=%s, bbox=%s, rasters=%d, vectors=%d" % (
-            str(scale), str(bbox), len(r_layers), len(v_layers)
+        _log_debug("export_arcmap_context: scale=%s, bbox=%s, rasters=%d, vectors=%d, targets=%d" % (
+            str(scale), str(bbox), len(r_layers), len(v_layers), len(toc_targets)
         ))
         return ctx
     except Exception as e:
@@ -2113,7 +2470,7 @@ def process_pending_arcmap_commands():
                 resp = {'reply_to': cmd_id, 'success': ok, 'message': msg}
             elif action == 'change_composition':
                 ok, msg = change_layer_composition(
-                    cmd['target_layer'],
+                    cmd.get('target_layer') or cmd.get('layer_name'),
                     cmd['comp'],
                     cmd['sensor']
                 )
@@ -2131,13 +2488,13 @@ def process_pending_arcmap_commands():
                 resp = {'reply_to': cmd_id, 'success': True, 'context': ctx}
             elif action == 'apply_stretch':
                 ok, msg = apply_stretch_to_toc_layer(
-                    cmd.get('layer_name'),
+                    cmd.get('target_layer') or cmd.get('layer_name'),
                     settings=cmd.get('settings')
                 )
                 resp = {'reply_to': cmd_id, 'success': ok, 'message': msg}
             elif action in ('force_rgb_composite', 'fix_symbology'):
                 ok, msg = force_and_validate_rgb_composite(
-                    layer_name=cmd.get('layer_name'),
+                    layer_name=cmd.get('target_layer') or cmd.get('layer_name'),
                     rgb_bands=cmd.get('rgb_bands'),
                     settings=cmd.get('settings'),
                     sensor=cmd.get('sensor'),

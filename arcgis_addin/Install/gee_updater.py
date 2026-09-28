@@ -735,14 +735,14 @@ def download_github_archive(target_path, progress_callback=None):
             import urllib2
             req = urllib2.Request(
                 GITHUB_ZIP_URL,
-                headers={"User-Agent": "CGMA-ArcGEE-Updater/1.11"}
+                headers={"User-Agent": "CGMA-ArcGEE-Updater/1.12"}
             )
             response = urllib2.urlopen(req, timeout=20)
         else:
             import urllib.request
             req = urllib.request.Request(
                 GITHUB_ZIP_URL,
-                headers={"User-Agent": "CGMA-ArcGEE-Updater/1.11"}
+                headers={"User-Agent": "CGMA-ArcGEE-Updater/1.12"}
             )
             response = urllib.request.urlopen(req, timeout=20)
 
@@ -812,7 +812,7 @@ def download_github_archive(target_path, progress_callback=None):
 # MOTOR DE BACKUP E SNAPSHOT DE SEGURANÇA
 # ==============================================================================
 
-def create_snapshot_backup(current_version="1.11", backups_root=None, custom_sys_dirs=None):
+def create_snapshot_backup(current_version="1.12", backups_root=None, custom_sys_dirs=None):
     """
     Cria um backup completo e atômico do estado operacional atual do plugin.
     Copia o .esriaddin instalado e todo o AssemblyCache para uma pasta versionada:
@@ -1266,7 +1266,7 @@ exit /b 1
 # FLUXO ORQUESTRADO COMPLETO (ORCHESTRATOR)
 # ==============================================================================
 
-def execute_zip_update_flow(zip_path, current_version="1.11", progress_callback=None):
+def execute_zip_update_flow(zip_path, current_version="1.12", progress_callback=None):
     """
     Fluxo de atualização passo a passo via arquivo ZIP:
     Fase 1: Pre-flight checks (integridade, segurança Zip Slip, espaço em disco, permissões).
@@ -1301,7 +1301,7 @@ def execute_zip_update_flow(zip_path, current_version="1.11", progress_callback=
     generate_and_launch_detached_runner(staging_info, backup_meta)
     return True
 
-def execute_git_update_flow(repo_path, remote_branch="main", current_version="1.11", progress_callback=None):
+def execute_git_update_flow(repo_path, remote_branch="main", current_version="1.12", progress_callback=None):
     """
     Fluxo de atualização passo a passo via repositório Git local:
     Fase 1: Pre-flight checks Git (conectividade, working tree limpa, divergência).
@@ -1375,7 +1375,7 @@ def execute_git_update_flow(repo_path, remote_branch="main", current_version="1.
     generate_and_launch_detached_runner(staging_info, backup_meta)
     return True
 
-def execute_online_github_update_flow(current_version="1.11", progress_callback=None):
+def execute_online_github_update_flow(current_version="1.12", progress_callback=None):
     """
     Fluxo de atualização inteligente online:
     1. Se o sistema estiver rodando de um clone Git com .git:

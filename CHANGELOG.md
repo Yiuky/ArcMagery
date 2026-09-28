@@ -4,6 +4,29 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.12.0] - 2026-09-28
+
+### 🌟 Adicionado & Aprimorado
+- **Modo RGB Composite Nativo Padrão na Carga Inicial:**
+  - Corrigido o comportamento em computadores sem `comtypes` ou onde o acesso COM não está disponível: a imagem agora entra nativamente em modo **RGB COMPOSITE** em vez de escala de cinza (`RasterStretchRenderer`).
+  - Utilização primária da geoprocessing tool `arcpy.MakeRasterLayer_management` para criar a camada em memória já inicializada com `IRasterRGBRenderer` nativo do ArcGIS Desktop para rasters multibanda ($\ge 3$ bandas).
+  - Preservado fallback gracioso com `arcpy.mapping.Layer` e pipeline comtypes / percent clip stretch em Red, Green e Blue (`0.5%` / `0.5%`).
+- **Execução Multi-Escopo no TOC (Camada, Grupo ou Todo o TOC):**
+  - Os botões de controle de simbologia da interface:
+    - `[ Composição ]` (Presets: 4-3-2, 8-4-3, 7-6-4, etc.)
+    - `[ Forçar RGB ]` (Mapeia canais 1, 2, 3 em Red, Green, Blue)
+    - `[ Garantir Stretch ]` (Aplica Percent Clip DRA automático nos 3 canais)
+    agora operam de forma dinâmica e abrangente sobre qualquer escopo selecionado na lista suspensa do TOC.
+  - A lista do TOC passa a listar organizadamente:
+    - `[Todo o TOC]` — executa a operação em todos os rasters de todas as camadas do projeto.
+    - `[Grupo] <nome_do_grupo>` — executa a operação em todas as subcamadas raster pertencentes ao grupo selecionado.
+    - Camadas individuais — executa a operação estritamente na camada escolhida.
+- **Extração Dinâmica de Grupos e Despacho Desacoplado no Cliente:**
+  - Extração inteligente de nomes de grupos do TOC via inspeção da propriedade hierárquica `longName` das camadas do ArcMap.
+  - Resolução dinâmica client-side no módulo GUI (`resolve_layer_names`): expande seleções de grupo ou TOC completo para chamadas individuais ao backend sem exigir reinicialização do processo do ArcMap ou do bridge.
+
+---
+
 ## [1.11.0] - 2026-09-28
 
 ### 🛡️ Corrigido & Otimizado

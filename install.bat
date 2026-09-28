@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
-title Instalador - CGMA ArcGEE Explorer v1.8
+title Instalador - CGMA ArcGEE Explorer v1.12
 cls
 echo ======================================================================
-echo          CGMA ARCGEE EXPLORER - INSTALADOR AUTOMATIZADO (v1.8)
+echo          CGMA ARCGEE EXPLORER - INSTALADOR AUTOMATIZADO (v1.12)
 echo         Google Earth Engine integrado ao ArcGIS Desktop 10.8.2
 echo ======================================================================
 echo.
@@ -23,6 +23,18 @@ if not exist "%PYTHON27%" (
     echo.
 ) else (
     echo [OK] ArcGIS Desktop 10.8 e Python 2.7 detectados.
+    "%PYTHON27%" -c "import comtypes" 2>nul
+    if errorlevel 1 (
+        echo [INFO] Modulo comtypes ausente no Python 2.7. Tentando instalar via pip...
+        "%PYTHON27%" -m pip install comtypes --quiet 2>nul
+        if errorlevel 1 (
+            echo [INFO] pip nao configurado no Python 2.7. O plugin utilizara o mecanismo nativo ArcPy com 100%% de compatibilidade.
+        ) else (
+            echo [OK] Modulo comtypes instalado com sucesso no Python 2.7.
+        )
+    ) else (
+        echo [OK] Modulo comtypes disponivel no Python 2.7.
+    )
 )
 
 :: 2. Detectar e preparar ambiente Python 3 para o Google Earth Engine
