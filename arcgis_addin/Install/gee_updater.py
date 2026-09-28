@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-CGMA ArcGEE Explorer - Módulo de Atualização Robusto e Transacional (gee_updater)
+ArcMagery - Módulo de Atualização Robusto e Transacional (gee_updater)
 ================================================================================
 Engenharia de Confiabilidade e Automação para Atualizações via Git/GitHub e ZIP.
 
@@ -50,6 +50,10 @@ ADDIN_UUID_UPPER = "{CEAE58C4-C44E-4EDD-B8F4-1BA7D13B6B7D}"
 
 GITHUB_REPO_URL = "https://github.com/Yiuky/arcgis-google-earth-engine-explorer"
 GITHUB_ZIP_URL = "https://github.com/Yiuky/arcgis-google-earth-engine-explorer/archive/refs/heads/main.zip"
+# Canal oficial: GitHub Releases com arquivo de hashes publicado junto do pacote.
+GITHUB_API_LATEST_RELEASE = "https://api.github.com/repos/Yiuky/arcgis-google-earth-engine-explorer/releases/latest"
+RELEASE_CHECKSUM_ASSET = "SHA256SUMS.txt"
+UPDATER_USER_AGENT = "ArcMagery-Updater/2.0"
 GITHUB_HOST = "github.com"
 GITHUB_PORT = 443
 
@@ -129,6 +133,14 @@ class PermissionCheckError(PreflightCheckError):
 class MissingComponentsError(PreflightCheckError):
     """Pacote de atualização não contém a estrutura esperada do plugin."""
     pass
+
+class ConfirmationRequired(UpdaterError):
+    """A operacao exige confirmacao explicita do usuario (ex.: pacote sem verificacao de
+    integridade ou downgrade). A GUI pergunta e repete a chamada com `flag`=True."""
+    def __init__(self, message, flag, **kwargs):
+        super(ConfirmationRequired, self).__init__(message, **kwargs)
+        self.flag = flag
+
 
 class RollbackTriggeredError(UpdaterError):
     """Falha ocorrida durante a aplicação, acionando restauração automática do backup."""
@@ -298,6 +310,90 @@ def calculate_file_sha256(filepath):
             sha.update(chunk)
     return sha.hexdigest()
 
+def parse_version(text):
+    """'v1.10' / '1.10.0' -> (1, 10, 0). Retorna None se nao for uma versao numerica."""
+    try:
+        parts = str(text).strip().lstrip("vV").split(".")
+        nums = [int(p) for p in parts if p != ""]
+        while len(nums) < 3:
+            nums.append(0)
+        return tuple(nums[:3])
+    except Exception:
+        return None
+
+
+def _http_get(url, timeout=30, accept=None):
+    """GET simples compativel com Python 2.7 (urllib2) e 3 (urllib.request). Retorna bytes."""
+    headers = {"User-Agent": UPDATER_USER_AGENT}
+    if accept:
+        headers["Accept"] = accept
+    if sys.version_info[0] < 3:
+        import urllib2
+        resp = urllib2.urlopen(urllib2.Request(url, headers=headers), timeout=timeout)
+    else:
+        import urllib.request
+        resp = urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout)
+    try:
+        return resp.read()
+    finally:
+        resp.close()
+
+
+def parse_sha256sums(text):
+    """Le o formato do `sha256sum`: '<hash>  <arquivo>' por linha. Retorna {arquivo: hash}."""
+    out = {}
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", "replace")
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        if len(parts) == 2 and len(parts[0]) == 64:
+            out[parts[1].strip().lstrip("*")] = parts[0].lower()
+    return out
+
+
+def fetch_latest_release(api_url=GITHUB_API_LATEST_RELEASE):
+    """Consulta a ultima Release publicada. Retorna None se o repositorio ainda nao tem Releases.
+    Retorna dict: version, tag, zip_name, zip_url, sums_url."""
+    import json
+    try:
+        data = json.loads(_http_get(api_url, timeout=20, accept="application/vnd.github+json").decode("utf-8"))
+    except Exception as e:
+        code = getattr(e, "code", None)
+        if code == 404:
+            return None
+        raise NetworkError(
+            u"Falha ao consultar a última Release do GitHub: %s" % e,
+            title=u"Falha ao Consultar Releases",
+            user_message=u"Não foi possível consultar a versão publicada no GitHub.",
+            remediation=[u"Verifique a conexão/proxy.", u"Tente a atualização via arquivo ZIP."],
+            technical_details=traceback.format_exc())
+    assets = data.get("assets") or []
+    zips = [a for a in assets if a.get("name", "").lower().endswith(".zip")]
+    sums = [a for a in assets if a.get("name") == RELEASE_CHECKSUM_ASSET]
+    tag = data.get("tag_name") or ""
+    return {
+        "version": tag.lstrip("vV"),
+        "tag": tag,
+        "zip_name": zips[0]["name"] if zips else None,
+        "zip_url": zips[0].get("browser_download_url") if zips else None,
+        "sums_url": sums[0].get("browser_download_url") if sums else None,
+    }
+
+
+def verify_file_sha256(path, expected_hex):
+    actual = calculate_file_sha256(path)
+    if not actual or actual.lower() != (expected_hex or "").lower():
+        raise SecurityValidationError(
+            u"Hash SHA-256 divergente para %s (esperado %s, obtido %s)." % (os.path.basename(path), expected_hex, actual),
+            title=u"Pacote Não Confiável",
+            user_message=u"O pacote baixado não corresponde ao hash publicado na Release. A atualização foi bloqueada.",
+            remediation=[u"Tente novamente mais tarde.", u"Se persistir, avise o responsável pelo plugin."])
+    return actual
+
+
 def check_network_connectivity(host=GITHUB_HOST, port=GITHUB_PORT, timeout=5.0):
     """
     Testa conectividade TCP básica com o servidor de destino dentro de um timeout estrito.
@@ -432,7 +528,7 @@ def validate_zip_archive(zip_path, target_dirs=None):
                     u"Violação de segurança: caminho absoluto detectado no ZIP (%s)." % filename,
                     title=u"Risco de Segurança Detectado (Zip Slip)",
                     user_message=u"O arquivo ZIP foi rejeitado porque contém caminhos absolutos que violam a segurança do sistema.",
-                    remediation=[u"Utilize apenas arquivos oficiais do CGMA ArcGEE Explorer."]
+                    remediation=[u"Utilize apenas arquivos oficiais do ArcMagery."]
                 )
             if len(filename) >= 2 and filename[1] == ":":
                 raise SecurityValidationError(
@@ -477,7 +573,7 @@ def validate_zip_archive(zip_path, target_dirs=None):
                 title=u"Estrutura do Plugin Incompleta",
                 user_message=u"O arquivo ZIP não contém os componentes essenciais do plugin: %s." % ", ".join(missing),
                 remediation=[
-                    u"Verifique se você selecionou o arquivo correto do CGMA ArcGEE Explorer.",
+                    u"Verifique se você selecionou o arquivo correto do ArcMagery.",
                     u"Se você baixou o código-fonte compactado, certifique-se de baixar o ZIP completo do repositório."
                 ]
             )
@@ -488,7 +584,10 @@ def validate_zip_archive(zip_path, target_dirs=None):
             try:
                 xml_data = z.read(config_xml_entry)
                 root_elem = ET.fromstring(xml_data)
-                ver_node = root_elem.find(".//Version")
+                # O config.xml usa namespace padrao (xmlns=".../AddIns"): find(".//Version")
+                # nunca casava e a versao ficava "Desconhecida" (anulando o bloqueio de downgrade)
+                ver_node = next((el for el in root_elem.iter()
+                                 if el.tag == "Version" or el.tag.endswith("}Version")), None)
                 if ver_node is not None and ver_node.text:
                     proposed_version = ver_node.text.strip()
             except Exception as e_xml:
@@ -700,26 +799,19 @@ def validate_git_repository(repo_path, remote_branch="main"):
 # DOWNLOAD RESILIENTE DO GITHUB
 # ==============================================================================
 
-def download_github_archive(target_path, progress_callback=None):
+def download_github_archive(target_path, progress_callback=None, url=None):
     """
-    Realiza o download em streaming do arquivo .zip do repositório GitHub oficial
-    com validação de cabeçalhos, timeout configurado e relatório de progresso.
+    Realiza o download em streaming de um pacote .zip do GitHub (Release ou branch)
+    com validação de tamanho, timeout configurado e relatório de progresso.
     """
-    log_info(u"Iniciando download do pacote GitHub a partir de: %s" % GITHUB_ZIP_URL)
+    url = url or GITHUB_ZIP_URL
+    log_info(u"Iniciando download do pacote GitHub a partir de: %s" % url)
 
-    # 1. Validação de rede prévia
+    # 1. Diagnóstico de rede (apenas registro: em redes com proxy explícito a conexão TCP
+    #    direta falha mesmo quando o download via urllib, que respeita o proxy, funciona)
     net_ok, net_err = check_network_connectivity(GITHUB_HOST, GITHUB_PORT, timeout=5.0)
     if not net_ok:
-        raise NetworkError(
-            u"Não foi possível conectar ao host %s: %s" % (GITHUB_HOST, net_err),
-            title=u"Falha de Conexão com o GitHub",
-            user_message=u"Não foi possível estabelecer contato com os servidores do GitHub para baixar a atualização.",
-            remediation=[
-                u"Verifique sua conexão de rede.",
-                u"Certifique-se de que o domínio github.com não esteja bloqueado pelo firewall."
-            ],
-            technical_details=net_err
-        )
+        log_warning(u"Conexão TCP direta com %s indisponível (%s); tentando mesmo assim (proxy?)." % (GITHUB_HOST, net_err))
 
     # 2. Download em arquivo temporário com sufixo .part
     part_path = target_path + ".part"
@@ -734,15 +826,15 @@ def download_github_archive(target_path, progress_callback=None):
         if sys.version_info[0] < 3:
             import urllib2
             req = urllib2.Request(
-                GITHUB_ZIP_URL,
-                headers={"User-Agent": "CGMA-ArcGEE-Updater/1.12"}
+                url,
+                headers={"User-Agent": UPDATER_USER_AGENT}
             )
             response = urllib2.urlopen(req, timeout=20)
         else:
             import urllib.request
             req = urllib.request.Request(
-                GITHUB_ZIP_URL,
-                headers={"User-Agent": "CGMA-ArcGEE-Updater/1.12"}
+                url,
+                headers={"User-Agent": UPDATER_USER_AGENT}
             )
             response = urllib.request.urlopen(req, timeout=20)
 
@@ -767,6 +859,14 @@ def download_github_archive(target_path, progress_callback=None):
                         pass
 
         response.close()
+
+        if total_size and downloaded != total_size:
+            raise CorruptPackageError(
+                u"Download incompleto: %d de %d bytes." % (downloaded, total_size),
+                title=u"Download Incompleto",
+                user_message=u"A transferência do pacote foi interrompida antes do fim.",
+                remediation=[u"Tente baixar novamente a atualização."]
+            )
 
         # Validação pós-download: tamanho e assinatura ZIP
         if downloaded < 10240:
@@ -812,7 +912,7 @@ def download_github_archive(target_path, progress_callback=None):
 # MOTOR DE BACKUP E SNAPSHOT DE SEGURANÇA
 # ==============================================================================
 
-def create_snapshot_backup(current_version="1.12", backups_root=None, custom_sys_dirs=None):
+def create_snapshot_backup(current_version="2.0.0", backups_root=None, custom_sys_dirs=None):
     """
     Cria um backup completo e atômico do estado operacional atual do plugin.
     Copia o .esriaddin instalado e todo o AssemblyCache para uma pasta versionada:
@@ -1075,7 +1175,7 @@ def generate_and_launch_detached_runner(staging_info, backup_info):
     # Template do script em lote altamente resiliente com rollback automático
     bat_content = r"""@echo off
 chcp 65001 >nul
-title Atualizador CGMA ArcGEE Explorer
+title Atualizador ArcMagery
 
 set LOG_FILE={log_file}
 set ADDIN_DIR={addin_dir}
@@ -1172,7 +1272,7 @@ if defined DEV_REPO if exist "%DEV_REPO%\arcgis_addin" (
 echo [%DATE% %TIME%] [SUCESSO] Atualização concluída com êxito e validada! >> "%LOG_FILE%"
 rd /s /q "%STAGING_DIR%" 2>nul
 
-powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show('CGMA ArcGEE Explorer atualizado com sucesso!`n`nTodos os arquivos foram validados, instalados e recompilados.`nReabra o ArcMap para carregar a nova versão.', 'Atualização Concluída', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)"
+powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show('ArcMagery atualizado com sucesso!`n`nTodos os arquivos foram validados, instalados e recompilados.`nReabra o ArcMap para carregar a nova versão.', 'Atualização Concluída', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)"
 (goto) 2>nul & del "%~f0"
 exit /b 0
 
@@ -1266,7 +1366,8 @@ exit /b 1
 # FLUXO ORQUESTRADO COMPLETO (ORCHESTRATOR)
 # ==============================================================================
 
-def execute_zip_update_flow(zip_path, current_version="1.12", progress_callback=None):
+def execute_zip_update_flow(zip_path, current_version="2.0.0", progress_callback=None,
+                            expected_sha256=None, allow_downgrade=False):
     """
     Fluxo de atualização passo a passo via arquivo ZIP:
     Fase 1: Pre-flight checks (integridade, segurança Zip Slip, espaço em disco, permissões).
@@ -1279,8 +1380,21 @@ def execute_zip_update_flow(zip_path, current_version="1.12", progress_callback=
         progress_callback(u"1/4 Validando integridade e segurança do pacote...")
 
     # Fase 1: Pre-flight checks
+    if expected_sha256:
+        verify_file_sha256(zip_path, expected_sha256)
+        log_info(u"Hash SHA-256 do pacote conferido com a Release.")
     target_dirs = find_system_directories()
     zip_meta = validate_zip_archive(zip_path, target_dirs=target_dirs)
+
+    new_v = parse_version(zip_meta.get("proposed_version"))
+    cur_v = parse_version(current_version)
+    if new_v and cur_v and new_v < cur_v and not allow_downgrade:
+        raise ConfirmationRequired(
+            u"Pacote v%s é anterior à versão instalada v%s." % (zip_meta.get("proposed_version"), current_version),
+            flag="allow_downgrade",
+            title=u"Confirmar Downgrade",
+            user_message=u"O pacote selecionado (v%s) é MAIS ANTIGO que a versão instalada (v%s).\n\n"
+                         u"Deseja realmente voltar para a versão anterior?" % (zip_meta.get("proposed_version"), current_version))
 
     if progress_callback:
         progress_callback(u"2/4 Criando snapshot de backup da versão atual...")
@@ -1301,7 +1415,7 @@ def execute_zip_update_flow(zip_path, current_version="1.12", progress_callback=
     generate_and_launch_detached_runner(staging_info, backup_meta)
     return True
 
-def execute_git_update_flow(repo_path, remote_branch="main", current_version="1.12", progress_callback=None):
+def execute_git_update_flow(repo_path, remote_branch="main", current_version="2.0.0", progress_callback=None):
     """
     Fluxo de atualização passo a passo via repositório Git local:
     Fase 1: Pre-flight checks Git (conectividade, working tree limpa, divergência).
@@ -1375,7 +1489,8 @@ def execute_git_update_flow(repo_path, remote_branch="main", current_version="1.
     generate_and_launch_detached_runner(staging_info, backup_meta)
     return True
 
-def execute_online_github_update_flow(current_version="1.12", progress_callback=None):
+def execute_online_github_update_flow(current_version="2.0.0", progress_callback=None,
+                                      allow_unverified_main=False, allow_downgrade=False):
     """
     Fluxo de atualização inteligente online:
     1. Se o sistema estiver rodando de um clone Git com .git:
@@ -1404,7 +1519,41 @@ def execute_online_github_update_flow(current_version="1.12", progress_callback=
         except Exception as e_git_fallback:
             log_warning(u"Atualização Git não pôde ser concluída (%s). Alternando para canal ZIP online." % e_git_fallback)
 
-    # Canal ZIP Online
+    # Canal ZIP Online: Release publicada + SHA256SUMS (verificado) ou, com confirmação
+    # explícita do usuário, o branch main sem verificação de integridade.
+    if progress_callback:
+        progress_callback(u"1/4 Consultando a última Release publicada...")
+    release = fetch_latest_release()
+    zip_url, expected_sha = None, None
+    if release and release.get("zip_url") and release.get("sums_url"):
+        new_v, cur_v = parse_version(release["version"]), parse_version(current_version)
+        if new_v and cur_v and new_v <= cur_v and not allow_downgrade:
+            raise UpdaterError(
+                u"Versão publicada v%s não é mais nova que a instalada v%s." % (release["version"], current_version),
+                title=u"Plugin Atualizado",
+                user_message=u"Você já está na versão mais recente publicada (v%s)." % current_version)
+        sums = parse_sha256sums(_http_get(release["sums_url"], timeout=20))
+        expected_sha = sums.get(release["zip_name"])
+        if not expected_sha:
+            raise SecurityValidationError(
+                u"%s não lista o pacote %s." % (RELEASE_CHECKSUM_ASSET, release["zip_name"]),
+                title=u"Release Sem Hash",
+                user_message=u"A Release publicada não contém o hash do pacote. A atualização foi bloqueada.")
+        zip_url = release["zip_url"]
+        log_info(u"Release %s encontrada; pacote %s (SHA-256 %s)." % (release["tag"], release["zip_name"], expected_sha))
+    elif allow_unverified_main:
+        log_warning(u"Nenhuma Release verificável publicada: usando branch main SEM verificação (confirmado pelo usuário).")
+        zip_url = GITHUB_ZIP_URL
+    else:
+        raise ConfirmationRequired(
+            u"Nenhuma Release com %s publicada." % RELEASE_CHECKSUM_ASSET,
+            flag="allow_unverified_main",
+            title=u"Atualização Sem Verificação",
+            user_message=u"Não há uma Release publicada com hash de verificação (SHA256SUMS).\n\n"
+                         u"Posso baixar a versão de desenvolvimento do branch 'main', mas a integridade "
+                         u"do pacote NÃO poderá ser verificada e ele pode conter alterações ainda não testadas.\n\n"
+                         u"Deseja continuar mesmo assim?")
+
     if progress_callback:
         progress_callback(u"1/4 Baixando pacote do GitHub...")
 
@@ -1418,5 +1567,6 @@ def execute_online_github_update_flow(current_version="1.12", progress_callback=
             mb = down / (1024.0 * 1024.0)
             progress_callback(u"1/4 Baixando atualização do GitHub (%.1f MB)..." % mb)
 
-    download_github_archive(tmp_zip, progress_callback=dl_progress)
-    return execute_zip_update_flow(tmp_zip, current_version=current_version, progress_callback=progress_callback)
+    download_github_archive(tmp_zip, progress_callback=dl_progress, url=zip_url)
+    return execute_zip_update_flow(tmp_zip, current_version=current_version, progress_callback=progress_callback,
+                                   expected_sha256=expected_sha, allow_downgrade=allow_downgrade)
