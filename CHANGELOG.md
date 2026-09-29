@@ -4,6 +4,16 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.2.1] - 2026-09-29
+
+### 🛡️ Corrigido
+- **"Simbologia não pôde ser verificada: FocusMap" ao carregar no ArcMap:** `IApplication.Document` devolve a interface genérica `IDocument`, e `FocusMap`, `SelectedLayer`, `ActiveView` e `UpdateContents` só existem em `IMxDocument` (`esriArcMapUI`). Agora é feito o `QueryInterface(IMxDocument)`, e o TOC e o mapa são atualizados depois da correção. O mesmo defeito, antes mascarado, afetava a localização da camada viva nos fluxos antigos e a detecção da camada selecionada no TOC.
+
+### 🧪 Testes
+- Regressão que simula o `AppRef` do ArcMap (um `IDocument` sem `FocusMap`) com um mapa real por trás.
+
+---
+
 ## [2.2.0] - 2026-09-28
 
 ### 🛡️ Simbologia garantida na carga

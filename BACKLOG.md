@@ -12,7 +12,7 @@ rodar os testes.
   real, de uma entrada no checklist manual (seção **V**).
 - Prioridade: **P0** (bloqueia uso/segurança) · **P1** (resultado errado ou travamento) ·
   **P2** (robustez e experiência) · **P3** (melhoria e refatoração).
-- Estado de referência: v2.2.0, branch `feature/arcmagery-2.0`, 2026-09-28.
+- Estado de referência: v2.2.1, branch `feature/arcmagery-2.0`, 2026-09-28.
 
 ---
 
@@ -184,6 +184,7 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | C-12 | 2.0.0 | Nova fonte CBERS / Amazônia-1 (STAC INPE), com cobertura real da AOI | `tests/backend/test_stac_core.py` |
 | C-13 | 2.0.0 | `gdal.Unlink` no `finally` mascarava o erro real do recorte CBERS | `test_stac_core.py::test_aoi_outside_raster` |
 | C-16 | 2.0.0 | Versão do pacote ZIP lida como "Desconhecida" (namespace do config.xml), o que anulava o bloqueio de downgrade | `test_updater_security.py::RealZipValidationTest` |
+| C-21 | 2.2.1 | Camada viva: QueryInterface(IMxDocument) para FocusMap/SelectedLayer (erro "FocusMap" no ArcMap real) | `test_symbology.py::test_live_arcmap_path_uses_imxdocument` |
 | C-19 | 2.2.0 | Simbologia garantida: bandas RGB + Stretch aplicados, relidos e conferidos; camada localizada pelo caminho exato (e 8.3); aviso quando não garantida; botões Composição/Forçar RGB/Garantir Stretch removidos | `tests/arcmap/test_symbology.py` |
 | C-20 | 2.2.0 | "Aplicar stretch" das Configurações redefinia as bandas para 1-2-3; salvar Configurações apagava as demais opções | `test_symbology.py::test_restretch_preserves_band_combination` |
 | C-17 | 2.1.0 | CBERS/Amazônia-1 integrado à janela principal (barra *Fonte de imagens*, tabela, fila, TOC) e botão Miniatura | `tests/arcmap/test_inpe_integration.py` |

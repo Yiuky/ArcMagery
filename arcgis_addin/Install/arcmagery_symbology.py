@@ -248,20 +248,51 @@ def find_layers_by_path(tif_path, focus_map):
     return found
 
 
+_ARCMAP_MODULES = None
+
+
+def arcmap_modules():
+    """(esriFramework, esriArcMapUI) gerados pelo comtypes (cache por processo)."""
+    global _ARCMAP_MODULES
+    if _ARCMAP_MODULES is None:
+        import comtypes.client
+        import gee_bridge
+        com_dir = os.path.dirname(gee_bridge.get_esricarto_olb_path())
+        carto()  # garante o esriCarto gerado antes (dependencia do ArcMapUI)
+        _ARCMAP_MODULES = (comtypes.client.GetModule(os.path.join(com_dir, 'esriFramework.olb')),
+                           comtypes.client.GetModule(os.path.join(com_dir, 'esriArcMapUI.olb')))
+    return _ARCMAP_MODULES
+
+
 def live_focus_map():
-    """(IMxDocument-dispatch, FocusMap) do ArcMap em execucao (somente dentro do processo ArcMap)."""
+    """(IMxDocument, FocusMap) do ArcMap em execucao (somente dentro do processo ArcMap).
+
+    IApplication.Document devolve a interface generica IDocument; FocusMap, ActiveView e
+    UpdateContents so existem em IMxDocument (esriArcMapUI) -> QueryInterface obrigatorio.
+    (Sem isso: "Simbologia nao pode ser verificada: FocusMap".)"""
     import comtypes.client
-    app = comtypes.client.CreateObject("esriFramework.AppRef")
-    doc = app.Document
-    return doc, doc.FocusMap
+    framework, arcmap_ui = arcmap_modules()
+    app = comtypes.client.CreateObject(framework.AppRef, interface=framework.IApplication)
+    mx_doc = app.Document.QueryInterface(arcmap_ui.IMxDocument)
+    return mx_doc, mx_doc.FocusMap
+
+
+def refresh_live_views(mx_doc):
+    """Atualiza TOC e mapa do ArcMap depois de trocar um renderer."""
+    for action in (lambda: mx_doc.UpdateContents(), lambda: mx_doc.ActiveView.Refresh()):
+        try:
+            action()
+        except Exception:
+            pass
 
 
 def ensure_layer_symbology(tif_path, settings=None, rgb_bands=None, layer_name=None, focus_map=None, retries=2):
     """Garante (e confere) a simbologia da camada viva do arquivo tif_path.
     Se houver mais de uma camada do mesmo arquivo, usa as de nome layer_name (ou todas).
     Retorna (ok, mensagem, estados)."""
+    mx_doc = None
     if focus_map is None:
-        _doc, focus_map = live_focus_map()
+        mx_doc, focus_map = live_focus_map()
     matches = find_layers_by_path(tif_path, focus_map)
     if layer_name:
         named = [(l, rl) for (l, rl) in matches if unicode(l.Name) == unicode(layer_name)]
@@ -280,6 +311,8 @@ def ensure_layer_symbology(tif_path, settings=None, rgb_bands=None, layer_name=N
         states.append(read_state(rl))
         if diffs:
             problems.append(u"'%s': %s" % (lyr.Name, u"; ".join(diffs)))
+    if mx_doc is not None:
+        refresh_live_views(mx_doc)
     if problems:
         return False, u"Simbologia não pôde ser garantida: " + u" | ".join(problems), states
     return True, u"Simbologia conferida (%s)." % describe(states[0]), states
@@ -290,8 +323,9 @@ def restretch_layers(settings, focus_map=None, only_paths=None):
     atuais de cada uma (a versao anterior redefinia as bandas para 1-2-3).
     only_paths: lista de arquivos a atualizar (None = todas as camadas raster).
     Retorna (atualizadas, [problemas])."""
+    mx_doc = None
     if focus_map is None:
-        _doc, focus_map = live_focus_map()
+        mx_doc, focus_map = live_focus_map()
     wanted = set(normalize_path(p) for p in only_paths) if only_paths else None
     updated, problems = 0, []
     for lyr, rl in list(iter_raster_layers(focus_map)):
@@ -308,6 +342,8 @@ def restretch_layers(settings, focus_map=None, only_paths=None):
                 updated += 1
         except Exception as e:
             problems.append(u"'%s': %s" % (getattr(lyr, 'Name', '?'), e))
+    if mx_doc is not None:
+        refresh_live_views(mx_doc)
     return updated, problems
 
 

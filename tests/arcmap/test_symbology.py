@@ -200,6 +200,56 @@ class SymbologyEngineTest(unittest.TestCase):
         finally:
             doc.Close()
 
+    def test_live_arcmap_path_uses_imxdocument(self):
+        """Regressao do erro 'Simbologia nao pode ser verificada: FocusMap' visto no ArcMap:
+        IApplication.Document e um IDocument SEM FocusMap; e preciso QueryInterface(IMxDocument).
+        Simula o AppRef do ArcMap com o mapa real de um .mxd por tras."""
+        import comtypes.client as cc
+        framework, arcmap_ui = sym.arcmap_modules()
+        settings = SETTINGS[0]
+        lyr = self._lyr(self.rgb, 'vivo')
+        sym.apply_to_layer_file(lyr, {'stretch_type': 'Minimum-Maximum'}, rgb_bands=(0, 1, 2))  # "errada"
+        doc = self._mxd_with([lyr])
+        calls = []
+
+        class FakeMxDocument(object):
+            FocusMap = doc.Map(0)
+
+            def UpdateContents(self):
+                calls.append('UpdateContents')
+
+            class ActiveView(object):
+                @staticmethod
+                def Refresh():
+                    calls.append('Refresh')
+
+        class FakeIDocument(object):          # como o IDocument real: nao tem FocusMap
+            def QueryInterface(self, itf):
+                calls.append(itf)
+                return FakeMxDocument()
+
+        class FakeApp(object):
+            Document = FakeIDocument()
+
+        original = cc.CreateObject
+
+        def fake_create(what, *a, **k):
+            if what is framework.AppRef:
+                return FakeApp()
+            return original(what, *a, **k)
+
+        cc.CreateObject = fake_create
+        try:
+            ok, msg, states = sym.ensure_layer_symbology(self.rgb, settings, rgb_bands=(2, 1, 0))
+        finally:
+            cc.CreateObject = original
+            doc.Close()
+        self.assertTrue(ok, msg)
+        self.assertIn(arcmap_ui.IMxDocument, calls)
+        self.assertIn('UpdateContents', calls)
+        self.assertIn('Refresh', calls)
+        self.assertEqual(sym.compare(states[0], sym.expected_state(settings, 4, (2, 1, 0))), [])
+
     def test_invalid_band_request_is_rejected(self):
         with self.assertRaises(sym.SymbologyError):
             sym.expected_state(SETTINGS[0], 4, (0, 1, 7))

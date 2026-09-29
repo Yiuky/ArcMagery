@@ -841,8 +841,8 @@ def get_arcmap_selected_layer():
     try:
         import comtypes.client
         esriCarto = comtypes.client.GetModule(get_esricarto_olb_path())
-        app = comtypes.client.CreateObject("esriFramework.AppRef")
-        mx_doc = getattr(app, 'Document', None)
+        import arcmagery_symbology as symbology
+        mx_doc, _focus_map = symbology.live_focus_map()  # IMxDocument (tem SelectedLayer)
         if not mx_doc:
             return None, False
         sel = getattr(mx_doc, 'SelectedLayer', None)
@@ -1372,11 +1372,9 @@ def find_live_raster_layer(layer_name=None):
     try:
         import comtypes.client
         esriCarto = comtypes.client.GetModule(get_esricarto_olb_path())
-        app = comtypes.client.CreateObject("esriFramework.AppRef")
-        mx_doc = getattr(app, 'Document', None)
-        if not mx_doc:
-            return None, None, None, None
-        focus_map = getattr(mx_doc, 'FocusMap', None)
+        # IApplication.Document e um IDocument (sem FocusMap): QueryInterface(IMxDocument) obrigatorio
+        import arcmagery_symbology as symbology
+        mx_doc, focus_map = symbology.live_focus_map()
         if not focus_map:
             return None, None, None, None
 
