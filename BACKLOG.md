@@ -33,7 +33,7 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | V-05 | Clicar duas vezes no botão da barra traz a janela existente para frente, sem abrir uma segunda | `gee_gui.acquire_single_instance` |
 | V-06 | Validação de escala/AOI (diálogos de 1:500.000) funciona sem congelar e sem erro de Tcl | `gee_gui.validate_scale_and_get_bbox` |
 | V-07 | `install.bat` numa máquina limpa (sem venv): cria `%LOCALAPPDATA%\ArcMagery\venv`, `import ee` e GDAL passam | `install.bat` |
-| V-08 | Atualizador sem Release publicada pede confirmação para usar o `main`; com a Release v2.0.0, verifica o SHA-256 | `gee_updater.py`, `gee_gui.GEEUpdaterDialog` |
+| V-08 | Atualizador: com a Release v2.3.2 publicada, a descoberta, o hash SHA-256 e a validação do pacote foram conferidos fora do ArcMap (2026-09-29); falta atualizar por dentro do ArcMap a partir de uma versão anterior | `gee_updater.py`, `gee_gui.GEEUpdaterDialog` |
 | V-09 | Download GEE em mosaico (≥2 cenas) com nuvens: a máscara remove nuvens e o ST_B10 não satura | `gee_core.mask_clouds_and_shadows`, `cast_mosaic_to_native_type` |
 
 ---
@@ -60,13 +60,6 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
      de lançamento. Permite escolher uma versão por data e baixar como XYZ, com o mesmo `xyz_core`.
   3. **CBERS / Sentinel / Landsat:** já datados por cena (INPE e GEE).
   4. Imagens comerciais datadas (Maxar/Airbus) apenas via licença ou API oficial.
-
-### U-01 · Publicar a primeira GitHub Release verificável (v2.3.0)
-- **Status:** ABERTO (ação do mantenedor)
-- **Problema:** desde a v2.0 o atualizador só instala sem confirmação a partir de uma Release com `SHA256SUMS.txt`. Hoje o repositório **não tem Releases**, então todo usuário verá o aviso "Atualização sem verificação".
-- **Como fazer (desde a v2.3.2):** `git tag v<versão>` + `git push origin v<versão>`. O workflow Release do
-  GitHub Actions gera e publica o `.zip`, o `SHA256SUMS.txt` e as notas da versão.
-- **Aceite:** `gee_updater.fetch_latest_release()` retorna `version=2.3.0` com `zip_url` e `sums_url`.
 
 ### U-02 · O script gerado pelo atualizador encerra TODOS os `pythonw.exe`
 - **Status:** ABERTO
@@ -189,6 +182,7 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | C-12 | 2.0.0 | Nova fonte CBERS / Amazônia-1 (STAC INPE), com cobertura real da AOI | `tests/backend/test_stac_core.py` |
 | C-13 | 2.0.0 | `gdal.Unlink` no `finally` mascarava o erro real do recorte CBERS | `test_stac_core.py::test_aoi_outside_raster` |
 | C-16 | 2.0.0 | Versão do pacote ZIP lida como "Desconhecida" (namespace do config.xml), o que anulava o bloqueio de downgrade | `test_updater_security.py::RealZipValidationTest` |
+| C-26 | 2.3.2 | U-01: primeira Release verificável publicada automaticamente pela tag v2.3.2 (zip + SHA256SUMS), reconhecida e validada pelo atualizador do plugin | `.github/workflows/release.yml` |
 | C-25 | 2.3.2 | Repositório: CI (testes do backend + consistência de versão), Release automática por tag, modelos de issue/PR, `desinstalar.bat` e `atualizar.bat` seguros, remoção de imagens não usadas, `tools/` | `.github/workflows/*.yml` |
 | C-24 | 2.3.1 | DOWNLOADER_EARTH: nomes de satélites, tags TIFF padrão e EPSG:4326 integrados; a data Esri em tiles Google foi rejeitada (vira só referência); data em z18+ corrigida | `test_esri_core.py`, `test_sources_gui.py` |
 | C-22 | 2.3.0 | Data de captura + histórico Wayback + polígonos de datas (Esri) | `tests/backend/test_esri_core.py`, `test_symbology.py::test_date_footprints_layer`, `test_sources_gui.py` |
