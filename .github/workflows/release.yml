@@ -1,0 +1,58 @@
+# Publica a GitHub Release verificavel ao enviar uma tag vX.Y.Z:
+#   git tag v2.3.1 && git push origin v2.3.1
+# Gera ArcMagery-<versao>.zip + SHA256SUMS.txt (build_release.py) e usa as notas da versao no
+# CHANGELOG.md. O atualizador embutido so instala sem confirmacao Releases com SHA256SUMS.txt.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag existente a publicar (ex.: v2.3.1)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Conferir tag x config.xml e extrair notas do CHANGELOG
+        shell: python
+        run: |
+          import io, os, re, xml.etree.ElementTree as ET
+          tag = os.environ['TAG']
+          ns = {'e': 'http://schemas.esri.com/Desktop/AddIns'}
+          version = ET.parse('arcgis_addin/config.xml').getroot().find('e:Version', ns).text.strip()
+          assert tag == 'v' + version, 'Tag %s diverge da versao do config.xml (%s)' % (tag, version)
+          log = io.open('CHANGELOG.md', encoding='utf-8').read()
+          m = re.search(r'^## \[%s\].*?$(.*?)(?=^## \[|\Z)' % re.escape(version), log, re.M | re.S)
+          notes = (m.group(1).strip() if m else 'ArcMagery %s' % version).rstrip('-').strip()
+          notes += '\n\n---\nInstale: baixe `ArcMagery-%s.zip`, extraia e execute `install.bat`. ' \
+                   'Integridade: `SHA256SUMS.txt`.' % version
+          io.open('release_notes.md', 'w', encoding='utf-8').write(notes)
+
+      - name: Gerar pacote e SHA256SUMS
+        run: python build_release.py dist
+
+      - name: Publicar Release
+        shell: bash
+        run: |
+          VERSION="${TAG#v}"
+          gh release create "$TAG" "dist/ArcMagery-$VERSION.zip" "dist/SHA256SUMS.txt" \
+            --title "ArcMagery $TAG" --notes-file release_notes.md --verify-tag

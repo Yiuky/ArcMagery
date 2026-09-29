@@ -1,0 +1,45 @@
+# Testes automaticos do backend (Python 3) a cada push / pull request.
+# A suite do lado ArcMap (Python 2.7 + arcpy/ArcObjects) exige ArcGIS Desktop e roda localmente
+# com run_tests.bat. Aqui, testes que dependem de GDAL/QGIS sao pulados automaticamente.
+name: Testes
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dependencias do backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Consistencia de versao (config.xml x gee_gui.py x gee_updater.py)
+        shell: python
+        run: |
+          import re, io, xml.etree.ElementTree as ET
+          ns = {'e': 'http://schemas.esri.com/Desktop/AddIns'}
+          v = ET.parse('arcgis_addin/config.xml').getroot().find('e:Version', ns).text.strip()
+          gui = re.search(r'^CURRENT_VERSION = "([^"]+)"', io.open('arcgis_addin/Install/gee_gui.py', encoding='utf-8').read(), re.M).group(1)
+          upd = set(re.findall(r'current_version="([^"]+)"', io.open('arcgis_addin/Install/gee_updater.py', encoding='utf-8').read()))
+          badge = re.search('Versão-v([0-9.]+)-', io.open('README.md', encoding='utf-8').read())
+          print('config.xml', v, '| gee_gui', gui, '| gee_updater', upd, '| README', badge and badge.group(1))
+          assert gui == v and upd == {v}, 'versoes divergentes'
+          assert badge and badge.group(1) == v, 'selo de versao do README desatualizado'
+
+      - name: Suite do backend
+        run: python tests/backend/run_all.py -v
