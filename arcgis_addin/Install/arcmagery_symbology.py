@@ -79,7 +79,7 @@ def _qi(obj, interface_name):
 
 
 def _long_path(path):
-    """Expande nomes curtos 8.3 (C:\\Users\\JOBERT~1\\...) para o caminho longo que o ArcGIS
+    """Expande nomes curtos 8.3 (C:\\Users\\USUARI~1\\...) para o caminho longo que o ArcGIS
     grava nas camadas: o %TEMP% costuma vir na forma curta e a comparacao falharia."""
     if os.name != 'nt':
         return path
