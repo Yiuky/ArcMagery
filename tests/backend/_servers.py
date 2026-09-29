@@ -154,6 +154,9 @@ class _StacHandler(BaseHTTPRequestHandler):
             return
         body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))).decode('utf-8'))
         owner.requests.append(body)
+        if getattr(owner, 'fail_intersects', False) and 'intersects' in body:
+            self._json({'code': 'InternalServerError'}, code=500)   # como o INPE nos mosaicos
+            return
         page = int(body.get('page', 1))
         limit = int(body.get('limit', 10))
         feats = [f for f in owner.features if f['collection'] in body.get('collections', [])]

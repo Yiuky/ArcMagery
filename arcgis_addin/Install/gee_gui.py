@@ -547,7 +547,7 @@ class GEEAboutDialog(object):
         info_frame.pack(fill=tk.X, pady=(0, 10))
 
         info_text = (
-            u"• Versão: v2.3.2 (ArcMagery: GEE, CBERS/INPE, Google Earth / XYZ e datas Esri Wayback)\n"
+            u"• Versão: v2.3.3 (ArcMagery: GEE, CBERS/INPE, Google Earth / XYZ e datas Esri Wayback)\n"
             u"• Organização: Coordenadoria de Geoprocessamento e Monitoramento Ambiental\n"
             u"  Secretaria de Estado de Meio Ambiente de Mato Grosso (CGMA / SEMA-MT)\n"
             u"• Desenvolvedor: Joberth Firmino Gambati\n"
@@ -925,7 +925,7 @@ class GEEUpdaterDialog(object):
         threading.Thread(target=worker).start()
 
 
-CURRENT_VERSION = "2.3.2"
+CURRENT_VERSION = "2.3.3"
 APP_NAME = u"ArcMagery"
 APP_WINDOW_TITLE = u"ArcMagery (ArcGIS 10.8)  |  v" + CURRENT_VERSION
 
@@ -2875,6 +2875,20 @@ class GEEPluginWindow(object):
             return True
         return False
 
+    PARTIAL_SCENE_PCT = 50.0
+
+    def _warn_if_partial_scene(self, resp, layer_title):
+        """Cenas INPE com footprint retangular (CBERS-2/2B) podem cobrir so parte da area:
+        o backend mede os pixels validos do recorte ('valid_pct') e o usuario e avisado."""
+        pct = resp.get('valid_pct')
+        if pct is None or pct >= self.PARTIAL_SCENE_PCT:
+            return False
+        self.post_to_gui(lambda: messagebox.showwarning(
+            u"Cobertura parcial",
+            u"A camada '%s' tem imagem em apenas %.1f%% da área recortada; o restante é NoData "
+            u"(a cena não cobre toda a área)." % (layer_title, pct), parent=self.root))
+        return True
+
     def _download_any(self, img_id, sensor, comp, out_tif, custom_bands, load_mode, bbox, geojson_file,
                       pixel_size, on_progress=None):
         """Baixa uma cena do GEE ou recorta uma cena do INPE; a resposta traz 'file' (e 'rgb_bands')."""
@@ -2989,6 +3003,7 @@ class GEEPluginWindow(object):
 
                     if rep.get('success'):
                         self._warn_if_symbology_not_guaranteed(rep, layer_title)
+                        self._warn_if_partial_scene(resp, layer_title)
                         return True, short_name, None
                     else:
                         return False, short_name, rep.get('message', '')
@@ -3088,6 +3103,7 @@ class GEEPluginWindow(object):
                         loaded_count += 1
                         self.set_row_status(short_name, u"✓ Carregado", tag="loaded")
                         self._warn_if_symbology_not_guaranteed(rep, layer_title)
+                        self._warn_if_partial_scene(resp, layer_title)
                     else:
                         self.set_row_status(short_name, u"Falha", tag="error")
                         err_msg = rep.get('message', '')

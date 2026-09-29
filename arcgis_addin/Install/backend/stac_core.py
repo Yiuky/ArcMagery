@@ -11,6 +11,7 @@ import datetime as _dt
 import json
 import math
 import os
+import re
 import ssl
 import sys
 import tempfile
@@ -55,6 +56,61 @@ COLLECTIONS = {
     'CB4-PAN5M-L4-DN-1': {'label': u'CBERS-4 PAN - 5 m pancromática', 'pan': 'BAND1', 'res': 5.0, 'pan_res': 5.0},
     'AMZ1-WFI-L4-SR-1': {'label': u'Amazônia-1 WFI - 64 m reflectância de superfície', 'ms': _AMZ, 'res': 64.0},
     'AMZ1-WFI-L4-DN-1': {'label': u'Amazônia-1 WFI - 64 m (L4 DN)', 'ms': _AMZ, 'res': 64.0},
+
+    # --- Nivel 4 DN do WFI (a versao SR ja existia)
+    'CB4A-WFI-L4-DN-1': {'label': u'CBERS-4A WFI - 55 m (L4 DN)', 'ms': _WFI, 'res': 55.0},
+    'CB4-WFI-L4-DN-1': {'label': u'CBERS-4 WFI - 64 m (L4 DN)', 'ms': _WFI, 'res': 64.0},
+
+    # --- Cubos de dados do Brazil Data Cube: composicoes temporais sem nuvem + NDVI/EVI prontos
+    'CBERS4-WFI-16D-2': {'label': u'Cubo 16 dias - CBERS-4 WFI 64 m (sem nuvens, NDVI/EVI)', 'ms': _WFI, 'res': 64.0,
+                         'extra': 'indices'},
+    'CBERS-WFI-8D-1': {'label': u'Cubo 8 dias - CBERS-4/4A WFI 64 m (sem nuvens, NDVI/EVI)', 'ms': _WFI, 'res': 64.0,
+                       'extra': 'indices'},
+    'CBERS4-MUX-2M-1': {'label': u'Cubo 2 meses - CBERS-4 MUX 20 m (sem nuvens, NDVI/EVI)', 'ms': _MUX, 'res': 20.0,
+                        'extra': 'indices'},
+
+    # --- Nivel 2 (correcao sistematica, SEM ortorretificacao: geometria menos precisa que o L4)
+    'CB4A-WPM-L2-DN-1': {'label': u'CBERS-4A WPM - 8 m + 2 m PAN (Nível 2, sem ortorretificação)',
+                         'ms': _WPM, 'pan': 'BAND0', 'res': 8.0, 'pan_res': 2.0},
+    'CB4A-MUX-L2-DN-1': {'label': u'CBERS-4A MUX - 16 m (Nível 2, sem ortorretificação)', 'ms': _MUX, 'res': 16.5},
+    'CB4A-WFI-L2-DN-1': {'label': u'CBERS-4A WFI - 55 m (Nível 2, sem ortorretificação)', 'ms': _WFI, 'res': 55.0},
+    'CB4-MUX-L2-DN-1': {'label': u'CBERS-4 MUX - 20 m (Nível 2, sem ortorretificação)', 'ms': _MUX, 'res': 20.0},
+    'CB4-WFI-L2-DN-1': {'label': u'CBERS-4 WFI - 64 m (Nível 2, sem ortorretificação)', 'ms': _WFI, 'res': 64.0},
+    'CB4-PAN10M-L2-DN-1': {'label': u'CBERS-4 PAN - 10 m (Nível 2, sem ortorretificação)',
+                           'ms3': ['BAND2', 'BAND3', 'BAND4'], 'res': 10.0},
+    'CB4-PAN5M-L2-DN-1': {'label': u'CBERS-4 PAN - 5 m pancromática (Nível 2, sem ortorretificação)',
+                          'pan': 'BAND1', 'res': 5.0, 'pan_res': 5.0},
+    'AMZ1-WFI-L2-DN-1': {'label': u'Amazônia-1 WFI - 64 m (Nível 2, sem ortorretificação)', 'ms': _AMZ, 'res': 64.0},
+
+    # --- Historico CBERS-2 (2003-2009) e CBERS-2B (2007-2010). A CCD separa as bandas em dois
+    #     grupos: CCD1XS = B2 verde, B3 vermelho, B4 NIR; CCD2XS = B1 azul, B3; CCD2PAN = B5 pan.
+    'CB2-CCD-L2-DN-1': {'label': u'CBERS-2 CCD - 20 m (2003-2009, Nível 2)', 'res': 20.0, 'modes': 'ccd'},
+    'CB2B-CCD-L2-DN-1': {'label': u'CBERS-2B CCD - 20 m (2007-2010, Nível 2)', 'res': 20.0, 'modes': 'ccd'},
+    'CB2B-HRC-L2-DN-1': {'label': u'CBERS-2B HRC - 2,5 m pancromática (2007-2010, Nível 2)',
+                         'pan': 'BAND1', 'res': 2.5, 'pan_res': 2.5},
+    'CB2-WFI-L2-DN-1': {'label': u'CBERS-2 WFI - 260 m (2003-2005, vermelho + NIR)', 'res': 260.0, 'modes': 'wfi2'},
+    'CB2B-WFI-L2-DN-1': {'label': u'CBERS-2B WFI - 260 m (2007-2010, vermelho + NIR)', 'res': 260.0, 'modes': 'wfi2'},
+
+    # --- Mosaicos trimestrais (produto visual RGB)
+    'mosaic-cbers4-brazil-3m-1': {'label': u'Mosaico Brasil - CBERS-4 WFI (abr-jun/2020, RGB)', 'res': 64.0,
+                                  'modes': 'visual'},
+    'mosaic-cbers4a-paraiba-3m-1': {'label': u'Mosaico Paraíba - CBERS-4A WFI (jul-set/2020, RGB)', 'res': 55.0,
+                                    'modes': 'visual'},
+}
+
+# Planos de bandas especiais: modo -> (assets na ordem do arquivo, indices RGB 0-based ou None)
+_SPECIAL_PLANS = {
+    'ccd': [
+        ('rgb', (['CCD1XS_BAND3', 'CCD1XS_BAND2', 'CCD2XS_BAND1'], [0, 1, 2])),
+        ('false', (['CCD1XS_BAND4', 'CCD1XS_BAND3', 'CCD1XS_BAND2'], [0, 1, 2])),
+        ('multi', (['CCD2XS_BAND1', 'CCD1XS_BAND2', 'CCD1XS_BAND3', 'CCD1XS_BAND4'], [2, 1, 0])),
+        ('pan', (['CCD2PAN_BAND5'], None)),
+    ],
+    'wfi2': [('multi', (['BAND1', 'BAND2'], None))],       # vermelho + NIR (sem banda verde/azul)
+    'visual': [('visual', (['VISUAL'], [0, 1, 2]))],
+}
+_EXTRA_PLANS = {
+    'indices': [('ndvi', (['NDVI'], None)), ('evi', (['EVI'], None))],   # Int16, escala 0,0001
 }
 
 MODES = {
@@ -63,6 +119,9 @@ MODES = {
     'multi': u'Multibanda (todas as bandas)',
     'pan': u'Pancromática',
     'fused': u'Fusionada RGB',
+    'ndvi': u'NDVI (índice de vegetação, escala 0,0001)',
+    'evi': u'EVI (índice de vegetação, escala 0,0001)',
+    'visual': u'RGB visual (mosaico)',
 }
 
 DEFAULT_MAX_PIXELS = 20000 * 20000
@@ -77,18 +136,30 @@ def _log(msg):
     sys.stderr.flush()
 
 
+def _plans(c):
+    """Lista ordenada (modo, (assets, rgb)) de uma colecao."""
+    if c.get('modes'):
+        plans = list(_SPECIAL_PLANS[c['modes']])
+    else:
+        plans = []
+        if c.get('ms'):
+            b, g, r, n = c['ms']
+            plans += [('rgb', ([r, g, b], [0, 1, 2])), ('false', ([n, r, g], [0, 1, 2])),
+                      ('multi', ([b, g, r, n], [2, 1, 0]))]   # multi: ordem espectral, exibida R-G-B
+        if c.get('ms3'):  # CBERS-4 PAN10M: verde, vermelho, NIR (sem azul)
+            g, r, n = c['ms3']
+            plans += [('false', ([n, r, g], [0, 1, 2])), ('multi', ([g, r, n], [2, 1, 0]))]
+        if c.get('pan'):
+            plans.append(('pan', ([c['pan']], None)))
+        if c.get('fused'):
+            plans.append(('fused', ([c['fused']], [0, 1, 2])))
+    if c.get('extra'):
+        plans += _EXTRA_PLANS[c['extra']]
+    return plans
+
+
 def available_modes(collection_id):
-    c = COLLECTIONS.get(collection_id, {})
-    modes = []
-    if c.get('ms'):
-        modes += ['rgb', 'false', 'multi']
-    if c.get('ms3'):
-        modes += ['false', 'multi']
-    if c.get('pan'):
-        modes.append('pan')
-    if c.get('fused'):
-        modes.append('fused')
-    return modes
+    return [m for m, _p in _plans(COLLECTIONS.get(collection_id, {}))]
 
 
 def band_plan(collection_id, mode):
@@ -96,24 +167,12 @@ def band_plan(collection_id, mode):
     c = COLLECTIONS.get(collection_id)
     if not c:
         raise StacError(u"Coleção não suportada: %s" % collection_id)
-    if mode not in available_modes(collection_id):
+    plans = dict(_plans(c))
+    if mode not in plans:
         raise StacError(u"Modo '%s' indisponível para %s (disponíveis: %s)"
                         % (mode, collection_id, ', '.join(available_modes(collection_id))))
-    if mode == 'pan':
-        return [c['pan']], None
-    if mode == 'fused':
-        return [c['fused']], [0, 1, 2]
-    if c.get('ms3'):  # CBERS-4 PAN10M: verde, vermelho, NIR
-        g, r, n = c['ms3']
-        if mode == 'false':
-            return [n, r, g], [0, 1, 2]
-        return [g, r, n], [2, 1, 0]
-    b, g, r, n = c['ms']
-    if mode == 'rgb':
-        return [r, g, b], [0, 1, 2]
-    if mode == 'false':
-        return [n, r, g], [0, 1, 2]
-    return [b, g, r, n], [2, 1, 0]  # multi: ordem espectral, exibindo R-G-B
+    assets, rgb = plans[mode]
+    return list(assets), (list(rgb) if rgb else None)
 
 
 # ------------------------------------------------------------------------------------ HTTP
@@ -222,6 +281,23 @@ def aoi_coverage_pct(geometry, bbox):
     return round(max(0.0, min(100.0, 100.0 * covered / box_area)), 1)
 
 
+def footprint_is_envelope(geometry):
+    """True quando o 'footprint' e so o retangulo envolvente alinhado aos eixos (ex.: CBERS-2/2B):
+    a cobertura calculada sobre ele e apenas um LIMITE SUPERIOR, pois a cena real e inclinada."""
+    try:
+        if geometry.get('type') != 'Polygon' or len(geometry['coordinates']) != 1:
+            return False
+        ring = [tuple(p[:2]) for p in geometry['coordinates'][0]]
+        if ring[0] == ring[-1]:
+            ring = ring[:-1]
+        if len(ring) != 4:
+            return False
+        xs, ys = set(round(p[0], 6) for p in ring), set(round(p[1], 6) for p in ring)
+        return len(xs) == 2 and len(ys) == 2
+    except (KeyError, TypeError, AttributeError, IndexError):
+        return False
+
+
 def _bbox_polygon(bbox):
     x0, y0, x1, y1 = bbox
     return {'type': 'Polygon', 'coordinates': [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]]}
@@ -244,6 +320,7 @@ def _summarize_item(f, aoi_bbox=None):
         'satellite': p.get('platform') or p.get('satellite') or '',
         'path_row': '%s/%s' % (p.get('bdc:path', p.get('path', '')), p.get('bdc:row', p.get('row', ''))),
         'coverage_pct': aoi_coverage_pct(f.get('geometry'), aoi_bbox),
+        'coverage_is_estimate': footprint_is_envelope(f.get('geometry') or {}),
     }
 
 
@@ -269,7 +346,20 @@ def search(collections, bbox, start_date=None, end_date=None, max_cloud=None, ma
     url = STAC_URL + '/search'
     results, pages = [], 0
     while url and len(results) < max_items and pages < 40:
-        page = _http_json(url, body)
+        try:
+            page = _http_json(url, body)
+        except StacError as e:
+            # O servidor do INPE responde HTTP 500 ao filtro 'intersects' em algumas colecoes
+            # (ex.: mosaicos). Repetir com 'bbox': a cobertura real e calculada aqui de qualquer forma.
+            if pages == 0 and body and 'intersects' in body and re.search(r'HTTP( Error)? 500', str(e)):
+                body = dict(body)
+                body.pop('intersects')
+                body['bbox'] = bbox
+                if body.get('datetime') == '../..':
+                    body.pop('datetime')
+                page = _http_json(url, body)
+            else:
+                raise
         pages += 1
         for f in page.get('features', []):
             item = _summarize_item(f, bbox)
@@ -409,6 +499,18 @@ def _has_valid_pixels(band):
         return False  # GDAL: "no valid pixels found"
 
 
+def valid_pixel_pct(band, max_side=1024):
+    """Percentual de pixels com imagem (!= NoData/0) no recorte, estimado numa leitura reduzida."""
+    import numpy as np
+    w, h = band.XSize, band.YSize
+    f = max(1.0, max(w, h) / float(max_side))
+    bw, bh = max(1, int(w / f)), max(1, int(h / f))
+    arr = band.ReadAsArray(0, 0, w, h, buf_xsize=bw, buf_ysize=bh)
+    nd = band.GetNoDataValue()
+    valid = (arr != nd) if nd is not None else (arr != 0)
+    return round(100.0 * float(valid.mean()), 1)
+
+
 def download(collection_id, item_id, bbox, out_tif=None, mode='rgb', item=None,
              max_pixels=DEFAULT_MAX_PIXELS, progress=None):
     """Recorta a cena ao BBOX (grade nativa) e grava um GeoTIFF multibanda.
@@ -419,6 +521,9 @@ def download(collection_id, item_id, bbox, out_tif=None, mode='rgb', item=None,
     assets_order, rgb = band_plan(collection_id, mode)
     feature = item or get_item(collection_id, item_id)
     assets = feature.get('assets', {})
+    # o catalogo declara 'visual' e os itens trazem 'VISUAL': casar sem diferenciar maiusculas
+    by_upper = dict((k.upper(), v) for k, v in assets.items())
+    assets = dict((a, assets.get(a) or by_upper.get(a.upper())) for a in assets_order if (a in assets or a.upper() in by_upper))
     missing = [a for a in assets_order if a not in assets]
     if missing:
         raise StacError(u"Cena %s sem as bandas %s." % (item_id, ', '.join(missing)))
@@ -459,6 +564,7 @@ def download(collection_id, item_id, bbox, out_tif=None, mode='rgb', item=None,
             os.remove(tmp)
             raise StacError(u"A área de interesse cai fora da parte imageada da cena %s (recorte 100%% NoData). "
                             u"Escolha uma cena com maior cobertura." % item_id)
+        valid_pct = valid_pixel_pct(out.GetRasterBand(1))
         gt, w, h = out.GetGeoTransform(), out.RasterXSize, out.RasterYSize
         epsg = osr.SpatialReference(wkt=out.GetProjection()).GetAuthorityCode(None)
         out = None
@@ -473,4 +579,4 @@ def download(collection_id, item_id, bbox, out_tif=None, mode='rgb', item=None,
             pass  # VRT em memoria nunca materializado: nada a remover (nao mascarar o erro real)
     return {'file': out_tif, 'item_id': item_id, 'collection': collection_id, 'mode': mode,
             'bands': assets_order, 'rgb_bands': rgb, 'width': w, 'height': h,
-            'pixel_size': abs(gt[1]), 'epsg': epsg}
+            'pixel_size': abs(gt[1]), 'epsg': epsg, 'valid_pct': valid_pct}

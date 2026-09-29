@@ -377,6 +377,15 @@ Selecione **CBERS / Amazônia-1 (INPE)** na barra *Fonte de imagens*. A janela s
    | CBERS-4/4A MUX | 16–20 m | cor natural, falsa cor, multibanda |
    | CBERS-4/4A WFI e Amazônia-1 WFI | 55–64 m | cor natural, falsa cor, multibanda |
    | CBERS-4 PAN 10 m / 5 m | 10 m / 5 m | falsa cor e multibanda / pancromática |
+   | Cubos 8/16 dias e 2 meses (WFI, MUX) | 20–64 m | cor natural, falsa cor, multibanda, **NDVI**, **EVI** (sem nuvens) |
+   | Nível 2 (WPM, MUX, WFI, PAN, Amazônia-1) | 2–64 m | como no Nível 4; sem ortorretificação, geometria menos precisa |
+   | Histórico CBERS-2/2B CCD (2003–2010) | 20 m | cor natural, falsa cor, multibanda, pancromática |
+   | Histórico CBERS-2B HRC (2007–2010) | 2,5 m | pancromática |
+   | Histórico CBERS-2/2B WFI | 260 m | multibanda (vermelho e NIR) |
+   | Mosaicos Brasil (CBERS-4) e Paraíba (CBERS-4A) | 55–64 m | RGB visual |
+
+   > No CBERS-2/2B o footprint publicado é retangular: a tabela mostra "até X% da AOI". Se o
+   > recorte tiver imagem em menos de 50% da área, o plugin avisa.
 
 2. Escolha o **produto** em *Composição* e informe o **período** e a **área**, como no GEE.
 3. Clique em **Buscar Cenas no INPE**. A coluna *Órbita/Ponto · Cobertura* mostra quanto da área

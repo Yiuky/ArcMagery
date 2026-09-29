@@ -33,6 +33,31 @@ class StacPureTest(unittest.TestCase):
         with self.assertRaises(stac_core.StacError):
             stac_core.band_plan('NAO-EXISTE', 'rgb')
 
+    def test_new_cbers_plans(self):
+        # CBERS-2/2B CCD: bandas com prefixo por camera
+        self.assertEqual(stac_core.band_plan('CB2-CCD-L2-DN-1', 'rgb'),
+                         (['CCD1XS_BAND3', 'CCD1XS_BAND2', 'CCD2XS_BAND1'], [0, 1, 2]))
+        self.assertEqual(stac_core.band_plan('CB2B-CCD-L2-DN-1', 'pan'), (['CCD2PAN_BAND5'], None))
+        self.assertEqual(stac_core.band_plan('CB2B-HRC-L2-DN-1', 'pan'), (['BAND1'], None))
+        self.assertEqual(stac_core.available_modes('CB2-WFI-L2-DN-1'), ['multi'])
+        self.assertEqual(stac_core.band_plan('CB2-WFI-L2-DN-1', 'multi'), (['BAND1', 'BAND2'], None))
+        # cubos: indices prontos
+        self.assertEqual(stac_core.band_plan('CBERS4-WFI-16D-2', 'ndvi'), (['NDVI'], None))
+        self.assertEqual(stac_core.band_plan('CBERS4-MUX-2M-1', 'evi'), (['EVI'], None))
+        self.assertEqual(stac_core.band_plan('CBERS4-MUX-2M-1', 'rgb'), (['BAND7', 'BAND6', 'BAND5'], [0, 1, 2]))
+        self.assertEqual(stac_core.available_modes('mosaic-cbers4-brazil-3m-1'), ['visual'])
+        self.assertEqual(stac_core.band_plan('mosaic-cbers4-brazil-3m-1', 'visual'), (['VISUAL'], [0, 1, 2]))
+        self.assertEqual(len(stac_core.COLLECTIONS), 32)
+        with self.assertRaises(stac_core.StacError):
+            stac_core.band_plan('CB4A-WPM-L4-DN-1', 'ndvi')
+
+    def test_envelope_footprint_is_flagged(self):
+        self.assertTrue(stac_core.footprint_is_envelope(_square(-56.5, -16.0, -55.5, -15.0)))
+        tilted = {'type': 'Polygon', 'coordinates': [[[0, 0], [1, 0.2], [0.8, 1.2], [-0.2, 1], [0, 0]]]}
+        self.assertFalse(stac_core.footprint_is_envelope(tilted))
+        self.assertFalse(stac_core.footprint_is_envelope({}))
+        self.assertFalse(stac_core.footprint_is_envelope({'type': 'MultiPolygon', 'coordinates': []}))
+
     def test_every_collection_has_a_mode(self):
         for cid in stac_core.COLLECTIONS:
             modes = stac_core.available_modes(cid)
@@ -116,6 +141,20 @@ class StacSearchTest(unittest.TestCase):
         ids = [i['id'] for i in stac_core.search('CB4-MUX-L4-SR-1', AOI, min_coverage=90)]
         self.assertNotIn('D', ids)
 
+    def test_coverage_estimate_flag(self):
+        items = stac_core.search(['CB4-MUX-L4-SR-1'], AOI)
+        self.assertTrue(all('coverage_is_estimate' in i for i in items))
+        self.assertTrue([i for i in items if i['id'] == 'A'][0]['coverage_is_estimate'])   # retangulo
+
+    def test_http_500_on_intersects_falls_back_to_bbox(self):
+        self.srv.fail_intersects = True
+        items = stac_core.search(['CB4-MUX-L4-SR-1'], AOI)
+        self.assertEqual(sorted(i['id'] for i in items), ['A', 'B', 'D', 'E'])
+        self.assertIn('intersects', self.srv.requests[0])
+        self.assertNotIn('intersects', self.srv.requests[-1])   # apos as retentativas
+        self.assertEqual(self.srv.requests[-1]['bbox'], AOI)
+        self.assertNotIn('datetime', self.srv.requests[-1])      # '../..' descartado
+
     def test_requires_bbox(self):
         with self.assertRaises(stac_core.StacError):
             stac_core.search('CB4-MUX-L4-SR-1', None)
@@ -179,6 +218,7 @@ class StacDownloadTest(unittest.TestCase):
         self.assertEqual(int(ds.GetRasterBand(1).ReadAsArray(0, 0, 1, 1)[0, 0]), 300)   # BAND3 = vermelho
         self.assertEqual(res['rgb_bands'], [0, 1, 2])
         self.assertEqual(res['epsg'], '32721')
+        self.assertEqual(res['valid_pct'], 100.0)
         # ~3,2 km x 3,3 km a 8 m
         self.assertTrue(380 <= res['width'] <= 420 and 390 <= res['height'] <= 440, (res['width'], res['height']))
 

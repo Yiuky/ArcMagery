@@ -25,7 +25,8 @@ ITEMS = [
 class InpeModuleTest(unittest.TestCase):
     def test_catalog_is_consistent_with_backend(self):
         codes = [c for _l, c in inpe.INPE_SENSOR_DISPLAY]
-        self.assertEqual(len(codes), 12)
+        self.assertEqual(len(codes), 32)
+        self.assertEqual(len(set(codes)), 32)
         for code in codes:
             self.assertTrue(inpe.is_inpe(code))
             meta = inpe.INPE_SENSOR_METADATA[code]
@@ -39,6 +40,22 @@ class InpeModuleTest(unittest.TestCase):
         self.assertEqual(inpe.modes_for('INPE:CB4A-WPM-PCA-FUSED-1'), ['fused'])
         self.assertIn('pan', inpe.modes_for('INPE:CB4A-WPM-L4-DN-1'))
         self.assertTrue(inpe.composition_items('INPE:CB4-MUX-L4-SR-1')[0].startswith(u'rgb - '))
+        self.assertEqual(inpe.modes_for('INPE:CBERS4-WFI-16D-2'), ['rgb', 'false', 'multi', 'ndvi', 'evi'])
+        self.assertEqual(inpe.modes_for('INPE:mosaic-cbers4-brazil-3m-1'), ['visual'])
+        self.assertEqual(inpe.modes_for('INPE:CB2B-HRC-L2-DN-1'), ['pan'])
+        self.assertEqual(inpe.INPE_SENSOR_METADATA['INPE:CB2B-HRC-L2-DN-1']['native_res'], 2.5)
+
+    def test_catalog_sync_with_backend(self):
+        """A GUI (Py2) e o backend (Py3) mantem catalogos separados: devem bater colecao a colecao."""
+        import ast, io, os
+        src = os.path.join(os.path.dirname(os.path.abspath(inpe.__file__)), 'backend', 'stac_core.py')
+        tree = ast.parse(io.open(src, 'rb').read())   # bytes: o Py2 recusa unicode com 'coding'
+        backend = None
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and getattr(node.targets[0], 'id', None) == 'COLLECTIONS':
+                backend = set(ast.literal_eval(k) for k in node.value.keys)
+        gui = set(inpe.collection_of(c) for _l, c in inpe.INPE_SENSOR_DISPLAY)
+        self.assertEqual(gui, backend)
 
     def test_row_mapping_and_cloud_format(self):
         row = inpe.item_to_row(ITEMS[0])
@@ -47,6 +64,8 @@ class InpeModuleTest(unittest.TestCase):
         self.assertEqual(inpe.format_cloud(row['cloud_pct']), u'n/d')
         self.assertEqual(inpe.format_cloud(12.34), u'12.3%')
         self.assertEqual(inpe.format_cloud('45'), u'45.0%')
+        est = dict(ITEMS[0], coverage_is_estimate=True)
+        self.assertEqual(inpe.item_to_row(est)['mgrs'], u'217/133 · até 100% da AOI')
 
 
 class _Patch(object):

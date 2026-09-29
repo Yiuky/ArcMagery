@@ -43,6 +43,46 @@ _COLLECTIONS = [
      u"BAND1 azul, BAND2 verde, BAND3 vermelho, BAND4 NIR", u"Primeiro satélite brasileiro de observação (2021)."),
     (u"Amazônia-1 WFI · 64 m", 'AMZ1-WFI-L4-DN-1', 64, u"17/03/2021 até o Presente (Ativo)",
      u"BAND1 azul, BAND2 verde, BAND3 vermelho, BAND4 NIR", u"Nível 4, números digitais."),
+    (u"CBERS-4A WFI · 55 m", 'CB4A-WFI-L4-DN-1', 55, u"04/07/2020 até o Presente (Ativo)", u"BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR", u"Nível 4, números digitais."),
+    (u"CBERS-4 WFI · 64 m", 'CB4-WFI-L4-DN-1', 64, u"09/12/2014 até o Presente (Ativo)", u"BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR", u"Nível 4, números digitais."),
+    # Cubos de dados (Brazil Data Cube)
+    (u"Cubo 16 dias · CBERS-4 WFI 64 m (sem nuvens, NDVI/EVI)", 'CBERS4-WFI-16D-2', 64, u"01/01/2016 até o Presente (Ativo)",
+     u"BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR · NDVI · EVI", u"Composição temporal sem nuvens (Brazil Data Cube). NDVI/EVI prontos (escala 0,0001)."),
+    (u"Cubo 8 dias · CBERS-4/4A WFI 64 m (sem nuvens, NDVI/EVI)", 'CBERS-WFI-8D-1', 64, u"01/01/2020 até o Presente (Ativo)",
+     u"BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR · NDVI · EVI", u"Composição temporal sem nuvens (Brazil Data Cube). NDVI/EVI prontos (escala 0,0001)."),
+    (u"Cubo 2 meses · CBERS-4 MUX 20 m (sem nuvens, NDVI/EVI)", 'CBERS4-MUX-2M-1', 20, u"01/01/2016 até o Presente (Ativo)",
+     u"BAND5 azul, BAND6 verde, BAND7 vermelho, BAND8 NIR · NDVI · EVI", u"Composição temporal sem nuvens (Brazil Data Cube). NDVI/EVI prontos (escala 0,0001)."),
+    # Nivel 2
+    (u"CBERS-4A WPM · 8 m + 2 m PAN (Nível 2)", 'CB4A-WPM-L2-DN-1', 8, u"29/12/2019 até o Presente (Ativo)",
+     u"BAND1 azul, BAND2 verde, BAND3 vermelho, BAND4 NIR (8 m) · BAND0 pancromática (2 m)", u"Nível 2: correção sistemática, SEM ortorretificação (geometria menos precisa que o Nível 4)."),
+    (u"CBERS-4A MUX · 16 m (Nível 2)", 'CB4A-MUX-L2-DN-1', 16, u"27/12/2019 até o Presente (Ativo)", u"BAND5 azul, BAND6 verde, BAND7 vermelho, BAND8 NIR", u"Nível 2: correção sistemática, SEM ortorretificação (geometria menos precisa que o Nível 4)."),
+    (u"CBERS-4A WFI · 55 m (Nível 2)", 'CB4A-WFI-L2-DN-1', 55, u"27/12/2019 até o Presente (Ativo)", u"BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR", u"Nível 2: correção sistemática, SEM ortorretificação (geometria menos precisa que o Nível 4)."),
+    (u"CBERS-4 MUX · 20 m (Nível 2)", 'CB4-MUX-L2-DN-1', 20, u"08/12/2014 até o Presente (Ativo)", u"BAND5 azul, BAND6 verde, BAND7 vermelho, BAND8 NIR", u"Nível 2: correção sistemática, SEM ortorretificação (geometria menos precisa que o Nível 4)."),
+    (u"CBERS-4 WFI · 64 m (Nível 2)", 'CB4-WFI-L2-DN-1', 64, u"14/12/2014 até o Presente (Ativo)", u"BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR", u"Nível 2: correção sistemática, SEM ortorretificação (geometria menos precisa que o Nível 4)."),
+    (u"CBERS-4 PAN · 10 m (Nível 2)", 'CB4-PAN10M-L2-DN-1', 10, u"09/12/2014 até o Presente (Ativo)",
+     u"BAND2 verde, BAND3 vermelho, BAND4 NIR", u"Nível 2: correção sistemática, SEM ortorretificação (geometria menos precisa que o Nível 4)."),
+    (u"CBERS-4 PAN · 5 m pancromática (Nível 2)", 'CB4-PAN5M-L2-DN-1', 5, u"09/12/2014 até o Presente (Ativo)",
+     u"BAND1 pancromática", u"Nível 2: correção sistemática, SEM ortorretificação (geometria menos precisa que o Nível 4)."),
+    (u"Amazônia-1 WFI · 64 m (Nível 2)", 'AMZ1-WFI-L2-DN-1', 64, u"03/03/2021 até o Presente (Ativo)",
+     u"BAND1 azul, BAND2 verde, BAND3 vermelho, BAND4 NIR", u"Nível 2: correção sistemática, SEM ortorretificação (geometria menos precisa que o Nível 4)."),
+    # Historico CBERS-2 / 2B
+    (u"Histórico · CBERS-2 CCD · 20 m (2003-2009)", 'CB2-CCD-L2-DN-1', 20, u"28/10/2003 a 07/01/2009 (Encerrado)",
+     u"B1 azul, B2 verde, B3 vermelho, B4 NIR, B5 pancromática (20 m)",
+     u"Nível 2. O footprint publicado é retangular: a cobertura da busca é estimada; o recorte informa a real."),
+    (u"Histórico · CBERS-2B CCD · 20 m (2007-2010)", 'CB2B-CCD-L2-DN-1', 20, u"25/09/2007 a 11/03/2010 (Encerrado)",
+     u"B1 azul, B2 verde, B3 vermelho, B4 NIR, B5 pancromática (20 m)",
+     u"Nível 2. O footprint publicado é retangular: a cobertura da busca é estimada; o recorte informa a real."),
+    (u"Histórico · CBERS-2B HRC · 2,5 m pancromática (2007-2010)", 'CB2B-HRC-L2-DN-1', 2.5,
+     u"29/09/2007 a 11/03/2010 (Encerrado)", u"BAND1 pancromática (2,5 m)", u"Nível 2. Cenas pequenas (~27 km)."),
+    (u"Histórico · CBERS-2 WFI · 260 m (2003-2005)", 'CB2-WFI-L2-DN-1', 260, u"22/10/2003 a 13/04/2005 (Encerrado)",
+     u"BAND1 vermelho, BAND2 NIR", u"Nível 2. Apenas vermelho e NIR."),
+    (u"Histórico · CBERS-2B WFI · 260 m (2007-2010)", 'CB2B-WFI-L2-DN-1', 260, u"29/09/2007 a 10/03/2010 (Encerrado)",
+     u"BAND1 vermelho, BAND2 NIR", u"Nível 2. Apenas vermelho e NIR."),
+    # Mosaicos
+    (u"Mosaico Brasil · CBERS-4 WFI (abr-jun/2020, RGB)", 'mosaic-cbers4-brazil-3m-1', 64, u"01/04/2020 a 30/06/2020",
+     u"RGB visual", u"Mosaico trimestral de todo o Brasil."),
+    (u"Mosaico Paraíba · CBERS-4A WFI (jul-set/2020, RGB)", 'mosaic-cbers4a-paraiba-3m-1', 55, u"01/07/2020 a 30/09/2020",
+     u"RGB visual", u"Mosaico trimestral do estado da Paraíba."),
 ]
 
 INPE_SENSOR_DISPLAY = [(label, PREFIX + cid) for (label, cid, _r, _p, _b, _n) in _COLLECTIONS]
@@ -66,12 +106,29 @@ PRODUCTS = [
     ('multi', u'Multibanda (todas as bandas, exibida em cor natural)'),
     ('pan', u'Pancromática (tons de cinza, maior resolução)'),
     ('fused', u'Fusionada RGB'),
+    ('ndvi', u'NDVI (índice de vegetação, escala 0,0001)'),
+    ('evi', u'EVI (índice de vegetação, escala 0,0001)'),
+    ('visual', u'RGB visual (mosaico)'),
 ]
-_COLLECTION_MODES = {
+_CUBE_MODES = ['rgb', 'false', 'multi', 'ndvi', 'evi']
+_COLLECTION_MODES = {   # deve bater com stac_core.available_modes (teste test_catalog_sync)
     'CB4A-WPM-L4-DN-1': ['rgb', 'false', 'multi', 'pan'],
+    'CB4A-WPM-L2-DN-1': ['rgb', 'false', 'multi', 'pan'],
     'CB4A-WPM-PCA-FUSED-1': ['fused'],
     'CB4-PAN10M-L4-DN-1': ['false', 'multi'],
+    'CB4-PAN10M-L2-DN-1': ['false', 'multi'],
     'CB4-PAN5M-L4-DN-1': ['pan'],
+    'CB4-PAN5M-L2-DN-1': ['pan'],
+    'CBERS4-WFI-16D-2': _CUBE_MODES,
+    'CBERS-WFI-8D-1': _CUBE_MODES,
+    'CBERS4-MUX-2M-1': _CUBE_MODES,
+    'CB2-CCD-L2-DN-1': ['rgb', 'false', 'multi', 'pan'],
+    'CB2B-CCD-L2-DN-1': ['rgb', 'false', 'multi', 'pan'],
+    'CB2B-HRC-L2-DN-1': ['pan'],
+    'CB2-WFI-L2-DN-1': ['multi'],
+    'CB2B-WFI-L2-DN-1': ['multi'],
+    'mosaic-cbers4-brazil-3m-1': ['visual'],
+    'mosaic-cbers4a-paraiba-3m-1': ['visual'],
 }
 
 
@@ -117,7 +174,8 @@ def item_to_row(item):
     path_row = item.get('path_row') or u''
     tile = path_row.strip('/') or u'-'
     if cov is not None:
-        tile = u"%s · %.0f%% da AOI" % (tile, cov)
+        # footprint retangular (ex.: CBERS-2/2B): a cobertura e so um limite superior
+        tile = u"%s · %s%.0f%% da AOI" % (tile, u"até " if item.get('coverage_is_estimate') else u"", cov)
     return {
         'id': item.get('id'),
         'name': item.get('id'),

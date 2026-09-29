@@ -4,6 +4,22 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.3.3] - 2026-09-29
+
+### ✨ Adicionado
+- **Catálogo CBERS / Amazônia-1 ampliado de 12 para 32 coleções do STAC do INPE:**
+  - **WFI Nível 4 DN** do CBERS-4A (55 m) e do CBERS-4 (64 m);
+  - **cubos de dados sem nuvens (Brazil Data Cube):** CBERS-4 WFI 16 dias, CBERS-4/4A WFI 8 dias e CBERS-4 MUX 2 meses, com os produtos **NDVI** e **EVI** prontos;
+  - **Nível 2** (correção sistemática, sem ortorretificação): CBERS-4A WPM, MUX e WFI; CBERS-4 MUX, WFI e PAN 10/5 m; Amazônia-1 WFI;
+  - **histórico CBERS-2 / 2B (2003–2010):** CCD 20 m, HRC 2,5 m pancromática e WFI 260 m;
+  - **mosaicos** CBERS-4 WFI do Brasil (abr–jun/2020) e CBERS-4A WFI da Paraíba (jul–set/2020), produto *RGB visual*.
+- **Cobertura estimada:** os footprints do CBERS-2/2B são o retângulo envolvente da cena. A tabela mostra então "até X% da AOI".
+- **Aviso de cobertura parcial:** após o recorte, o backend mede os pixels com imagem (`valid_pct`). Abaixo de 50% o usuário é avisado.
+
+### 🛡️ Corrigido
+- As buscas nos mosaicos do INPE falhavam: o servidor responde HTTP 500 ao filtro `intersects`. A busca agora repete com `bbox` e calcula a cobertura real localmente.
+- Os nomes dos assets passaram a ser comparados sem diferenciar maiúsculas e minúsculas.
+
 ## [2.3.2] - 2026-09-29
 
 ### 🧰 Repositório

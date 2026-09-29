@@ -14,7 +14,7 @@
   <a href="https://earthengine.google.com/"><img src="https://img.shields.io/badge/Google%20Earth%20Engine-API-4285F4.svg?logo=googleearthengine&logoColor=white" alt="Google Earth Engine"></a>
   <a href="https://data.inpe.br/stac/browser/"><img src="https://img.shields.io/badge/INPE-STAC%20CBERS-00843D.svg" alt="STAC INPE"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-2.7%20%7C%203.10+-3776AB.svg?logo=python&logoColor=white" alt="Python"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.3.2-28A745.svg" alt="Versão v2.3.2"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.3.3-28A745.svg" alt="Versão v2.3.3"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License MIT"></a>
   <a href="https://github.com/Yiuky/arcgis-google-earth-engine-explorer/actions/workflows/tests.yml"><img src="https://github.com/Yiuky/arcgis-google-earth-engine-explorer/actions/workflows/tests.yml/badge.svg" alt="Testes"></a>
 </p>
@@ -49,7 +49,7 @@ manuais. Foi desenvolvido na Coordenadoria de Geoprocessamento e Monitoramento A
 |---|---|---|
 | **Google Earth Engine** | Sentinel-2, Landsat 1–9: cenas, mosaicos por mediana com máscara de nuvem, índices (NDVI, NDWI, NDMI, NBR, EVI, SAVI), matemática de bandas e multibanda completa | 10–60 m |
 | **Google Earth / XYZ** *(novo)* | Google Satélite, Google Híbrido, Esri World Imagery, Esri Clarity e Bing Aerial, costurados num GeoTIFF georreferenciado. Com a Esri: **data de captura** e **histórico Wayback** desde 2014 | até ~0,15 m (zoom 20) |
-| **CBERS / Amazônia-1** *(novo)* | STAC do INPE: CBERS-4A WPM (2 m pan e 8 m multiespectral, fusionada 2 m), MUX, WFI, PAN 5/10 m e Amazônia-1 WFI | 2–64 m |
+| **CBERS / Amazônia-1** *(novo)* | STAC do INPE, 32 coleções: CBERS-4A WPM (2 m pan e 8 m multiespectral, fusionada 2 m), MUX, WFI, PAN 5/10 m e Amazônia-1 WFI (Níveis 4 e 2); cubos sem nuvens com NDVI/EVI; histórico CBERS-2/2B (2003–2010, HRC 2,5 m); mosaicos | 2–260 m |
 
 ### Destaques
 - **Qualidade nativa:** GEE sem reamostragem involuntária. CBERS recortado na grade original da
@@ -137,8 +137,8 @@ set ARCMAGERY_GEE_PROJECT=<id>   :: inclui teste real no Earth Engine
 Com a versão atualizada em `config.xml`, `gee_gui.py` e `gee_updater.py`, e com a entrada no `CHANGELOG.md`:
 
 ```bat
-git tag v2.3.2
-git push origin v2.3.2
+git tag v2.3.3
+git push origin v2.3.3
 ```
 
 O workflow **Release** do GitHub Actions gera `ArcMagery-<versão>.zip` e `SHA256SUMS.txt` e publica a Release,
