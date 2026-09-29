@@ -77,6 +77,7 @@ class TestRasterHealthCheck(unittest.TestCase):
                 try: os.remove(aux)
                 except Exception: pass
 
+    @unittest.skipUnless(_paths.HAS_GDAL, "GDAL indisponivel (ex.: CI sem QGIS)")
     def test_valid_4band_raster_passes_healthcheck(self):
         from osgeo import gdal, osr
         srs = osr.SpatialReference()
@@ -100,6 +101,7 @@ class TestRasterHealthCheck(unittest.TestCase):
         self.assertEqual(diag['actual_band_count'], 4)
         self.assertEqual(len(diag['failures']), 0)
 
+    @unittest.skipUnless(_paths.HAS_GDAL, "GDAL indisponivel (ex.: CI sem QGIS)")
     def test_collapsed_1band_raster_raises_healthcheck_error_and_deletes(self):
         from osgeo import gdal, osr
         srs = osr.SpatialReference()
@@ -127,6 +129,7 @@ class TestRasterHealthCheck(unittest.TestCase):
         self.assertEqual(diag['expected_band_count'], 4)
         self.assertTrue(any('Contagem de bandas divergente' in f for f in diag['failures']))
 
+    @unittest.skipUnless(_paths.HAS_GDAL, "GDAL indisponivel (ex.: CI sem QGIS)")
     def test_all_zero_raster_raises_healthcheck_error_and_deletes(self):
         from osgeo import gdal, osr
         srs = osr.SpatialReference()
@@ -150,6 +153,7 @@ class TestRasterHealthCheck(unittest.TestCase):
         diag = ctx.exception.diagnostics
         self.assertTrue(any('todas as bandas contêm valor constante zero' in f for f in diag['failures']))
 
+    @unittest.skipUnless(_paths.HAS_GDAL, "GDAL indisponivel (ex.: CI sem QGIS)")
     def test_merge_geotiff_tiles_preserves_all_4_bands(self):
         from osgeo import gdal, osr
         srs = osr.SpatialReference()

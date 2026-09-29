@@ -4,6 +4,30 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.3.2] - 2026-09-29
+
+### 🧰 Repositório
+- **Integração contínua (GitHub Actions):** a suíte do backend roda a cada push/PR no Windows com Python 3.12, e a consistência de versão entre `config.xml`, `gee_gui.py`, `gee_updater.py` e o selo do README é conferida.
+- **Release automática por tag:** `git push origin vX.Y.Z` gera `ArcMagery-<versão>.zip` e `SHA256SUMS.txt` e publica a Release com as notas da versão. Não depende mais da GitHub CLI na máquina do mantenedor.
+- **Modelos de issue** (bug e melhoria, indicando onde fica o log do ArcMap) e **modelo de pull request** com checklist.
+- `build_icons.py` foi para `tools/`, pois é uma ferramenta de desenvolvimento.
+- Removidas 5 imagens não usadas que entravam em todo `.esriaddin`.
+
+### 🛡️ Corrigido
+- **`desinstalar.bat`:**
+  - encerrava **todos** os `pythonw.exe` do usuário; agora só a interface do ArcMagery;
+  - recusa rodar com o ArcMap aberto;
+  - confere cada remoção e remove a caixa de ferramentas `.pyt`;
+  - limpa os arquivos de comunicação atuais;
+  - oferece remover o ambiente Python do plugin.
+- **`atualizar.bat`:**
+  - numa pasta git, atualiza só por avanço rápido (`--ff-only`) e se recusa a sobrescrever alterações locais;
+  - numa pasta ZIP, indica a Release verificada em vez de baixar o `main` sem verificação e copiá-lo por cima da pasta.
+- O **selo de versão do README** estava desatualizado (v2.3.0); agora um teste impede isso.
+- Os testes antigos de *health check* de raster falhavam sem GDAL e agora são pulados nesse caso.
+
+---
+
 ## [2.3.1] - 2026-09-29
 
 ### ♻️ Integrado do C:\DOWNLOADER_EARTH (ideias revisadas, não o código literal)

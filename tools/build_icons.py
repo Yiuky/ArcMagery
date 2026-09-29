@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Script para processar e gerar os icones do CGMA ArcGEE Explorer.
+Ferramenta de desenvolvimento: gera os icones do ArcMagery (tools/build_icons.py).
 Gera versoes PNG, GIF (com transparencia para compatibilidade Tkinter Python 2.7) e ICO multi-resolucao.
 """
 
@@ -9,7 +9,7 @@ from collections import deque
 from PIL import Image
 import numpy as np
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # raiz do repositorio (script em tools/)
 BRAIN_DIR = os.environ.get("BRAIN_DIR", os.path.join(os.path.expanduser("~"), ".gemini", "antigravity", "brain"))
 
 SIMPLE_SRC = os.path.join(BRAIN_DIR, "arcgee_simple_icon_1790259266530.jpg")

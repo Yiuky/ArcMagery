@@ -64,7 +64,8 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 ### U-01 · Publicar a primeira GitHub Release verificável (v2.3.0)
 - **Status:** ABERTO (ação do mantenedor)
 - **Problema:** desde a v2.0 o atualizador só instala sem confirmação a partir de uma Release com `SHA256SUMS.txt`. Hoje o repositório **não tem Releases**, então todo usuário verá o aviso "Atualização sem verificação".
-- **Como fazer:** `python build_release.py`, depois `gh release create v2.3.0 dist/ArcMagery-2.3.0.zip dist/SHA256SUMS.txt --title "ArcMagery v2.3.0" --notes-file CHANGELOG.md`.
+- **Como fazer (desde a v2.3.2):** `git tag v<versão>` + `git push origin v<versão>`. O workflow Release do
+  GitHub Actions gera e publica o `.zip`, o `SHA256SUMS.txt` e as notas da versão.
 - **Aceite:** `gee_updater.fetch_latest_release()` retorna `version=2.3.0` com `zip_url` e `sums_url`.
 
 ### U-02 · O script gerado pelo atualizador encerra TODOS os `pythonw.exe`
@@ -147,7 +148,6 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | B-06 | `.pyt`: escala do usuário sobrescrita; cena mais recente escolhida sem considerar nuvem; falha de import vira `AttributeError` | `pyt/GEE_Tools.pyt` | Ver revisão v1.10 |
 | B-07 | Tiles temporários do GEE não são removidos em caso de falha; `tempfile.mktemp` | `gee_core.download_geotiff` | `try/finally` + `mkstemp` |
 | U-05 | O passo 7 do atualizador (sincronizar repositório de desenvolvimento) sobrescreve edições locais no canal ZIP | `gee_updater` (template) | Remover: o atualizador não deve mexer no repositório |
-| U-06 | `desinstalar.bat`: `rd /s /q` sem checar erro nem se o ArcMap está aberto | `desinstalar.bat` | Mesmo padrão do `install.bat` v2.0 |
 | N-10 | Percent Clip: percentuais por camada não são expostos pelo ArcObjects 10.8 (vale o padrão do ArcMap). Avaliar se `IRasterDefaultsEnv7.MinPercent/MaxPercent` deve ser ajustado pelo plugin (altera um padrão global do usuário) | `arcmagery_symbology.py` | Decisão do mantenedor |
 | N-07 | Rede com inspeção SSL que não confia no bundle do Windows: não há opção de CA na interface | `stac_core.configure_gdal_http` | Campo "CA bundle (.pem)" nas Configurações → `GDAL_CURL_CA_BUNDLE` |
 
@@ -189,6 +189,7 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | C-12 | 2.0.0 | Nova fonte CBERS / Amazônia-1 (STAC INPE), com cobertura real da AOI | `tests/backend/test_stac_core.py` |
 | C-13 | 2.0.0 | `gdal.Unlink` no `finally` mascarava o erro real do recorte CBERS | `test_stac_core.py::test_aoi_outside_raster` |
 | C-16 | 2.0.0 | Versão do pacote ZIP lida como "Desconhecida" (namespace do config.xml), o que anulava o bloqueio de downgrade | `test_updater_security.py::RealZipValidationTest` |
+| C-25 | 2.3.2 | Repositório: CI (testes do backend + consistência de versão), Release automática por tag, modelos de issue/PR, `desinstalar.bat` e `atualizar.bat` seguros, remoção de imagens não usadas, `tools/` | `.github/workflows/*.yml` |
 | C-24 | 2.3.1 | DOWNLOADER_EARTH: nomes de satélites, tags TIFF padrão e EPSG:4326 integrados; a data Esri em tiles Google foi rejeitada (vira só referência); data em z18+ corrigida | `test_esri_core.py`, `test_sources_gui.py` |
 | C-22 | 2.3.0 | Data de captura + histórico Wayback + polígonos de datas (Esri) | `tests/backend/test_esri_core.py`, `test_symbology.py::test_date_footprints_layer`, `test_sources_gui.py` |
 | C-23 | 2.3.0 | GDAL falhava com `OSGEO4W_ROOT` herdada (sitecustomize do QGIS) | `test_run_gee_cli.py::test_gdal_loads_even_with_inherited_osgeo4w_root` |

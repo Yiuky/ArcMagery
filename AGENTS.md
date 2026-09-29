@@ -107,7 +107,16 @@ set ARCMAGERY_GEE_PROJECT=<id>  :: + teste real no Earth Engine (requer autentic
    padrões `current_version=` em `gee_updater.py`. O teste `test_versions_are_consistent` falha
    se divergirem.
 2. Escreva a entrada no `CHANGELOG.md` e rode `run_tests.bat` (idealmente com `ARCMAGERY_LIVE=1`).
-3. `python build_release.py` gera `dist/ArcMagery-<versão>.zip` e `dist/SHA256SUMS.txt`.
-4. `gh release create v<versão> dist/ArcMagery-<versão>.zip dist/SHA256SUMS.txt --notes-file CHANGELOG.md`.
-   Sem esse passo, o atualizador dos usuários pede confirmação para instalar do `main` sem
-   verificação.
+3. `git tag v<versão>` e `git push origin v<versão>`. O workflow `.github/workflows/release.yml` confere se a
+   tag bate com o `config.xml`, roda o `build_release.py` e publica a Release com o `.zip`, o
+   `SHA256SUMS.txt` e as notas da versão no CHANGELOG. Sem a Release, o atualizador dos usuários pede
+   confirmação para instalar do `main` sem verificação.
+4. Localmente, `python build_release.py` gera os mesmos artefatos em `dist/`, para conferência.
+
+## 7. Integração contínua
+
+- `.github/workflows/tests.yml` roda a suíte do backend (Python 3.12, Windows) e confere a consistência
+  de versão a cada push ou PR. Testes que exigem GDAL/QGIS, internet ou ArcGIS são pulados ali.
+- Um teste novo que dependa de GDAL deve usar `@unittest.skipUnless(_paths.HAS_GDAL, ...)`; um que
+  dependa de internet, `_paths.LIVE`.
+- Ferramentas de desenvolvimento ficam em `tools/` (ex.: `tools/build_icons.py`) e não entram no Add-In.
