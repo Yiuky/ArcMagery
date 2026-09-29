@@ -255,7 +255,20 @@ def src_xyz_download(p):
                    attribution=u"Esri World Imagery Wayback (%s)" % release['date'])
     if _is_esri_imagery(p):
         res.update(_attach_capture_dates(res['file'], bbox, zoom, release, bool(p.get('footprints', True))))
+    elif p.get('provider') in ('google', 'google-hybrid', 'bing'):
+        res.update(_esri_reference(bbox, zoom))
     return res
+
+
+def _esri_reference(bbox, zoom):
+    """Google/Bing nao publicam a data das imagens. Como REFERENCIA (nunca como data da imagem
+    baixada), informa a data da cena Esri na mesma area - pode ser outra cena."""
+    import esri_core
+    try:
+        dates = esri_core.capture_dates(bbox, zoom, coverage=False)
+        return {'capture_summary': None, 'esri_reference': esri_core.summarize_dates(dates)}
+    except Exception:
+        return {'capture_summary': None, 'esri_reference': None}
 
 
 def _attach_capture_dates(tif, bbox, zoom, release, footprints):
@@ -269,16 +282,33 @@ def _attach_capture_dates(tif, bbox, zoom, release, footprints):
     out = {'capture_summary': esri_core.summarize_dates(dates),
            'capture_dates': [dict((k, v) for k, v in d.items() if k != 'rings') for d in dates]}
     try:
-        from osgeo import gdal
-        ds = gdal.Open(tif, gdal.GA_Update)
-        ds.SetMetadataItem('ARCMAGERY_CAPTURE_DATES', json.dumps(out['capture_dates'], ensure_ascii=True))
-        ds.SetMetadataItem('ARCMAGERY_CAPTURE_SUMMARY', out['capture_summary'].encode('ascii', 'replace').decode('ascii'))
-        ds = None
+        _write_capture_tags(tif, dates, out['capture_summary'])
     except Exception:
         pass
     if footprints and any(d.get('rings') for d in dates):
         out['footprints_json'] = esri_core.write_footprints(dates, os.path.splitext(tif)[0] + '_datas.json')
     return out
+
+
+def _write_capture_tags(tif, dates, summary):
+    """Data e sensor no GeoTIFF, com as tags padrao que ArcGIS/QGIS exibem nas propriedades
+    (TIFFTAG_DATETIME, ACQUISITION_DATE, SATELLITE_SENSOR, IMAGE_PROVIDER) - ideia do
+    C:\DOWNLOADER_EARTH - mais o detalhamento completo (JSON) quando ha varias capturas."""
+    from osgeo import gdal
+    main = next((d for d in dates if d.get('date')), None)  # maior cobertura primeiro
+    ascii_ = lambda s: (s or u'').encode('ascii', 'replace').decode('ascii')
+    ds = gdal.Open(tif, gdal.GA_Update)
+    try:
+        if main:
+            ds.SetMetadataItem('TIFFTAG_DATETIME', main['date'].replace('-', ':') + ' 00:00:00')
+            ds.SetMetadataItem('ACQUISITION_DATE', main['date'])
+            ds.SetMetadataItem('SATELLITE_SENSOR', ascii_(main.get('sensor_name') or main.get('sensor')))
+            ds.SetMetadataItem('IMAGE_PROVIDER', ascii_(main.get('provider')))
+        ds.SetMetadataItem('ARCMAGERY_CAPTURE_SUMMARY', ascii_(summary))
+        ds.SetMetadataItem('ARCMAGERY_CAPTURE_DATES', json.dumps(
+            [dict((k, v) for k, v in d.items() if k != 'rings') for d in dates], ensure_ascii=True))
+    finally:
+        ds = None
 
 
 def src_esri_dates(p):

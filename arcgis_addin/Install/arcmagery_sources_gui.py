@@ -72,7 +72,7 @@ def version_label(v):
     res = v.get('resolution_m')
     res_txt = (u" · %.2f m" % float(res)).replace(u'.', u',') if res not in (None, '') else u''
     return u"Captura %s · %s %s%s  (Wayback %s)" % (
-        date_br(v.get('capture_date')), v.get('sensor') or u'?', v.get('provider') or u'', res_txt,
+        date_br(v.get('capture_date')), v.get('sensor_name') or v.get('sensor') or u'?', v.get('provider') or u'', res_txt,
         date_br(v.get('release_date')))
 
 
@@ -82,12 +82,28 @@ def dates_summary_text(dates):
     for d in dates[:6]:
         res = d.get('resolution_m')
         lines.append(u"%s · %s %s · %s · %.0f%% da área" % (
-            date_br(d.get('date')), d.get('sensor') or u'?', d.get('provider') or u'',
+            date_br(d.get('date')), d.get('sensor_name') or d.get('sensor') or u'?', d.get('provider') or u'',
             (u"%.2f m" % float(res)).replace(u'.', u',') if res not in (None, '') else u'n/d',
             float(d.get('coverage_pct') or 0)))
     if len(dates) > 6:
         lines.append(u"... +%d datas" % (len(dates) - 6))
     return u"\n".join(lines) or u"Nenhuma data informada para a área neste zoom."
+
+
+CRS_CHOICES = [
+    (None, u"Web Mercator (EPSG:3857) - nativo dos tiles, sem reamostragem"),
+    ('EPSG:4326', u"WGS 84 (EPSG:4326)"),
+    ('EPSG:4674', u"SIRGAS 2000 (EPSG:4674)"),
+]
+
+
+def google_reference_text(esri_reference):
+    """Google/Bing nao publicam a data: a da Esri e apenas REFERENCIA (pode ser outra cena)."""
+    txt = u"Data da imagem: não publicada pelo provedor (Google/Bing não têm API de datas)."
+    if esri_reference and not esri_reference.startswith(u'data de captura não'):
+        txt += (u"\nReferência: a imagem Esri desta área é de %s. ATENÇÃO: é outra fonte e pode ser "
+                u"outra cena; não use como data da imagem do Google." % esri_reference)
+    return txt
 
 
 def parse_progress(line):
@@ -220,9 +236,12 @@ class ExtraSourcesDialog(object):
         self.cbo_compress.current(0)
         self.cbo_compress.grid(row=2, column=1, sticky=tk.W, pady=2)
 
-        self.var_reproject = tk.BooleanVar(value=False)
-        ttk.Checkbutton(f, text=u"Reprojetar para SIRGAS 2000 (EPSG:4674) - por padrão mantém Web Mercator nativo",
-                        variable=self.var_reproject).grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=4)
+        ttk.Label(f, text=u"Sistema de coordenadas:").grid(row=3, column=0, sticky=tk.W)
+        self.cbo_crs = ttk.Combobox(f, state="readonly", width=58, values=[c[1] for c in CRS_CHOICES])
+        saved_crs = self.settings.get('arcmagery_xyz_crs')
+        self.cbo_crs.current(max(0, [c[0] for c in CRS_CHOICES].index(saved_crs))
+                             if saved_crs in [c[0] for c in CRS_CHOICES] else 0)
+        self.cbo_crs.grid(row=3, column=1, sticky=tk.W, pady=4)
 
         dates_box = ttk.LabelFrame(f, text=u" Data das imagens (Esri World Imagery / Wayback) ", padding=6)
         dates_box.grid(row=4, column=0, columnspan=2, sticky=tk.EW, pady=(6, 2))
@@ -453,11 +472,12 @@ class ExtraSourcesDialog(object):
         params = {
             'area': self._collect_area(), 'provider': key, 'label': label, 'zoom': zoom,
             'compression': 'LZW' if self.cbo_compress.current() == 1 else 'JPEG',
-            'crs': 'EPSG:4674' if self.var_reproject.get() else None, 'out_dir': out_dir,
+            'crs': CRS_CHOICES[max(0, self.cbo_crs.current())][0], 'out_dir': out_dir,
             'wayback_release': release.get('release_num') if release else None,
             'footprints': bool(self.var_footprints.get()) and is_esri(key),
         }
         self.settings['arcmagery_date_footprints'] = bool(self.var_footprints.get())
+        self.settings['arcmagery_xyz_crs'] = params['crs']
         self.settings['arcmagery_output_dir'] = out_dir
         self.settings['arcmagery_xyz_zoom'] = zoom
         self._set_busy('xyz', True)
@@ -509,6 +529,8 @@ class ExtraSourcesDialog(object):
                 msg += u" ATENÇÃO: arquivo salvo, mas não foi carregado no ArcMap: %s" % to_text(rep.get('message', u''))
             if capture:
                 msg += u"\nData de captura: %s" % capture
+            elif 'esri_reference' in res:
+                msg += u"\n" + google_reference_text(res.get('esri_reference'))
             if res.get('attribution'):
                 msg += u"\nFonte: %s" % res['attribution']
             self._post(lambda: self._set_status('xyz', msg, 100))

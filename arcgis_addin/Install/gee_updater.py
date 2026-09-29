@@ -912,7 +912,7 @@ def download_github_archive(target_path, progress_callback=None, url=None):
 # MOTOR DE BACKUP E SNAPSHOT DE SEGURANÇA
 # ==============================================================================
 
-def create_snapshot_backup(current_version="2.3.0", backups_root=None, custom_sys_dirs=None):
+def create_snapshot_backup(current_version="2.3.1", backups_root=None, custom_sys_dirs=None):
     """
     Cria um backup completo e atômico do estado operacional atual do plugin.
     Copia o .esriaddin instalado e todo o AssemblyCache para uma pasta versionada:
@@ -1366,7 +1366,7 @@ exit /b 1
 # FLUXO ORQUESTRADO COMPLETO (ORCHESTRATOR)
 # ==============================================================================
 
-def execute_zip_update_flow(zip_path, current_version="2.3.0", progress_callback=None,
+def execute_zip_update_flow(zip_path, current_version="2.3.1", progress_callback=None,
                             expected_sha256=None, allow_downgrade=False):
     """
     Fluxo de atualização passo a passo via arquivo ZIP:
@@ -1415,7 +1415,7 @@ def execute_zip_update_flow(zip_path, current_version="2.3.0", progress_callback
     generate_and_launch_detached_runner(staging_info, backup_meta)
     return True
 
-def execute_git_update_flow(repo_path, remote_branch="main", current_version="2.3.0", progress_callback=None):
+def execute_git_update_flow(repo_path, remote_branch="main", current_version="2.3.1", progress_callback=None):
     """
     Fluxo de atualização passo a passo via repositório Git local:
     Fase 1: Pre-flight checks Git (conectividade, working tree limpa, divergência).
@@ -1489,7 +1489,7 @@ def execute_git_update_flow(repo_path, remote_branch="main", current_version="2.
     generate_and_launch_detached_runner(staging_info, backup_meta)
     return True
 
-def execute_online_github_update_flow(current_version="2.3.0", progress_callback=None,
+def execute_online_github_update_flow(current_version="2.3.1", progress_callback=None,
                                       allow_unverified_main=False, allow_downgrade=False):
     """
     Fluxo de atualização inteligente online:

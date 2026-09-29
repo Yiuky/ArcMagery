@@ -12,7 +12,7 @@ rodar os testes.
   real, de uma entrada no checklist manual (seção **V**).
 - Prioridade: **P0** (bloqueia uso/segurança) · **P1** (resultado errado ou travamento) ·
   **P2** (robustez e experiência) · **P3** (melhoria e refatoração).
-- Estado de referência: v2.3.0, branch `feature/arcmagery-2.0`, 2026-09-28.
+- Estado de referência: v2.3.1, branch `feature/arcmagery-2.0`, 2026-09-28.
 
 ---
 
@@ -189,6 +189,7 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | C-12 | 2.0.0 | Nova fonte CBERS / Amazônia-1 (STAC INPE), com cobertura real da AOI | `tests/backend/test_stac_core.py` |
 | C-13 | 2.0.0 | `gdal.Unlink` no `finally` mascarava o erro real do recorte CBERS | `test_stac_core.py::test_aoi_outside_raster` |
 | C-16 | 2.0.0 | Versão do pacote ZIP lida como "Desconhecida" (namespace do config.xml), o que anulava o bloqueio de downgrade | `test_updater_security.py::RealZipValidationTest` |
+| C-24 | 2.3.1 | DOWNLOADER_EARTH: nomes de satélites, tags TIFF padrão e EPSG:4326 integrados; a data Esri em tiles Google foi rejeitada (vira só referência); data em z18+ corrigida | `test_esri_core.py`, `test_sources_gui.py` |
 | C-22 | 2.3.0 | Data de captura + histórico Wayback + polígonos de datas (Esri) | `tests/backend/test_esri_core.py`, `test_symbology.py::test_date_footprints_layer`, `test_sources_gui.py` |
 | C-23 | 2.3.0 | GDAL falhava com `OSGEO4W_ROOT` herdada (sitecustomize do QGIS) | `test_run_gee_cli.py::test_gdal_loads_even_with_inherited_osgeo4w_root` |
 | C-21 | 2.2.1 | Camada viva: QueryInterface(IMxDocument) para FocusMap/SelectedLayer (erro "FocusMap" no ArcMap real) | `test_symbology.py::test_live_arcmap_path_uses_imxdocument` |

@@ -75,6 +75,8 @@ class _FakeEsri(BaseHTTPRequestHandler):
                 feats.append({'attributes': {'SRC_DATE2': _ms('2025-09-10'), 'SRC_DESC': 'GE01', 'NICE_DESC': 'Vantor',
                                              'SRC_RES': 0.46, 'SRC_ACC': 8},
                               'geometry': {'rings': [[[-56.125, -13], [-55, -13], [-55, -12], [-56.125, -12], [-56.125, -13]]]}})
+            if layer < 6:   # como na area real: a imagem vai ate o zoom 17 (camada 6); z18+ vem vazio
+                feats = []
             if q.get('returnGeometry') == ['false']:
                 for f in feats:
                     f.pop('geometry')
@@ -124,6 +126,21 @@ class EsriCoreTest(unittest.TestCase):
         self.assertAlmostEqual(got['2025-09-10'], 48.5, delta=0.5)
         self.assertEqual(esri_core.summarize_dates(dates), u'2024-05-05 a 2025-09-10 (2 capturas)')
 
+    def test_zoom_without_own_imagery_falls_back_to_next_level(self):
+        """Regressao: em z18 (imagem so ate z17) a consulta vinha vazia -> 'data nao informada'."""
+        dates = esri_core.capture_dates(AOI, 18, self.releases[0])
+        self.assertEqual(self.httpd.meta_layers, [5, 6])
+        self.assertTrue(any(d['date'] == '2024-05-05' for d in dates))
+        self.assertTrue(all(d['metadata_layer'] == 6 for d in dates))
+
+    def test_sensor_names(self):
+        self.assertEqual(esri_core.sensor_name('WV03'), u'WorldView-3 (WV03)')
+        self.assertEqual(esri_core.sensor_name('ge01'), u'GeoEye-1 (ge01)')
+        self.assertEqual(esri_core.sensor_name('XYZ9'), u'XYZ9')
+        self.assertEqual(esri_core.sensor_name(None), u'')
+        dates = esri_core.capture_dates(AOI, ZOOM, self.releases[0])
+        self.assertIn(u'GeoEye-1 (GE01)', [d['sensor_name'] for d in dates])
+
     def test_local_versions_follow_select_and_dedupe(self):
         versions = esri_core.local_versions(AOI, ZOOM, self.releases)
         tilemaps = [c for c in self.httpd.calls if c.startswith('/tilemap/')]
@@ -156,6 +173,29 @@ class EsriCoreTest(unittest.TestCase):
             xs = [p[0] for r in f['geometry']['rings'] for p in r]
             self.assertTrue(min(xs) >= AOI[0] - 1e-9 and max(xs) <= AOI[2] + 1e-9)
         self.assertEqual({fl['name'] for fl in fs['fields']} >= {'DATA_CAPT', 'SATELITE', 'FORNECEDOR'}, True)
+
+
+@unittest.skipUnless(_paths.HAS_GDAL, "GDAL indisponivel")
+class CaptureTagsTest(unittest.TestCase):
+    def test_standard_tiff_tags(self):
+        from osgeo import gdal
+        import run_gee
+        tmp = tempfile.mkdtemp(prefix='arcmagery_tags_')
+        tif = os.path.join(tmp, 't.tif')
+        ds = gdal.GetDriverByName('GTiff').Create(tif, 4, 4, 3, gdal.GDT_Byte)
+        ds = None
+        dates = [{'date': '2022-05-02', 'sensor': 'WV03', 'sensor_name': u'WorldView-3 (WV03)', 'provider': 'Maxar',
+                  'coverage_pct': 70.0, 'rings': [[[0, 0], [1, 0], [1, 1], [0, 0]]]},
+                 {'date': '2020-06-29', 'sensor': 'WV03', 'sensor_name': u'WorldView-3 (WV03)', 'provider': 'Maxar',
+                  'coverage_pct': 30.0}]
+        run_gee._write_capture_tags(tif, dates, u'2020-06-29 a 2022-05-02 (2 capturas)')
+        md = gdal.Open(tif).GetMetadata()
+        shutil.rmtree(tmp, ignore_errors=True)
+        self.assertEqual(md['TIFFTAG_DATETIME'], '2022:05:02 00:00:00')
+        self.assertEqual(md['ACQUISITION_DATE'], '2022-05-02')
+        self.assertEqual(md['SATELLITE_SENSOR'], 'WorldView-3 (WV03)')
+        self.assertEqual(md['IMAGE_PROVIDER'], 'Maxar')
+        self.assertNotIn('rings', md['ARCMAGERY_CAPTURE_DATES'])
 
 
 @unittest.skipUnless(_paths.LIVE, "defina ARCMAGERY_LIVE=1 para testes com internet")

@@ -34,6 +34,26 @@ CACHE_SECONDS = 24 * 3600
 ATTRIBUTION = u"Esri, Maxar, Vantor, Airbus e parceiros (World Imagery / Wayback)"
 
 
+# Codigos de satelite dos metadados da World Imagery (SRC_DESC) -> nome legivel.
+# Lista adaptada do C:\DOWNLOADER_EARTH (SENSOR_NAMES), revisada e ampliada.
+SENSOR_NAMES = {
+    'WV01': u'WorldView-1', 'WV02': u'WorldView-2', 'WV03': u'WorldView-3', 'WV04': u'WorldView-4',
+    'GE01': u'GeoEye-1', 'QB02': u'QuickBird-2', 'IK01': u'IKONOS',
+    'LG01': u'WorldView Legion 1', 'LG02': u'WorldView Legion 2', 'LG03': u'WorldView Legion 3',
+    'LG04': u'WorldView Legion 4', 'LG05': u'WorldView Legion 5', 'LG06': u'WorldView Legion 6',
+    'PNEO': u'Pléiades Neo', 'PHR': u'Pléiades', 'PHR1A': u'Pléiades 1A', 'PHR1B': u'Pléiades 1B',
+    'SPOT': u'SPOT', 'SPOT6': u'SPOT-6', 'SPOT7': u'SPOT-7',
+}
+
+
+def sensor_name(code):
+    """'WV03' -> 'WorldView-3 (WV03)'; codigos desconhecidos voltam como vieram."""
+    if not code:
+        return u''
+    name = SENSOR_NAMES.get(str(code).strip().upper())
+    return u"%s (%s)" % (name, code) if name else code
+
+
 class EsriError(RuntimeError):
     pass
 
@@ -156,14 +176,21 @@ def capture_dates(bbox, zoom, release=None, with_geometry=False, coverage=True):
     meta_url = release['metadata_url']
     if not meta_url:
         raise EsriError(u"A versão %s não publica metadados." % release['date'])
-    layer = metadata_layer_for_zoom(zoom)
+    first_layer = metadata_layer_for_zoom(zoom)
     params = {
         'geometry': '%f,%f,%f,%f' % tuple(bbox), 'geometryType': 'esriGeometryEnvelope', 'inSR': 4326,
         'spatialRel': 'esriSpatialRelIntersects', 'outFields': 'SRC_DATE,SRC_DATE2,SRC_DESC,NICE_DESC,SRC_RES,SRC_ACC,NICE_NAME',
         'returnGeometry': 'true' if (coverage or with_geometry) else 'false',
         'outSR': 4326, 'geometryPrecision': 7, 'f': 'json',
     }
-    data = _get_json('%s/%d/query' % (meta_url, layer), params)
+    # Se o zoom pedido nao tem imagem propria (ex.: z18 onde a cena vai ate z17 e e apenas
+    # ampliada), a camada de metadados do zoom vem vazia: descer para a camada seguinte (menos
+    # detalhada) ate achar a cena. As camadas 12-13 (TerraColor 15 m) nao tem data de captura.
+    data = {'features': []}
+    for layer in range(first_layer, 12):
+        data = _get_json('%s/%d/query' % (meta_url, layer), params)
+        if any(_capture_date(f.get('attributes', {})) for f in data.get('features', [])):
+            break
     box_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
     groups = {}
     for ft in data.get('features', []):
@@ -175,7 +202,8 @@ def capture_dates(bbox, zoom, release=None, with_geometry=False, coverage=True):
         else:
             cover = 100.0  # sem geometria: a feicao intersecta a area (ponto)
         key = (_capture_date(a), a.get('SRC_DESC'), a.get('NICE_DESC'), a.get('SRC_RES'))
-        g = groups.setdefault(key, {'date': key[0], 'sensor': key[1], 'provider': key[2],
+        g = groups.setdefault(key, {'date': key[0], 'sensor': key[1], 'sensor_name': sensor_name(key[1]),
+                                    'provider': key[2], 'metadata_layer': layer,
                                     'resolution_m': a.get('SRC_RES'), 'accuracy_m': a.get('SRC_ACC'),
                                     'product': a.get('NICE_NAME'), 'coverage_pct': 0.0, 'rings': []})
         g['coverage_pct'] += cover
@@ -223,7 +251,7 @@ def local_versions(bbox, zoom, releases=None, max_calls=80):
             info = []
         top = info[0] if info else {}
         return {'release_num': rel['num'], 'release_date': rel['date'], 'capture_date': top.get('date'),
-                'sensor': top.get('sensor'), 'provider': top.get('provider'),
+                'sensor': top.get('sensor'), 'sensor_name': top.get('sensor_name'), 'provider': top.get('provider'),
                 'resolution_m': top.get('resolution_m'), 'tile_url': rel['tile_url']}
 
     # A data de captura de cada versao e consultada assim que a versao e descoberta, em paralelo
@@ -301,7 +329,7 @@ def footprints_featureset(dates):
         if len(br) == 10:
             br = u'%s/%s/%s' % (br[8:10], br[5:7], br[0:4])
         feats.append({'geometry': {'rings': d['rings'], 'spatialReference': {'wkid': 4326}},
-                      'attributes': {'DATA_CAPT': br or u'n/d', 'SATELITE': d.get('sensor') or u'',
+                      'attributes': {'DATA_CAPT': br or u'n/d', 'SATELITE': d.get('sensor_name') or d.get('sensor') or u'',
                                      'FORNECEDOR': d.get('provider') or u'', 'RES_M': d.get('resolution_m'),
                                      'COBERT_PCT': d.get('coverage_pct')}})
     return {'displayFieldName': 'DATA_CAPT', 'geometryType': 'esriGeometryPolygon',

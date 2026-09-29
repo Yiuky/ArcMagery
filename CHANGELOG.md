@@ -4,6 +4,22 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.3.1] - 2026-09-29
+
+### ♻️ Integrado do C:\DOWNLOADER_EARTH (ideias revisadas, não o código literal)
+- **Nomes legíveis dos satélites** nas datas e nos polígonos (ex.: `WorldView-3 (WV03)`, `GeoEye-1 (GE01)`, `WorldView Legion`, `Pléiades Neo`).
+- **Tags padrão no GeoTIFF**, exibidas nas propriedades pelo ArcGIS e pelo QGIS: `TIFFTAG_DATETIME`, `ACQUISITION_DATE`, `SATELLITE_SENSOR` e `IMAGE_PROVIDER`.
+- **Sistema de coordenadas** na janela Google Earth / XYZ: Web Mercator nativo, **WGS 84 (EPSG:4326)** ou SIRGAS 2000.
+- **Não integrado, de propósito:**
+  - a data da Esri gravada nos tiles do **Google**: é outra fonte, e a cena pode ser outra, então essa data não pode aparecer como data da imagem do Google. Agora ela é exibida só como *referência* explícita;
+  - `verify=False` (desativava a verificação SSL);
+  - o downloader do Google, que já existia no ArcMagery.
+
+### 🛡️ Corrigido
+- **Data não informada em zoom 18+** quando a imagem Esri daquela área só existe até o zoom 17 (a cena é apenas ampliada): a consulta agora desce para a camada de metadados seguinte.
+
+---
+
 ## [2.3.0] - 2026-09-29
 
 ### 🌟 Adicionado: data das imagens e histórico (Esri World Imagery / Wayback)

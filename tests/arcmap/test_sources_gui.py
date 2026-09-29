@@ -199,6 +199,37 @@ class DialogSmokeTest(unittest.TestCase):
         self.assertEqual(sg.date_br(None), u'n/d')
         self.assertTrue(sg.is_esri('esri') and not sg.is_esri('google'))
 
+    def test_google_reference_is_never_presented_as_google_date(self):
+        txt = sg.google_reference_text(u'2024-05-05 (GE01)')
+        self.assertIn(u'não publicada pelo provedor', txt)
+        self.assertIn(u'Referência: a imagem Esri', txt)
+        self.assertIn(u'não use como data da imagem do Google', txt)
+        self.assertNotIn(u'Referência', sg.google_reference_text(None))
+
+    def test_google_download_does_not_put_esri_date_in_layer_name(self):
+        sent = []
+        self._patch_bridge('run_backend_cmd', lambda *a, **k: {
+            'success': True, 'file': u'C:\\tmp\\g.tif', 'width': 5, 'height': 5, 'ground_res_m': 1.2, 'tiles': 4,
+            'seconds': 1, 'capture_summary': None, 'esri_reference': u'2024-05-05 (GE01)'})
+        self._patch_bridge('send_arcmap_command', lambda a, timeout=120: sent.append(a) or {'success': True})
+        self._patch_bridge('find_python3_gdal', lambda: 'py3.exe')
+        tmp = tempfile.mkdtemp()
+        try:
+            self.dlg._xyz_worker({'area': {'type': 'extent', 'layer': None, 'buffer': 0.0}, 'provider': 'google',
+                                  'label': u'Google Earth / Satélite', 'zoom': 17, 'compression': 'JPEG',
+                                  'crs': 'EPSG:4326', 'out_dir': tmp})
+        finally:
+            shutil.rmtree(tmp)
+        self.parent.pump()
+        load = [a for a in sent if a['action'] == 'load_layer'][0]
+        self.assertNotIn(u'2024-05-05', load['name'])
+        self.assertNotIn(u'captura', load['name'])
+        self.assertIn(u'Referência: a imagem Esri', self.dlg.lbl_xyz_status.cget('text'))
+
+    def test_crs_choice(self):
+        self.assertEqual([c[0] for c in sg.CRS_CHOICES], [None, 'EPSG:4326', 'EPSG:4674'])
+        self.assertIn(u'EPSG:3857', self.dlg.cbo_crs.get())
+
     def test_dialog_is_xyz_only(self):
         self.assertFalse(hasattr(self.dlg, "tree"))
         self.assertIn(u"Google Earth", self.dlg.top.title())
