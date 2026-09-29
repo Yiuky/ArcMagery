@@ -53,6 +53,43 @@ TOS_TEXT = (u"ATENÇÃO - Termos de Uso\n\n"
 
 
 # ------------------------------------------------------------------------ funcoes puras
+ESRI_KEYS = ('esri', 'esri-clarity')
+NO_DATES_TEXT = (u"Datas de captura indisponíveis para esta fonte: o Google e o Bing não oferecem API pública "
+                 u"com a data das imagens. Use a Esri World Imagery para obter data e histórico.")
+
+
+def is_esri(provider_key):
+    return provider_key in ESRI_KEYS
+
+
+def date_br(iso):
+    s = (iso or u'')[:10]
+    return u"%s/%s/%s" % (s[8:10], s[5:7], s[0:4]) if len(s) == 10 else (s or u"n/d")
+
+
+def version_label(v):
+    """Rotulo de uma versao Wayback no combobox: data de CAPTURA primeiro (o que importa ao usuario)."""
+    res = v.get('resolution_m')
+    res_txt = (u" · %.2f m" % float(res)).replace(u'.', u',') if res not in (None, '') else u''
+    return u"Captura %s · %s %s%s  (Wayback %s)" % (
+        date_br(v.get('capture_date')), v.get('sensor') or u'?', v.get('provider') or u'', res_txt,
+        date_br(v.get('release_date')))
+
+
+def dates_summary_text(dates):
+    """Linhas curtas com as datas da area: '05/05/2024 · GE01 Vantor · 0,46 m · 100% da área'."""
+    lines = []
+    for d in dates[:6]:
+        res = d.get('resolution_m')
+        lines.append(u"%s · %s %s · %s · %.0f%% da área" % (
+            date_br(d.get('date')), d.get('sensor') or u'?', d.get('provider') or u'',
+            (u"%.2f m" % float(res)).replace(u'.', u',') if res not in (None, '') else u'n/d',
+            float(d.get('coverage_pct') or 0)))
+    if len(dates) > 6:
+        lines.append(u"... +%d datas" % (len(dates) - 6))
+    return u"\n".join(lines) or u"Nenhuma data informada para a área neste zoom."
+
+
 def parse_progress(line):
     """'[ArcGEE] PROGRESS 12/40 tiles' -> (12, 40); qualquer outra linha -> None."""
     m = re.search(r'PROGRESS\s+(\d+)\s*/\s*(\d+)', line or '')
@@ -187,18 +224,36 @@ class ExtraSourcesDialog(object):
         ttk.Checkbutton(f, text=u"Reprojetar para SIRGAS 2000 (EPSG:4674) - por padrão mantém Web Mercator nativo",
                         variable=self.var_reproject).grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=4)
 
+        dates_box = ttk.LabelFrame(f, text=u" Data das imagens (Esri World Imagery / Wayback) ", padding=6)
+        dates_box.grid(row=4, column=0, columnspan=2, sticky=tk.EW, pady=(6, 2))
+        ttk.Label(dates_box, text=u"Imagem:").grid(row=0, column=0, sticky=tk.W)
+        self.cbo_version = ttk.Combobox(dates_box, state="readonly", width=78)
+        self.cbo_version.grid(row=0, column=1, sticky=tk.W, padx=4)
+        self.btn_dates = ttk.Button(dates_box, text=u"Consultar datas desta área", command=self.on_query_dates)
+        self.btn_dates.grid(row=0, column=2, sticky=tk.W, padx=4)
+        self.var_footprints = tk.BooleanVar(value=bool(self.settings.get('arcmagery_date_footprints', True)))
+        self.chk_footprints = ttk.Checkbutton(dates_box, text=u"Carregar também os polígonos com as datas de captura",
+                                              variable=self.var_footprints)
+        self.chk_footprints.grid(row=1, column=1, columnspan=2, sticky=tk.W, pady=(3, 0))
+        self.lbl_dates = tk.Label(dates_box, text=u"", font=("Segoe UI", 8), fg="#1d6a3a", justify=tk.LEFT,
+                                  anchor=tk.W, wraplength=820)
+        self.lbl_dates.grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=(3, 0))
+        self._versions = []
+        self._dates_key = None
+        self._reset_versions()
+
         self.lbl_estimate = tk.Label(f, text=u"", font=("Segoe UI", 9), fg="#1b4f72", justify=tk.LEFT)
-        self.lbl_estimate.grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(8, 2))
+        self.lbl_estimate.grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(8, 2))
         self.lbl_tos = tk.Label(f, text=u"", font=("Segoe UI", 8), fg="#922b21", justify=tk.LEFT, wraplength=820)
-        self.lbl_tos.grid(row=5, column=0, columnspan=2, sticky=tk.W)
+        self.lbl_tos.grid(row=6, column=0, columnspan=2, sticky=tk.W)
 
         self.btn_xyz = ttk.Button(f, text=u"Baixar mosaico e carregar no ArcMap", style="Primary.TButton",
                                   command=self.on_xyz_download)
-        self.btn_xyz.grid(row=6, column=0, columnspan=2, sticky=tk.W, pady=(12, 4))
+        self.btn_xyz.grid(row=7, column=0, columnspan=2, sticky=tk.W, pady=(12, 4))
         self.prog_xyz = ttk.Progressbar(f, mode="determinate", length=600)
-        self.prog_xyz.grid(row=7, column=0, columnspan=2, sticky=tk.EW, pady=2)
+        self.prog_xyz.grid(row=8, column=0, columnspan=2, sticky=tk.EW, pady=2)
         self.lbl_xyz_status = tk.Label(f, text=u"Pronto.", font=("Segoe UI", 9), anchor=tk.W, justify=tk.LEFT)
-        self.lbl_xyz_status.grid(row=8, column=0, columnspan=2, sticky=tk.W)
+        self.lbl_xyz_status.grid(row=9, column=0, columnspan=2, sticky=tk.W)
         f.columnconfigure(1, weight=1)
 
     # --------------------------------------------------------------------- helpers UI
@@ -214,7 +269,38 @@ class ExtraSourcesDialog(object):
         ctx = getattr(self.parent, 'arcmap_context', {}) or {}
         return ctx.get('bbox')
 
+    def _reset_versions(self, text=None):
+        self._versions = []
+        self.cbo_version['values'] = [u"Mais recente (World Imagery atual)"]
+        self.cbo_version.current(0)
+        if text is not None:
+            self.lbl_dates.config(text=text)
+
+    def _update_dates_availability(self):
+        key = self._provider()[0]
+        esri = is_esri(key)
+        wayback_ok = key == 'esri'
+        self.btn_dates.config(state=tk.NORMAL if (esri and not self.busy.get('dates')) else tk.DISABLED)
+        self.cbo_version.config(state="readonly" if wayback_ok else tk.DISABLED)
+        self.chk_footprints.config(state=tk.NORMAL if esri else tk.DISABLED)
+        context = (key, self.var_zoom.get(), self.var_area.get())
+        if context != self._dates_key:
+            self._dates_key = context
+            if not esri:
+                self._reset_versions(NO_DATES_TEXT)
+            elif self._versions or not self.lbl_dates.cget('text') or self.lbl_dates.cget('text') == NO_DATES_TEXT:
+                self._reset_versions(u"Clique em 'Consultar datas desta área' para ver a data de captura e o "
+                                     u"histórico (versões anteriores) desta área. A data também vai no nome da camada.")
+
+    def _selected_release(self):
+        idx = self.cbo_version.current()
+        if self._provider()[0] != 'esri' or idx <= 0 or idx > len(self._versions):
+            return None
+        return self._versions[idx - 1]
+
     def _update_estimate(self):
+        if hasattr(self, 'cbo_version'):
+            self._update_dates_availability()
         key, label, max_zoom, tos = self._provider()
         self.lbl_tos.config(text=(u"Atenção: o uso de tiles do %s está sujeito aos Termos de Serviço do provedor." % label.split(' ')[0]) if tos else u"")
         try:
@@ -290,6 +376,56 @@ class ExtraSourcesDialog(object):
             }, timeout=300)
         return rep
 
+    # --------------------------------------------------------------- datas (Esri)
+    def on_query_dates(self):
+        if self.busy.get('dates') or not is_esri(self._provider()[0]):
+            return
+        try:
+            zoom = int(self.var_zoom.get())
+        except ValueError:
+            messagebox.showwarning(u"Zoom", u"Informe um zoom numérico.", parent=self.top)
+            return
+        self.busy['dates'] = True
+        self.btn_dates.config(state=tk.DISABLED)
+        self.lbl_dates.config(text=u"Consultando datas de captura e o histórico Wayback da Esri... (cerca de 20 s)")
+        area = self._collect_area()
+        wayback = self._provider()[0] == 'esri'
+        t = threading.Thread(target=self._dates_worker, args=(area, zoom, wayback))
+        t.daemon = True
+        t.start()
+
+    def _dates_worker(self, area, zoom, wayback):
+        try:
+            bbox = self._resolve_bbox(area)
+            params = {'bbox': ','.join('%.8f' % v for v in bbox), 'zoom': zoom}
+            cur = gee_bridge.run_backend_cmd('esri_dates', params, python_exe=gee_bridge.find_python3_gdal())
+            if not cur.get('success'):
+                raise RuntimeError(cur.get('message') or u"Falha ao consultar as datas.")
+            versions = []
+            if wayback:
+                ver = gee_bridge.run_backend_cmd('esri_versions', params, python_exe=gee_bridge.find_python3_gdal())
+                if ver.get('success'):
+                    versions = ver.get('versions', [])
+            self._post(lambda: self._show_dates(cur, versions))
+        except Exception as e:
+            err = to_text(e)
+            self._post(lambda: self.lbl_dates.config(text=u"Falha na consulta de datas: " + err))
+        finally:
+            def done():
+                self.busy['dates'] = False
+                self._update_dates_availability()
+            self._post(done)
+
+    def _show_dates(self, cur, versions):
+        self._versions = list(versions)
+        values = [u"Mais recente (World Imagery atual)"] + [version_label(v) for v in self._versions]
+        self.cbo_version['values'] = values
+        self.cbo_version.current(0)
+        txt = u"Imagem atual nesta área:\n" + dates_summary_text(cur.get('dates', []))
+        if self._versions:
+            txt += u"\n\n%d data(s) de captura no histórico (escolha em 'Imagem' acima)." % len(self._versions)
+        self.lbl_dates.config(text=txt)
+
     # ---------------------------------------------------------------------- XYZ
     def on_xyz_download(self):
         if self.busy['xyz']:
@@ -313,11 +449,15 @@ class ExtraSourcesDialog(object):
         except Exception as e:
             messagebox.showerror(u"Pasta de saída", to_text(e), parent=self.top)
             return
+        release = self._selected_release()
         params = {
             'area': self._collect_area(), 'provider': key, 'label': label, 'zoom': zoom,
             'compression': 'LZW' if self.cbo_compress.current() == 1 else 'JPEG',
             'crs': 'EPSG:4674' if self.var_reproject.get() else None, 'out_dir': out_dir,
+            'wayback_release': release.get('release_num') if release else None,
+            'footprints': bool(self.var_footprints.get()) and is_esri(key),
         }
+        self.settings['arcmagery_date_footprints'] = bool(self.var_footprints.get())
         self.settings['arcmagery_output_dir'] = out_dir
         self.settings['arcmagery_xyz_zoom'] = zoom
         self._set_busy('xyz', True)
@@ -342,12 +482,24 @@ class ExtraSourcesDialog(object):
             res = gee_bridge.run_backend_cmd('xyz_download', {
                 'bbox': ','.join('%.8f' % v for v in bbox), 'zoom': p['zoom'], 'provider': p['provider'],
                 'out': out, 'compression': p['compression'], 'crs': p['crs'],
+                'wayback_release': p.get('wayback_release'), 'footprints': p.get('footprints', False),
             }, on_progress=on_progress, python_exe=gee_bridge.find_python3_gdal())
             if not res.get('success'):
                 raise RuntimeError(res.get('message') or u"Falha no download do mosaico.")
             self._post(lambda: self._set_status('xyz', u"Carregando no ArcMap...", 100))
-            name = u"%s z%d (%s)" % (p['label'], p['zoom'], time.strftime('%d/%m/%Y %H:%M'))
+            capture = res.get('capture_summary')
+            if capture and not capture.startswith(u'indispon'):
+                name = u"%s z%d · captura %s" % (p['label'], p['zoom'], capture)
+            else:
+                name = u"%s z%d (%s)" % (p['label'], p['zoom'], time.strftime('%d/%m/%Y %H:%M'))
+            if res.get('wayback_date'):
+                name += u" · Wayback %s" % date_br(res['wayback_date'])
             rep = self._load_into_arcmap(res['file'], name, XYZ_GROUP, [0, 1, 2], 'XYZ', True)
+            if p.get('footprints') and res.get('footprints_json') and rep.get('success'):
+                with self.parent.ipc_lock:
+                    gee_bridge.send_arcmap_command({'action': 'load_date_footprints', 'file': res['footprints_json'],
+                                                    'name': u"Datas de captura - " + name, 'group': XYZ_GROUP},
+                                                   timeout=120)
             msg = u"Concluído: %d x %d px, %.2f m/px, %d tiles em %.0f s." % (
                 res.get('width', 0), res.get('height', 0), res.get('ground_res_m', 0), res.get('tiles', 0),
                 res.get('seconds', 0))
@@ -355,6 +507,8 @@ class ExtraSourcesDialog(object):
                 msg += u" %d tiles sem imagem no provedor." % res['missing_tiles']
             if not rep.get('success'):
                 msg += u" ATENÇÃO: arquivo salvo, mas não foi carregado no ArcMap: %s" % to_text(rep.get('message', u''))
+            if capture:
+                msg += u"\nData de captura: %s" % capture
             if res.get('attribution'):
                 msg += u"\nFonte: %s" % res['attribution']
             self._post(lambda: self._set_status('xyz', msg, 100))

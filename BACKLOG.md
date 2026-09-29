@@ -12,7 +12,7 @@ rodar os testes.
   real, de uma entrada no checklist manual (seção **V**).
 - Prioridade: **P0** (bloqueia uso/segurança) · **P1** (resultado errado ou travamento) ·
   **P2** (robustez e experiência) · **P3** (melhoria e refatoração).
-- Estado de referência: v2.2.1, branch `feature/arcmagery-2.0`, 2026-09-28.
+- Estado de referência: v2.3.0, branch `feature/arcmagery-2.0`, 2026-09-28.
 
 ---
 
@@ -24,6 +24,7 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | ID | Verificar no ArcMap | Arquivos |
 |---|---|---|
 | V-01 | Barra **Fonte de imagens**: alternar GEE ↔ CBERS adapta a janela; o botão **Google Earth / Mosaicos XYZ...** abre uma única janela | `gee_gui.on_source_changed`, `on_open_extra_sources` |
+| V-12 | Janela Google Earth / XYZ com a fonte Esri: **Consultar datas desta área** lista a data atual e o histórico; baixar uma versão antiga; o nome da camada traz a data; os polígonos de datas entram com contorno amarelo sem preenchimento e rótulo | `esri_core.py`, `arcmagery_sources_gui.py`, `gee_bridge.load_date_footprints` |
 | V-11 ✅ 2026-09-29 (S2 1182 e CBERS WPM rgb conferidos no ArcMap real) | Carregar uma imagem multibanda (ex.: CBERS multibanda, S2 B8-B4-B3) e uma de 1 banda (NDVI): Properties › Symbology mostra RGB Composite com as bandas pedidas / Stretched, com o Stretch e a origem das estatísticas das Configurações | `arcmagery_symbology.py`, `gee_bridge.load_into_toc` |
 | V-10 | CBERS pela janela principal: buscar, ver a **Miniatura**, carregar 2 cenas (fila) e usar **Substituir no TOC** numa camada CBERS | `gee_gui`, `arcmagery_inpe.py` |
 | V-02 | Mosaico Google/Esri entra no TOC no grupo `ArcMagery - Google Earth / XYZ`, em RGB e na posição correta sobre uma camada de referência | `arcmagery_sources_gui.py`, `gee_bridge.load_into_toc` |
@@ -40,7 +41,11 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 ## P0 — Bloqueia uso ou segurança
 
 ### N-09 · Data de captura e imagens históricas do Google Earth ("Data das imagens")
-- **Status:** BLOQUEADO / AGUARDANDO DECISÃO (2026-09-28)
+- **Status:** BLOQUEADO para o Google. A **alternativa Esri foi implementada na v2.3.0** (data de captura,
+  histórico Wayback e polígonos de datas). Em 2026-09-29 o mantenedor indicou os projetos
+  EarthRipper e EarthCapture como referência. Eles usam o mesmo protocolo interno do Google Earth, e o
+  caminho continua fora do escopo pelos mesmos motivos (política de segurança do ambiente e Termos
+  de Serviço do Google).
 - **Pedido:** mostrar a data das imagens (como no rodapé do Google Earth Pro e do Google Earth
   Online) e permitir baixar imagens históricas por data.
 - **Bloqueio:** não existe API pública do Google para isso. Os dados vêm de um banco interno e
@@ -56,11 +61,11 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
   3. **CBERS / Sentinel / Landsat:** já datados por cena (INPE e GEE).
   4. Imagens comerciais datadas (Maxar/Airbus) apenas via licença ou API oficial.
 
-### U-01 · Publicar a primeira GitHub Release verificável (v2.2.0)
+### U-01 · Publicar a primeira GitHub Release verificável (v2.3.0)
 - **Status:** ABERTO (ação do mantenedor)
 - **Problema:** desde a v2.0 o atualizador só instala sem confirmação a partir de uma Release com `SHA256SUMS.txt`. Hoje o repositório **não tem Releases**, então todo usuário verá o aviso "Atualização sem verificação".
-- **Como fazer:** `python build_release.py`, depois `gh release create v2.2.0 dist/ArcMagery-2.2.0.zip dist/SHA256SUMS.txt --title "ArcMagery v2.2.0" --notes-file CHANGELOG.md`.
-- **Aceite:** `gee_updater.fetch_latest_release()` retorna `version=2.2.0` com `zip_url` e `sums_url`.
+- **Como fazer:** `python build_release.py`, depois `gh release create v2.3.0 dist/ArcMagery-2.3.0.zip dist/SHA256SUMS.txt --title "ArcMagery v2.3.0" --notes-file CHANGELOG.md`.
+- **Aceite:** `gee_updater.fetch_latest_release()` retorna `version=2.3.0` com `zip_url` e `sums_url`.
 
 ### U-02 · O script gerado pelo atualizador encerra TODOS os `pythonw.exe`
 - **Status:** ABERTO
@@ -184,6 +189,8 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | C-12 | 2.0.0 | Nova fonte CBERS / Amazônia-1 (STAC INPE), com cobertura real da AOI | `tests/backend/test_stac_core.py` |
 | C-13 | 2.0.0 | `gdal.Unlink` no `finally` mascarava o erro real do recorte CBERS | `test_stac_core.py::test_aoi_outside_raster` |
 | C-16 | 2.0.0 | Versão do pacote ZIP lida como "Desconhecida" (namespace do config.xml), o que anulava o bloqueio de downgrade | `test_updater_security.py::RealZipValidationTest` |
+| C-22 | 2.3.0 | Data de captura + histórico Wayback + polígonos de datas (Esri) | `tests/backend/test_esri_core.py`, `test_symbology.py::test_date_footprints_layer`, `test_sources_gui.py` |
+| C-23 | 2.3.0 | GDAL falhava com `OSGEO4W_ROOT` herdada (sitecustomize do QGIS) | `test_run_gee_cli.py::test_gdal_loads_even_with_inherited_osgeo4w_root` |
 | C-21 | 2.2.1 | Camada viva: QueryInterface(IMxDocument) para FocusMap/SelectedLayer (erro "FocusMap" no ArcMap real) | `test_symbology.py::test_live_arcmap_path_uses_imxdocument` |
 | C-19 | 2.2.0 | Simbologia garantida: bandas RGB + Stretch aplicados, relidos e conferidos; camada localizada pelo caminho exato (e 8.3); aviso quando não garantida; botões Composição/Forçar RGB/Garantir Stretch removidos | `tests/arcmap/test_symbology.py` |
 | C-20 | 2.2.0 | "Aplicar stretch" das Configurações redefinia as bandas para 1-2-3; salvar Configurações apagava as demais opções | `test_symbology.py::test_restretch_preserves_band_combination` |

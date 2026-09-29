@@ -345,6 +345,15 @@ A janela tem a **Área de interesse** (extensão atual do ArcMap ou camada vetor
 4. Clique em **Baixar mosaico e carregar no ArcMap**. A camada entra no grupo
    `ArcMagery - Google Earth / XYZ`.
 
+* **Data das imagens (Esri):** com a fonte *Esri World Imagery*, o quadro **Data das imagens** mostra:
+  * **Consultar datas desta área:** a data de captura de cada parte da área, com satélite, fornecedor,
+    resolução e cobertura (%), e o **histórico Wayback**, isto é, as datas anteriores em que a imagem
+    daquele local mudou. A consulta leva cerca de 20 s na primeira vez e depois vem do cache por 24 h.
+  * **Imagem:** escolha "Mais recente" ou uma data de captura do histórico e baixe aquela imagem.
+  * **Carregar também os polígonos com as datas de captura:** insere, acima do mosaico, os polígonos
+    de cada data com rótulo "data satélite", como a "Data das imagens" do Google Earth Pro.
+  * A data de captura também vai no **nome da camada** e nos metadados do GeoTIFF.
+  * Para **Google e Bing** não há API pública com a data das imagens; a janela informa isso.
 * **Limite de segurança:** 20.000 tiles por download. Reduza a área ou o zoom se ele for atingido.
 * **Retomada:** se a rede cair, os tiles já baixados ficam em `<arquivo>_tiles`. Repita o
   download e só os tiles que faltam serão buscados.

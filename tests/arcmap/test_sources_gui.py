@@ -132,6 +132,73 @@ class DialogSmokeTest(unittest.TestCase):
         self.assertIn(u'Concluído', self.dlg.lbl_xyz_status.cget('text'))
         self.assertEqual(str(self.dlg.btn_xyz.cget('state')), 'normal')
 
+    def _select_provider(self, key):
+        self.dlg.cbo_provider.current([p[0] for p in sg.XYZ_PROVIDERS].index(key))
+        self.dlg._update_estimate()
+
+    def test_dates_box_follows_provider(self):
+        self._select_provider('google')
+        self.assertEqual(str(self.dlg.btn_dates.cget('state')), 'disabled')
+        self.assertEqual(self.dlg.lbl_dates.cget('text'), sg.NO_DATES_TEXT)
+        self._select_provider('esri')
+        self.assertEqual(str(self.dlg.btn_dates.cget('state')), 'normal')
+        self.assertIn(u'Consultar datas', self.dlg.lbl_dates.cget('text'))
+        self._select_provider('esri-clarity')           # datas sim, historico Wayback nao
+        self.assertEqual(str(self.dlg.cbo_version.cget('state')), 'disabled')
+
+    def test_versions_populate_and_select_release(self):
+        self._select_provider('esri')
+        versions = [{'release_num': 26334, 'release_date': '2026-08-05', 'capture_date': '2024-05-05',
+                     'sensor': 'GE01', 'provider': 'Vantor', 'resolution_m': 0.46},
+                    {'release_num': 26083, 'release_date': '2022-02-02', 'capture_date': '2020-06-29',
+                     'sensor': 'WV03', 'provider': 'Maxar', 'resolution_m': 0.31}]
+        cur = {'dates': [{'date': '2024-05-05', 'sensor': 'GE01', 'provider': 'Vantor', 'resolution_m': 0.46,
+                          'coverage_pct': 100.0}]}
+        self.dlg._show_dates(cur, versions)
+        values = self.dlg.cbo_version['values']
+        self.assertEqual(len(values), 3)
+        self.assertIn(u'Captura 29/06/2020 · WV03 Maxar · 0,31 m', values[2])
+        self.assertIn(u'05/05/2024 · GE01 Vantor · 0,46 m · 100% da área', self.dlg.lbl_dates.cget('text'))
+        self.assertIsNone(self.dlg._selected_release())           # "Mais recente"
+        self.dlg.cbo_version.current(2)
+        self.assertEqual(self.dlg._selected_release()['release_num'], 26083)
+        self.dlg.var_zoom.set('16')                               # mudar o zoom invalida o historico
+        self.dlg._update_estimate()
+        self.assertEqual(len(self.dlg.cbo_version['values']), 1)
+
+    def test_xyz_worker_names_layer_with_capture_date_and_loads_footprints(self):
+        sent, calls = [], {}
+
+        def fake_backend(cmd, params, on_progress=None, python_exe=None):
+            calls['params'] = params
+            return {'success': True, 'file': u'C:\\tmp\\w.tif', 'width': 5, 'height': 5, 'ground_res_m': 1.16,
+                    'tiles': 81, 'seconds': 10, 'capture_summary': u'2020-06-29 (WV03)',
+                    'wayback_date': '2022-02-02', 'footprints_json': u'C:\\tmp\\w_datas.json'}
+
+        self._patch_bridge('run_backend_cmd', fake_backend)
+        self._patch_bridge('send_arcmap_command', lambda a, timeout=120: sent.append(a) or {'success': True})
+        self._patch_bridge('find_python3_gdal', lambda: 'py3.exe')
+        tmp = tempfile.mkdtemp()
+        try:
+            self.dlg._xyz_worker({'area': {'type': 'extent', 'layer': None, 'buffer': 0.0}, 'provider': 'esri',
+                                  'label': u'Esri World Imagery', 'zoom': 17, 'compression': 'JPEG', 'crs': None,
+                                  'out_dir': tmp, 'wayback_release': 26083, 'footprints': True})
+        finally:
+            shutil.rmtree(tmp)
+        self.parent.pump()
+        self.assertEqual((calls['params']['wayback_release'], calls['params']['footprints']), (26083, True))
+        load = [a for a in sent if a['action'] == 'load_layer'][0]
+        self.assertIn(u'captura 2020-06-29 (WV03)', load['name'])
+        self.assertIn(u'Wayback 02/02/2022', load['name'])
+        fp = [a for a in sent if a['action'] == 'load_date_footprints'][0]
+        self.assertEqual((fp['file'], fp['group']), (u'C:\\tmp\\w_datas.json', sg.XYZ_GROUP))
+        self.assertIn(u'Data de captura: 2020-06-29', self.dlg.lbl_xyz_status.cget('text'))
+
+    def test_date_helpers(self):
+        self.assertEqual(sg.date_br('2024-05-05'), u'05/05/2024')
+        self.assertEqual(sg.date_br(None), u'n/d')
+        self.assertTrue(sg.is_esri('esri') and not sg.is_esri('google'))
+
     def test_dialog_is_xyz_only(self):
         self.assertFalse(hasattr(self.dlg, "tree"))
         self.assertIn(u"Google Earth", self.dlg.top.title())

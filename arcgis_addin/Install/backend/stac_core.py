@@ -19,6 +19,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import qgis_env  # noqa: E402,F401  (DLLs do GDAL do QGIS antes do import do osgeo)
+
 try:
     from osgeo import gdal, osr
     gdal.UseExceptions()

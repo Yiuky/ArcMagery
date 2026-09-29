@@ -4,6 +4,21 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.3.0] - 2026-09-29
+
+### 🌟 Adicionado: data das imagens e histórico (Esri World Imagery / Wayback)
+- **Data de captura:** na janela Google Earth / Mosaicos XYZ, com a fonte Esri, o botão **Consultar datas desta área** mostra, para cada parte da área, a data da cena, o satélite (ex.: GE01, WV03), o fornecedor (Maxar/Vantor/Airbus), a resolução e quanto da área cada data cobre. Os dados vêm dos metadados públicos da Esri, conforme o zoom.
+- **Histórico (Wayback):** lista as versões da World Imagery em que a imagem **mudou** naquele local, desde 2014, uma por data de captura (mesmo algoritmo do app Esri Wayback). Escolha a data e baixe aquela imagem.
+- A data de captura entra no **nome da camada** (ex.: `Esri World Imagery z17 · captura 2020-06-29 (WV03) · Wayback 02/02/2022`) e nos **metadados do GeoTIFF**.
+- **Polígonos com as datas de captura** (opcional), carregados junto do mosaico com contorno sem preenchimento e rótulo "data satélite", equivalentes à "Data das imagens" do Google Earth Pro.
+- Google e Bing não têm API pública com a data das imagens, e isso é informado na janela.
+
+### 🛡️ Corrigido
+- **GDAL não carregava** ("No module named '_gdal'") quando o Python do QGIS era iniciado com `OSGEO4W_ROOT` já definida no ambiente (outro Python do QGIS, o shell do OSGeo4W ou uma variável de sistema), porque o `sitecustomize` do QGIS deixava de registrar `<QGIS>\bin`. O backend agora registra o diretório de DLLs por conta própria (`qgis_env.py`).
+- A mensagem de "GDAL/numpy indisponível" agora inclui o erro real de importação.
+
+---
+
 ## [2.2.1] - 2026-09-29
 
 ### 🛡️ Corrigido

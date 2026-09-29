@@ -347,6 +347,68 @@ def restretch_layers(settings, focus_map=None, only_paths=None):
     return updated, problems
 
 
+# ------------------------------------------------------------ poligonos de datas de captura
+_DISPLAY = None
+
+
+def display():
+    global _DISPLAY
+    if _DISPLAY is None:
+        import comtypes.client
+        import gee_bridge
+        carto()
+        _DISPLAY = comtypes.client.GetModule(
+            os.path.join(os.path.dirname(gee_bridge.get_esricarto_olb_path()), 'esriDisplay.olb'))
+    return _DISPLAY
+
+
+def style_footprints_layer_file(lyr_path, rgb=(255, 255, 0), width=1.5):
+    """Poligonos das datas de captura: contorno colorido SEM preenchimento (nao cobre a imagem).
+    Grava no .lyr e rele para conferir. Retorna True."""
+    import comtypes.client
+    C, D = carto(), display()
+    color = comtypes.client.CreateObject(D.RgbColor, interface=D.IRgbColor)
+    color.Red, color.Green, color.Blue = rgb
+    line = comtypes.client.CreateObject(D.SimpleLineSymbol, interface=D.ISimpleLineSymbol)
+    line.Color = color
+    line.Width = float(width)
+    fill = comtypes.client.CreateObject(D.SimpleFillSymbol, interface=D.ISimpleFillSymbol)
+    fill.Style = D.esriSFSHollow
+    fill.Outline = line
+    rend = comtypes.client.CreateObject(C.SimpleRenderer, interface=C.ISimpleRenderer)
+    rend.Symbol = fill.QueryInterface(D.ISymbol)
+    lf = _create('LayerFile', 'ILayerFile')
+    try:
+        lf.Open(lyr_path)
+        lf.Layer.QueryInterface(C.IGeoFeatureLayer).Renderer = rend.QueryInterface(C.IFeatureRenderer)
+        lf.Save()
+    finally:
+        try:
+            lf.Close()
+        except Exception:
+            pass
+    if footprints_style(lyr_path) != 'HOLLOW':
+        raise SymbologyError(u"Estilo dos polígonos de datas não foi gravado no .lyr.")
+    return True
+
+
+def footprints_style(lyr_path):
+    """'HOLLOW' se o .lyr tem SimpleRenderer com preenchimento vazado (usado nos testes)."""
+    C, D = carto(), display()
+    lf = _create('LayerFile', 'ILayerFile')
+    try:
+        lf.Open(lyr_path)
+        rend = lf.Layer.QueryInterface(C.IGeoFeatureLayer).Renderer
+        simple = rend.QueryInterface(C.ISimpleRenderer)
+        fill = simple.Symbol.QueryInterface(D.ISimpleFillSymbol)
+        return 'HOLLOW' if fill.Style == D.esriSFSHollow else 'FILLED'
+    finally:
+        try:
+            lf.Close()
+        except Exception:
+            pass
+
+
 def describe(state):
     C = carto()
     names = dict((getattr(C, v), k) for k, v in STRETCH_NAMES.items() if k != 'Standard Deviation')

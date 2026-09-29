@@ -250,6 +250,45 @@ class SymbologyEngineTest(unittest.TestCase):
         self.assertIn('Refresh', calls)
         self.assertEqual(sym.compare(states[0], sym.expected_state(settings, 4, (2, 1, 0))), [])
 
+    def test_date_footprints_layer(self):
+        """Poligonos das datas de captura (Esri JSON do backend) -> shapefile com contorno vazado
+        e rotulo 'data satelite', inserido num mapa real."""
+        import json
+        import gee_bridge
+        fs = {'displayFieldName': 'DATA_CAPT', 'geometryType': 'esriGeometryPolygon',
+              'spatialReference': {'wkid': 4326},
+              'fields': [{'name': 'DATA_CAPT', 'type': 'esriFieldTypeString', 'length': 10},
+                         {'name': 'SATELITE', 'type': 'esriFieldTypeString', 'length': 40},
+                         {'name': 'FORNECEDOR', 'type': 'esriFieldTypeString', 'length': 60},
+                         {'name': 'RES_M', 'type': 'esriFieldTypeDouble'},
+                         {'name': 'COBERT_PCT', 'type': 'esriFieldTypeDouble'}],
+              'features': [
+                  {'geometry': {'rings': [[[-56.13, -12.82], [-56.12, -12.82], [-56.12, -12.81], [-56.13, -12.81], [-56.13, -12.82]]],
+                                'spatialReference': {'wkid': 4326}},
+                   'attributes': {'DATA_CAPT': '29/06/2020', 'SATELITE': 'WV03', 'FORNECEDOR': 'Maxar', 'RES_M': 0.31, 'COBERT_PCT': 60.0}},
+                  {'geometry': {'rings': [[[-56.12, -12.82], [-56.11, -12.82], [-56.11, -12.81], [-56.12, -12.81], [-56.12, -12.82]]],
+                                'spatialReference': {'wkid': 4326}},
+                   'attributes': {'DATA_CAPT': '05/05/2024', 'SATELITE': 'GE01', 'FORNECEDOR': 'Vantor', 'RES_M': 0.46, 'COBERT_PCT': 40.0}}]}
+        path = os.path.join(self.tmp, 'mosaico_datas.json')
+        with open(path, 'w') as f:
+            json.dump(fs, f)
+        lyr = gee_bridge.build_date_footprints_layer(path, u'Datas de captura (teste)')
+        shp = os.path.join(self.tmp, 'mosaico_datas.shp')
+        self.assertTrue(os.path.exists(shp))
+        rows = sorted(r for r in arcpy.da.SearchCursor(shp, ['DATA_CAPT', 'SATELITE']))
+        self.assertEqual(rows, [(u'05/05/2024', u'GE01'), (u'29/06/2020', u'WV03')])
+        self.assertEqual(sym.footprints_style(os.path.join(self.tmp, 'mosaico_datas.lyr')), 'HOLLOW')
+        self.assertTrue(lyr.showLabels)
+        self.assertIn('[DATA_CAPT]', lyr.labelClasses[0].expression)
+        mxd_path = os.path.join(self.tmp, 'fp.mxd')
+        shutil.copy(TEMPLATES[0], mxd_path)
+        mxd = arcpy.mapping.MapDocument(mxd_path)
+        arcpy.mapping.AddLayer(arcpy.mapping.ListDataFrames(mxd)[0], lyr, "TOP")
+        mxd.save()
+        names = [l.name for l in arcpy.mapping.ListLayers(mxd)]
+        del mxd
+        self.assertIn(u'Datas de captura (teste)', names)
+
     def test_invalid_band_request_is_rejected(self):
         with self.assertRaises(sym.SymbologyError):
             sym.expected_state(SETTINGS[0], 4, (0, 1, 7))

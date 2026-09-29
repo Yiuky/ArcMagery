@@ -53,6 +53,25 @@ class CliTest(unittest.TestCase):
         self.assertFalse(data['success'])
         self.assertIn('Filtro espacial', data['message'])
 
+    @unittest.skipUnless(_paths.HAS_GDAL and sys.platform == 'win32', "requer GDAL do QGIS no Windows")
+    def test_gdal_loads_even_with_inherited_osgeo4w_root(self):
+        """Regressao: o sitecustomize do QGIS pula o registro de <QGIS>\\bin quando OSGEO4W_ROOT
+        ja existe no ambiente (herdado de outro Python do QGIS / shell OSGeo4W) -> '_gdal' nao
+        carregava e CBERS/Google Earth falhavam. O backend registra o bin por conta propria."""
+        fd, pf = tempfile.mkstemp(suffix='.json')
+        os.close(fd)
+        with io.open(pf, 'w', encoding='utf-8') as f:
+            f.write(u'{"command": "sources_info"}')
+        env = dict(os.environ, OSGEO4W_ROOT=r'C:\nao\existe', PYTHONIOENCODING='utf-8')
+        env.pop('PYTHONPATH', None)
+        try:
+            proc = subprocess.run([sys.executable, RUN_GEE, 'sources_info', '--params-file=' + pf],
+                                  capture_output=True, timeout=120, env=env)
+        finally:
+            os.remove(pf)
+        data = json.loads([l for l in proc.stdout.decode('utf-8').splitlines() if l.startswith('{')][-1])
+        self.assertTrue(data['gdal'], proc.stderr.decode('utf-8', 'replace'))
+
     def test_source_commands_do_not_import_earthengine(self):
         code = ("import sys; sys.path.insert(0, %r); sys.modules['ee'] = None\n"
                 "import run_gee\n"

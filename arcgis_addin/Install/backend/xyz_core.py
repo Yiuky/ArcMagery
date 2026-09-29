@@ -27,15 +27,18 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import qgis_env  # noqa: E402,F401  (DLLs do GDAL do QGIS antes do import do osgeo)
 import tilemath  # noqa: E402
 
 try:
     from osgeo import gdal, osr
     gdal.UseExceptions()
     HAS_GDAL = True
-except Exception:  # pragma: no cover - depende do ambiente
+    GDAL_IMPORT_ERROR = None
+except Exception as _e:  # pragma: no cover - depende do ambiente
     gdal = osr = None
     HAS_GDAL = False
+    GDAL_IMPORT_ERROR = repr(_e)
 
 try:
     from PIL import Image
@@ -47,8 +50,10 @@ except Exception:  # pragma: no cover
 
 try:
     import numpy as np
-except Exception:  # pragma: no cover
+    NUMPY_IMPORT_ERROR = None
+except Exception as _e:  # pragma: no cover
     np = None
+    NUMPY_IMPORT_ERROR = repr(_e)
 
 
 PROVIDERS = {
@@ -326,7 +331,8 @@ def download_mosaic(bbox, zoom, provider='esri', out_tif=None, workers=8, retrie
     if engine == 'gdal' and not (HAS_GDAL and np is not None):
         raise RuntimeError(u"GDAL/numpy indisponível neste Python.")
     if engine == 'pil' and not (HAS_PIL and np is not None):
-        raise RuntimeError(u"Pillow/numpy indisponível neste Python: instale 'Pillow' e 'numpy' ou use o Python do QGIS.")
+        raise RuntimeError(u"Pillow/numpy indisponível neste Python (%s): instale 'Pillow' e 'numpy' ou use o Python do QGIS. "
+                           u"[GDAL: %s | numpy: %s]" % (sys.executable, GDAL_IMPORT_ERROR, NUMPY_IMPORT_ERROR))
     if target_crs and not HAS_GDAL:
         raise RuntimeError(u"Reprojeção requer GDAL.")
 

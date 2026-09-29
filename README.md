@@ -14,7 +14,7 @@
   <a href="https://earthengine.google.com/"><img src="https://img.shields.io/badge/Google%20Earth%20Engine-API-4285F4.svg?logo=googleearthengine&logoColor=white" alt="Google Earth Engine"></a>
   <a href="https://data.inpe.br/stac/browser/"><img src="https://img.shields.io/badge/INPE-STAC%20CBERS-00843D.svg" alt="STAC INPE"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-2.7%20%7C%203.10+-3776AB.svg?logo=python&logoColor=white" alt="Python"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.2.0-28A745.svg" alt="Versão v2.2.0"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.3.0-28A745.svg" alt="Versão v2.3.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License MIT"></a>
 </p>
 
@@ -47,7 +47,7 @@ manuais. Foi desenvolvido na Coordenadoria de Geoprocessamento e Monitoramento A
 | Fonte | O que oferece | Resolução |
 |---|---|---|
 | **Google Earth Engine** | Sentinel-2, Landsat 1–9: cenas, mosaicos por mediana com máscara de nuvem, índices (NDVI, NDWI, NDMI, NBR, EVI, SAVI), matemática de bandas e multibanda completa | 10–60 m |
-| **Google Earth / XYZ** *(novo)* | Google Satélite, Google Híbrido, Esri World Imagery, Esri Clarity e Bing Aerial, costurados num GeoTIFF georreferenciado | até ~0,15 m (zoom 20) |
+| **Google Earth / XYZ** *(novo)* | Google Satélite, Google Híbrido, Esri World Imagery, Esri Clarity e Bing Aerial, costurados num GeoTIFF georreferenciado. Com a Esri: **data de captura** e **histórico Wayback** desde 2014 | até ~0,15 m (zoom 20) |
 | **CBERS / Amazônia-1** *(novo)* | STAC do INPE: CBERS-4A WPM (2 m pan e 8 m multiespectral, fusionada 2 m), MUX, WFI, PAN 5/10 m e Amazônia-1 WFI | 2–64 m |
 
 ### Destaques
@@ -133,7 +133,7 @@ set ARCMAGERY_GEE_PROJECT=<id>   :: inclui teste real no Earth Engine
 
 ```bat
 python build_release.py
-gh release create v2.2.0 dist\ArcMagery-2.2.0.zip dist\SHA256SUMS.txt --title "ArcMagery v2.2.0" --notes-file CHANGELOG.md
+gh release create v2.3.0 dist\ArcMagery-2.3.0.zip dist\SHA256SUMS.txt --title "ArcMagery v2.3.0" --notes-file CHANGELOG.md
 ```
 
 ---

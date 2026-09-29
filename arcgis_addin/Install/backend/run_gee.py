@@ -11,6 +11,7 @@ import argparse
 
 # Adicionar pasta atual ao path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import qgis_env  # noqa: E402,F401  (registra <QGIS>\bin antes de qualquer import do GDAL)
 
 
 class _LazyGeeCore(object):
@@ -228,15 +229,72 @@ def src_xyz_estimate(p):
     return dict(tilemath.estimate(_resolve_bbox(p), int(p.get('zoom', 17))), success=True)
 
 
+def _is_esri_imagery(p):
+    return p.get('provider') in ('esri', 'esri-clarity') or bool(p.get('wayback_release'))
+
+
 def src_xyz_download(p):
     import xyz_core
+    bbox = _resolve_bbox(p)
+    zoom = int(p.get('zoom', 17))
+    provider = p.get('provider', 'esri')
+    release = None
+    if p.get('wayback_release'):
+        import esri_core
+        release = esri_core.release_by_num(p['wayback_release'])
+        provider = release['tile_url']  # template {z}/{y}/{x} da versao escolhida
     res = xyz_core.download_mosaic(
-        _resolve_bbox(p), int(p.get('zoom', 17)), provider=p.get('provider', 'esri'),
+        bbox, zoom, provider=provider,
         out_tif=p.get('out'), workers=int(p.get('workers', 8)),
         max_tiles=int(p.get('max_tiles', xyz_core.DEFAULT_MAX_TILES)),
         compression=p.get('compression', 'JPEG'), target_crs=p.get('crs') or None,
         keep_cache=bool(p.get('keep_cache', False)))
-    return dict(res, success=True)
+    res = dict(res, success=True)
+    if release:
+        res.update(provider='esri-wayback', wayback_release=release['num'], wayback_date=release['date'],
+                   attribution=u"Esri World Imagery Wayback (%s)" % release['date'])
+    if _is_esri_imagery(p):
+        res.update(_attach_capture_dates(res['file'], bbox, zoom, release, bool(p.get('footprints', True))))
+    return res
+
+
+def _attach_capture_dates(tif, bbox, zoom, release, footprints):
+    """Datas de captura (metadados publicos da Esri) gravadas no GeoTIFF e, opcionalmente, os
+    poligonos de cada data em Esri JSON. Falha aqui nunca derruba o download."""
+    import esri_core
+    try:
+        dates = esri_core.capture_dates(bbox, zoom, release, with_geometry=footprints)
+    except Exception as e:
+        return {'capture_summary': u"indisponível (%s)" % e, 'capture_dates': []}
+    out = {'capture_summary': esri_core.summarize_dates(dates),
+           'capture_dates': [dict((k, v) for k, v in d.items() if k != 'rings') for d in dates]}
+    try:
+        from osgeo import gdal
+        ds = gdal.Open(tif, gdal.GA_Update)
+        ds.SetMetadataItem('ARCMAGERY_CAPTURE_DATES', json.dumps(out['capture_dates'], ensure_ascii=True))
+        ds.SetMetadataItem('ARCMAGERY_CAPTURE_SUMMARY', out['capture_summary'].encode('ascii', 'replace').decode('ascii'))
+        ds = None
+    except Exception:
+        pass
+    if footprints and any(d.get('rings') for d in dates):
+        out['footprints_json'] = esri_core.write_footprints(dates, os.path.splitext(tif)[0] + '_datas.json')
+    return out
+
+
+def src_esri_dates(p):
+    """Datas de captura da area para a versao atual ou uma versao Wayback."""
+    import esri_core
+    release = esri_core.release_by_num(p['wayback_release']) if p.get('wayback_release') else None
+    dates = esri_core.capture_dates(_resolve_bbox(p), int(p.get('zoom', 17)), release)
+    return {'success': True, 'dates': dates, 'summary': esri_core.summarize_dates(dates),
+            'release_date': (release or esri_core.load_releases()[0])['date']}
+
+
+def src_esri_versions(p):
+    """Versoes do Wayback com imagem diferente na area (uma por data de captura)."""
+    import esri_core
+    versions = esri_core.local_versions_cached(_resolve_bbox(p), int(p.get('zoom', 17)))
+    return {'success': True, 'versions': versions, 'count': len(versions)}
 
 
 def src_stac_search(p):
@@ -268,6 +326,8 @@ SOURCE_COMMANDS = {
     'stac_search': src_stac_search,
     'stac_thumb': src_stac_thumb,
     'stac_download': src_stac_download,
+    'esri_dates': src_esri_dates,
+    'esri_versions': src_esri_versions,
 }
 
 

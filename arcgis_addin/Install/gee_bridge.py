@@ -490,7 +490,7 @@ def run_backend_cmd(subcmd, args_dict, on_progress=None, python_exe=None):
             timeout_seconds = 60   # 60 segundos para miniaturas
         elif subcmd in ('xyz_download', 'stac_download'):
             timeout_seconds = 1800  # 30 minutos: mosaicos XYZ e recortes CBERS grandes
-        elif subcmd in ('stac_search', 'stac_thumb', 'sources_info', 'xyz_estimate'):
+        elif subcmd in ('stac_search', 'stac_thumb', 'sources_info', 'xyz_estimate', 'esri_dates', 'esri_versions'):
             timeout_seconds = 120
         else:
             timeout_seconds = 120
@@ -1829,6 +1829,59 @@ def _rgb_override(rgb_bands):
 
 SYMBOLOGY_WARNING_PREFIX = u"ATENÇÃO"
 
+def build_date_footprints_layer(json_path, layer_name=None):
+    """Esri JSON (poligonos das datas de captura) -> shapefile + .lyr estilizado (contorno sem
+    preenchimento) com rotulo da data. Retorna o arcpy.mapping.Layer pronto para inserir.
+    Nao depende do ArcMap aberto (testavel fora dele)."""
+    import arcmagery_symbology as symbology
+    base = os.path.splitext(json_path)[0]
+    shp = base + '.shp'
+    lyr_file = base + '.lyr'
+    prev_overwrite = getattr(arcpy.env, 'overwriteOutput', False)
+    arcpy.env.overwriteOutput = True
+    try:
+        if arcpy.Exists(shp):
+            arcpy.Delete_management(shp)
+        arcpy.JSONToFeatures_conversion(json_path, shp)
+        tmp = "arcmagery_fp_" + uuid.uuid4().hex[:8]
+        arcpy.MakeFeatureLayer_management(shp, tmp)
+        if os.path.exists(lyr_file):
+            os.remove(lyr_file)
+        arcpy.SaveToLayerFile_management(tmp, lyr_file)
+        arcpy.Delete_management(tmp)
+    finally:
+        arcpy.env.overwriteOutput = prev_overwrite
+    symbology.style_footprints_layer_file(lyr_file)
+    lyr = arcpy.mapping.Layer(lyr_file)
+    lyr.name = layer_name or u"Datas de captura"
+    try:
+        lc = lyr.labelClasses[0]
+        lc.expression = "[DATA_CAPT] & \" \" & [SATELITE]"
+        lyr.showLabels = True
+    except Exception as e_lbl:
+        _log_debug("build_date_footprints_layer: rotulos indisponiveis (%s)" % e_lbl)
+    return lyr
+
+def load_date_footprints(json_path, layer_name=None, group_name=None):
+    """Insere no TOC os poligonos com as datas de captura (acima da imagem, no mesmo grupo)."""
+    if not arcpy:
+        return False, "ArcPy nao disponivel."
+    try:
+        lyr = build_date_footprints_layer(json_path, layer_name)
+        mxd = arcpy.mapping.MapDocument("CURRENT")
+        df = arcpy.mapping.ListDataFrames(mxd)[0]
+        target_grp = get_or_create_group_layer(group_name) if group_name and unicode(group_name).strip() else None
+        if target_grp:
+            arcpy.mapping.AddLayerToGroup(df, target_grp, lyr, "TOP")
+        else:
+            arcpy.mapping.AddLayer(df, lyr, "TOP")
+        arcpy.RefreshTOC()
+        arcpy.RefreshActiveView()
+        return True, u"Polígonos com as datas de captura carregados."
+    except Exception as e:
+        _log_debug("load_date_footprints: %s" % e)
+        return False, u"Falha ao carregar os polígonos de datas: %s" % e
+
 def _prepare_layer_symbology(lyr_path, settings, rgb_indices):
     """Grava bandas RGB + Stretch no .lyr e confere relendo do disco. Retorna aviso ('' se ok)."""
     try:
@@ -2593,6 +2646,9 @@ def process_pending_arcmap_commands():
                     custom_bands=cmd.get('custom_bands'),
                     rgb_bands=cmd.get('rgb_bands')
                 )
+                resp = {'reply_to': cmd_id, 'success': ok, 'message': msg}
+            elif action == 'load_date_footprints':
+                ok, msg = load_date_footprints(cmd['file'], layer_name=cmd.get('name'), group_name=cmd.get('group'))
                 resp = {'reply_to': cmd_id, 'success': ok, 'message': msg}
             elif action == 'replace_layer':
                 ok, msg = replace_in_toc(
