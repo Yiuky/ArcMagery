@@ -13,6 +13,11 @@ if install_dir not in sys.path:
     sys.path.insert(0, install_dir)
 
 try:
+    import arcmagery_vendor  # noqa: F401  (comtypes embutido como plano B do pip)
+except ImportError:
+    pass
+
+try:
     import arcpy
     import pythonaddins
 except ImportError:

@@ -23,6 +23,7 @@ import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -135,9 +136,36 @@ def _looks_like_image(data):
         data[:4] == b'RIFF' or data[:4] == b'GIF8'
 
 
-def fetch_tile(url, retries=4, timeout=30.0, headers=None, _sleep=time.sleep):
+def no_tiles_message(prov, zoom, reasons, sample_urls):
+    """Mensagem quando NENHUM tile veio: diz o que o servidor respondeu e o que tentar."""
+    msg = u"O provedor não retornou nenhum tile para esta área/zoom"
+    if reasons:
+        msg += u" (respostas: %s)" % u", ".join(u"%s × %d" % (k, v) for k, v in
+                                                sorted(reasons.items(), key=lambda kv: -kv[1]))
+    msg += u"."
+    if sample_urls:
+        msg += u"\nExemplo de tile pedido: %s" % sample_urls[0]
+    host = urllib.parse.urlsplit(prov.get('url', '')).netloc
+    if host:
+        msg += (u"\nSe o mesmo endereço abre no navegador, a área não tem imagem nesta fonte; "
+                u"se não abre, a rede pode estar bloqueando %s." % host)
+    if prov.get('key') == 'esri-clarity':
+        msg += u"\nAlternativa: use 'Esri World Imagery', que tem data de captura e histórico Wayback."
+    elif zoom >= 18:
+        msg += u"\nTente um zoom menor."
+    return msg
+
+
+def fetch_tile(url, retries=4, timeout=30.0, headers=None, _sleep=time.sleep, on_empty=None):
     """Baixa um tile. Retorna bytes da imagem, ou None se o provedor nao tem o tile (404/204).
+    on_empty(motivo) informa POR QUE veio vazio ('HTTP 404', 'HTTP 204', 'resposta vazia'),
+    para diagnosticar quando TODOS os tiles vem vazios (ex.: dominio bloqueado pela rede).
     Levanta TileDownloadError apos esgotar as retentativas."""
+    def _empty(reason):
+        if on_empty:
+            on_empty(reason)
+        return None
+
     hdrs = {'User-Agent': USER_AGENT, 'Accept': 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8'}
     if headers:
         hdrs.update(headers)
@@ -148,16 +176,16 @@ def fetch_tile(url, retries=4, timeout=30.0, headers=None, _sleep=time.sleep):
             req = urllib.request.Request(url, headers=hdrs)
             with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
                 if resp.status == 204:
-                    return None
+                    return _empty('HTTP 204')
                 data = resp.read()
             if not data:
-                return None
+                return _empty('resposta vazia (HTTP %s)' % resp.status)
             if not _looks_like_image(data):
                 raise ValueError("resposta nao e imagem (%d bytes)" % len(data))
             return data
         except urllib.error.HTTPError as e:
             if e.code in (404, 204):
-                return None
+                return _empty('HTTP %d' % e.code)
             if e.code not in RETRYABLE_HTTP:
                 raise TileDownloadError("HTTP %d em %s" % (e.code, url))
             last_err = e
@@ -348,6 +376,14 @@ def download_mosaic(bbox, zoom, provider='esri', out_tif=None, workers=8, retrie
     total = len(tiles)
     _log(u"XYZ %s z%d: %d tiles (%dx%d) ~%.2f m/px" % (prov['key'], zoom, total, est['cols'], est['rows'], est['ground_res_m']))
 
+    empty_reasons = {}
+    empty_sample = []
+
+    def _note_empty(reason, url):
+        empty_reasons[reason] = empty_reasons.get(reason, 0) + 1
+        if not empty_sample:
+            empty_sample.append(url)
+
     def _cache_path(x, y):
         return os.path.join(cache_dir, "%d_%d_%d.img" % (zoom, x, y))
 
@@ -357,7 +393,9 @@ def download_mosaic(bbox, zoom, provider='esri', out_tif=None, workers=8, retrie
         if os.path.exists(cp):
             with open(cp, 'rb') as f:
                 return xy, (f.read() or None)
-        data = fetch_tile(tile_url(prov, x, y, zoom), retries=retries, timeout=timeout, headers=headers)
+        url = tile_url(prov, x, y, zoom)
+        data = fetch_tile(url, retries=retries, timeout=timeout, headers=headers,
+                          on_empty=lambda reason: _note_empty(reason, url))
         tmp = cp + '.part'
         with open(tmp, 'wb') as f:
             f.write(data or b'')
@@ -400,7 +438,8 @@ def download_mosaic(bbox, zoom, provider='esri', out_tif=None, workers=8, retrie
             raise TileDownloadError(u"%d tiles falharam (o cache foi mantido para retomar): %s"
                                     % (len(failures), failures[0]))
         if writer is None:
-            raise TileDownloadError(u"O provedor não retornou nenhum tile para esta área/zoom.")
+            shutil.rmtree(cache_dir, ignore_errors=True)   # so tiles vazios: nada a retomar
+            raise TileDownloadError(no_tiles_message(prov, zoom, empty_reasons, empty_sample))
         if missing and not allow_missing:
             raise TileDownloadError(u"%d tiles inexistentes no provedor para este zoom." % missing)
         writer.close()

@@ -182,6 +182,7 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | C-12 | 2.0.0 | Nova fonte CBERS / Amazônia-1 (STAC INPE), com cobertura real da AOI | `tests/backend/test_stac_core.py` |
 | C-13 | 2.0.0 | `gdal.Unlink` no `finally` mascarava o erro real do recorte CBERS | `test_stac_core.py::test_aoi_outside_raster` |
 | C-16 | 2.0.0 | Versão do pacote ZIP lida como "Desconhecida" (namespace do config.xml), o que anulava o bloqueio de downgrade | `test_updater_security.py::RealZipValidationTest` |
+| C-28 | 2.3.3 | Carga no TOC quebrava com `UnicodeEncodeError` (mensagem acentuada via `str(e)`) em máquina sem `comtypes`; `comtypes` embutido; diagnóstico de "nenhum tile" (Clarity) | `test_bridge.py::ErrTextTest`, `test_xyz_core.py::test_no_tiles_reports_server_answer` |
 | C-27 | 2.3.3 | CBERS: 20 coleções novas (WFI L4 DN, cubos com NDVI/EVI, Nível 2, CBERS-2/2B, mosaicos), cobertura estimada em footprints retangulares, aviso de cobertura parcial, plano B `bbox` no HTTP 500 dos mosaicos | `test_stac_core.py`, `test_inpe_integration.py::test_catalog_sync_with_backend` |
 | C-26 | 2.3.2 | U-01: primeira Release verificável publicada automaticamente pela tag v2.3.2 (zip + SHA256SUMS), reconhecida e validada pelo atualizador do plugin | `.github/workflows/release.yml` |
 | C-25 | 2.3.2 | Repositório: CI (testes do backend + consistência de versão), Release automática por tag, modelos de issue/PR, `desinstalar.bat` e `atualizar.bat` seguros, remoção de imagens não usadas, `tools/` | `.github/workflows/*.yml` |

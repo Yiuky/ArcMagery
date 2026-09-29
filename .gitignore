@@ -36,3 +36,7 @@ env/
 dist/
 *.esriaddin
 
+
+# Wrappers gerados em tempo de execucao pelo comtypes embutido
+arcgis_addin/Install/vendor/comtypes/gen/*
+!arcgis_addin/Install/vendor/comtypes/gen/__init__.py

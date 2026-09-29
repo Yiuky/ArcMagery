@@ -17,6 +17,11 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 - **Aviso de cobertura parcial:** após o recorte, o backend mede os pixels com imagem (`valid_pct`). Abaixo de 50% o usuário é avisado.
 
 ### 🛡️ Corrigido
+- **"'ascii' codec can't encode character u'ó' in position 1" ao carregar qualquer camada** (GEE, CBERS, Google, Esri) em máquinas sem o módulo `comtypes`:
+  - a mensagem acentuada "Módulo 'comtypes' ausente..." passava por `str(e)` no Python 2 e derrubava a carga, embora o arquivo tivesse sido baixado;
+  - as mensagens de erro agora são convertidas com segurança (`gee_bridge.err_text`, aceita unicode, UTF-8 e cp1252 do arcpy em pt-BR);
+  - o **`comtypes` passa a vir embutido no add-in** (`Install/vendor`, licença MIT). O `pip` do `install.bat` falhava sem aviso na rede com inspeção SSL. Se o Python do ArcGIS já tiver o `comtypes`, o instalado continua valendo.
+- **"O provedor não retornou nenhum tile"** (visto na Esri Clarity): a mensagem agora diz o que o servidor respondeu (ex.: `HTTP 404 × 2160`), mostra um tile de exemplo para abrir no navegador e indica o bloqueio do domínio pela rede ou a alternativa *Esri World Imagery*. O cache só de tiles vazios é descartado.
 - As buscas nos mosaicos do INPE falhavam: o servidor responde HTTP 500 ao filtro `intersects`. A busca agora repete com `bbox` e calcula a cobertura real localmente.
 - Os nomes dos assets passaram a ser comparados sem diferenciar maiúsculas e minúsculas.
 

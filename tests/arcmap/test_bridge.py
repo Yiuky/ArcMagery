@@ -23,6 +23,37 @@ class RgbOverrideTest(unittest.TestCase):
         self.assertIsNone(gee_bridge._rgb_override(['a', 'b', 'c']))
 
 
+class ErrTextTest(unittest.TestCase):
+    """Bug: "'ascii' codec can't encode character u'\xf3' in position 1" ao carregar QUALQUER camada
+    numa maquina sem comtypes: a mensagem u"Módulo 'comtypes' ausente..." passava por str(e)."""
+
+    def test_unicode_utf8_and_cp1252_messages(self):
+        self.assertEqual(gee_bridge.err_text(Exception(u'Módulo ausente')), u'Módulo ausente')
+        self.assertEqual(gee_bridge.err_text(Exception(u'Módulo'.encode('utf-8'))), u'Módulo')
+        self.assertEqual(gee_bridge.err_text(Exception(u'Módulo'.encode('cp1252'))), u'Módulo')
+        self.assertEqual(gee_bridge.err_text(ValueError('ascii')), u'ascii')
+
+    def test_prepare_symbology_survives_accented_error(self):
+        import arcmagery_symbology as sym
+        orig = sym.apply_to_layer_file
+
+        def boom(*a, **k):
+            raise sym.SymbologyError(u"Módulo 'comtypes' ausente no Python do ArcGIS")
+        sym.apply_to_layer_file = boom
+        try:
+            warn = gee_bridge._prepare_layer_symbology('x.lyr', {}, None)
+        finally:
+            sym.apply_to_layer_file = orig
+        self.assertEqual(warn, u"Módulo 'comtypes' ausente no Python do ArcGIS")
+
+    def test_vendored_comtypes_is_on_path(self):
+        import os, sys
+        import arcmagery_vendor
+        self.assertTrue(os.path.isfile(os.path.join(arcmagery_vendor.VENDOR_DIR, 'comtypes', 'client', '__init__.py')))
+        self.assertIn(arcmagery_vendor.VENDOR_DIR, sys.path)
+        self.assertTrue(os.path.isfile(os.path.join(arcmagery_vendor.VENDOR_DIR, 'comtypes', 'LICENSE.txt')))
+
+
 class AtomicJsonTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix='arcmagery_ipc_')

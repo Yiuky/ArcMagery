@@ -22,6 +22,37 @@ try:
 except NameError:
     unicode = str
 
+try:
+    import arcmagery_vendor  # noqa: F401  (comtypes embutido como plano B do pip)
+except ImportError:
+    pass
+
+
+def err_text(e):
+    """Texto unicode de uma excecao. No Python 2, err_text(e) quebra com mensagens acentuadas
+    (UnicodeEncodeError) e unicode(e) quebra com bytes UTF-8/cp1252 (mensagens do arcpy em pt-BR)."""
+    try:
+        return unicode(e)
+    except UnicodeError:
+        pass
+    parts = []
+    for a in (getattr(e, 'args', None) or (e,)):
+        if isinstance(a, bytes):
+            for enc in ('utf-8', 'cp1252'):
+                try:
+                    parts.append(a.decode(enc))
+                    break
+                except UnicodeError:
+                    continue
+            else:
+                parts.append(a.decode('ascii', 'replace'))
+        else:
+            try:
+                parts.append(unicode(a))
+            except UnicodeError:
+                parts.append(unicode(repr(a)))
+    return u" ".join(parts) or unicode(repr(e))
+
 class SafeStream(object):
     def __init__(self, log_path=None):
         self.log_path = log_path
@@ -575,7 +606,7 @@ def launch_auth_console(project=None):
         subprocess.Popen(cmd, shell=True)
         return True, "Janela de autenticacao aberta. Siga as instrucoes no navegador."
     except Exception as e:
-        return False, str(e)
+        return False, err_text(e)
 
 def get_compositions(sensor):
     comps = COMPOSITIONS.get(sensor, {})
@@ -647,7 +678,7 @@ def set_arcmap_scale(new_scale):
         export_arcmap_context()
         return True, "Escala ajustada para 1:{:,.0f}".format(float(new_scale))
     except Exception as e:
-        return False, "Erro ao ajustar escala: " + str(e)
+        return False, "Erro ao ajustar escala: " + err_text(e)
 
 def get_arcmap_extent_wgs84():
     """Retorna [minx, miny, maxx, maxy] da tela ativa do ArcMap em WGS84 (graus decimais).
@@ -705,7 +736,7 @@ def get_arcmap_extent_wgs84():
         _log_debug("get_arcmap_extent_wgs84: coordenadas fora do intervalo WGS84: [%s, %s, %s, %s]" % (xmin, ymin, xmax, ymax))
         return None
     except Exception as e:
-        _log_debug("Erro obtendo extensao ArcMap: " + str(e))
+        _log_debug("Erro obtendo extensao ArcMap: " + err_text(e))
         return None
 
 def get_arcmap_layers():
@@ -1425,7 +1456,7 @@ def find_live_raster_layer(layer_name=None):
 
         return mx_doc, focus_map, None, None
     except Exception as e:
-        _log_debug("find_live_raster_layer falhou: " + str(e))
+        _log_debug("find_live_raster_layer falhou: " + err_text(e))
         return None, None, None, None
 
 def resolve_target_raster_layers(mxd, df, target_name=None):
@@ -1590,7 +1621,7 @@ def _interrogate_and_verify_rgb(rl, exp_r=None, exp_g=None, exp_b=None):
 
         return True, (r, g, b)
     except Exception as e:
-        return False, u"Excecao durante interrogacao da camada: " + str(e)
+        return False, u"Excecao durante interrogacao da camada: " + err_text(e)
 
 def force_single_layer_rgb(
     layer_name=None,
@@ -1879,8 +1910,8 @@ def load_date_footprints(json_path, layer_name=None, group_name=None):
         arcpy.RefreshActiveView()
         return True, u"Polígonos com as datas de captura carregados."
     except Exception as e:
-        _log_debug("load_date_footprints: %s" % e)
-        return False, u"Falha ao carregar os polígonos de datas: %s" % e
+        _log_debug(u"load_date_footprints: %s" % err_text(e))
+        return False, u"Falha ao carregar os polígonos de datas: %s" % err_text(e)
 
 def _prepare_layer_symbology(lyr_path, settings, rgb_indices):
     """Grava bandas RGB + Stretch no .lyr e confere relendo do disco. Retorna aviso ('' se ok)."""
@@ -1889,8 +1920,8 @@ def _prepare_layer_symbology(lyr_path, settings, rgb_indices):
         symbology.apply_to_layer_file(lyr_path, settings, rgb_bands=rgb_indices)
         return u""
     except Exception as e:
-        _log_debug("_prepare_layer_symbology: %s" % e)
-        return unicode(e) if not isinstance(e, unicode) else e
+        _log_debug(u"_prepare_layer_symbology: %s" % err_text(e))
+        return err_text(e)
 
 def _ensure_live_symbology(tif_path, settings, rgb_indices, layer_name, previous_warning=u"", focus_map=None):
     """Confere a camada viva (e corrige se preciso). Retorna o texto de retorno para a GUI:
@@ -1900,7 +1931,7 @@ def _ensure_live_symbology(tif_path, settings, rgb_indices, layer_name, previous
         ok, msg, _states = symbology.ensure_layer_symbology(tif_path, settings, rgb_bands=rgb_indices,
                                                             layer_name=layer_name, focus_map=focus_map)
     except Exception as e:
-        ok, msg = False, u"Simbologia não pôde ser verificada: %s" % e
+        ok, msg = False, u"Simbologia não pôde ser verificada: %s" % err_text(e)
     _log_debug("_ensure_live_symbology(%s): %s %s" % (layer_name, ok, msg))
     if ok:
         return u" | " + msg
@@ -2053,7 +2084,7 @@ def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_c
 
         return True, ("Camada '%s' adicionada com sucesso ao grupo '%s'!%s" % (layer_name, group_name or "TOC", rgb_feedback_msg)).strip()
     except Exception as e:
-        return False, "Erro ao adicionar camada ao TOC: " + str(e)
+        return False, "Erro ao adicionar camada ao TOC: " + err_text(e)
 
 def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=None, sensor=None, custom_bands=None, rgb_bands=None):
     """Substitui uma camada existente no TOC pela nova imagem/mosaico baixado, mantendo a posicao exata e garantindo RGB Composite nativo"""
@@ -2165,7 +2196,7 @@ def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=No
         arcpy.RefreshActiveView()
         return True, ("Camada '%s' substituida por '%s' com sucesso!%s" % (target_long_name, new_layer_name, rgb_feedback_msg)).strip()
     except Exception as e:
-        return False, "Erro ao substituir camada no TOC: " + str(e)
+        return False, "Erro ao substituir camada no TOC: " + err_text(e)
 
 def change_layer_composition(target_layer_name, composition_code, sensor):
     """Altera a composicao RGB de uma ou mais camadas existentes no TOC (individual, grupo ou todo o TOC)
@@ -2254,7 +2285,7 @@ def change_layer_composition(target_layer_name, composition_code, sensor):
         else:
             return False, u"Falha ao alterar composição. Erros: " + u"; ".join(errors[:3])
     except Exception as e:
-        return False, "Erro ao alterar composicao: " + str(e)
+        return False, "Erro ao alterar composicao: " + err_text(e)
 
 def apply_stretch_to_toc_layer(target_layer_name=None, settings=None):
     """Aplica e garante as configuracoes de Stretch (ex: Standard Deviations) e DRA (From Current Display Extent)
@@ -2333,7 +2364,7 @@ def apply_stretch_to_toc_layer(target_layer_name=None, settings=None):
             updated_count, target_desc, st_name, float(std_n), stats_type
         )
     except Exception as e:
-        return False, u"Erro ao garantir stretch: " + str(e)
+        return False, u"Erro ao garantir stretch: " + err_text(e)
 
 # ==============================================================================
 # PROTOCOLO DE COMUNICACAO INTER-PROCESSOS (IPC) ARCMAP <-> GUI EXTERNA
@@ -2484,7 +2515,7 @@ def export_arcmap_context():
         ))
         return ctx
     except Exception as e:
-        _log_debug("Erro exportando contexto ArcMap: " + str(e))
+        _log_debug("Erro exportando contexto ArcMap: " + err_text(e))
         return None
 
 def read_arcmap_context():
@@ -2587,7 +2618,7 @@ def start_arcmap_ipc_timer(interval_ms=250):
             _log_debug("Timer Win32 iniciado (ID %s, %d ms)" % (str(t_id), interval_ms))
             return True
     except Exception as e:
-        _log_debug("Erro iniciando timer Win32: " + str(e))
+        _log_debug("Erro iniciando timer Win32: " + err_text(e))
     return False
 
 def stop_arcmap_ipc_timer():
@@ -2805,4 +2836,4 @@ def launch_gui_process():
         subprocess.Popen([pyw, gui_script], cwd=install_dir, env=clean_env)
         return True, "GUI iniciada com sucesso em processo separado."
     except Exception as e:
-        return False, str(e)
+        return False, err_text(e)

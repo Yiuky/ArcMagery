@@ -26,6 +26,11 @@ try:
 except NameError:  # pragma: no cover - Python 3
     unicode = str
 
+try:
+    import arcmagery_vendor  # noqa: F401  (comtypes embutido como plano B do pip)
+except ImportError:
+    pass
+
 _CARTO = None
 
 STRETCH_NAMES = {
@@ -49,6 +54,14 @@ DEFAULTS = {'stretch_type': 'Standard Deviations', 'stretch_std_param': 2.0,
 
 class SymbologyError(Exception):
     pass
+
+
+def _err_text(e):
+    try:
+        import gee_bridge
+        return gee_bridge.err_text(e)
+    except ImportError:
+        return unicode(e)
 
 
 def carto():
@@ -341,7 +354,7 @@ def restretch_layers(settings, focus_map=None, only_paths=None):
             else:
                 updated += 1
         except Exception as e:
-            problems.append(u"'%s': %s" % (getattr(lyr, 'Name', '?'), e))
+            problems.append(u"'%s': %s" % (getattr(lyr, 'Name', '?'), _err_text(e)))
     if mx_doc is not None:
         refresh_live_views(mx_doc)
     return updated, problems

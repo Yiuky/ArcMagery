@@ -771,7 +771,7 @@ class GEEUpdaterDialog(object):
             else:
                 messagebox.showinfo(u"Log", u"O arquivo de log ainda não foi criado.", parent=self.top)
         except Exception as e:
-            messagebox.showerror(u"Erro", str(e), parent=self.top)
+            messagebox.showerror(u"Erro", gee_bridge.err_text(e), parent=self.top)
 
     def _open_backups_folder(self):
         try:
@@ -782,7 +782,7 @@ class GEEUpdaterDialog(object):
             else:
                 messagebox.showinfo(u"Backups", u"Nenhum backup realizado ainda.", parent=self.top)
         except Exception as e:
-            messagebox.showerror(u"Erro", str(e), parent=self.top)
+            messagebox.showerror(u"Erro", gee_bridge.err_text(e), parent=self.top)
 
     def _set_busy(self, is_busy, status_text=u""):
         if is_busy:
@@ -1150,7 +1150,7 @@ class GEEPluginWindow(object):
             import arcmagery_sources_gui
             self._sources_dlg = arcmagery_sources_gui.ExtraSourcesDialog(self)
         except Exception as e:
-            messagebox.showerror(u"ArcMagery", u"Falha ao abrir as fontes adicionais: %s" % e, parent=self.root)
+            messagebox.showerror(u"ArcMagery", u"Falha ao abrir as fontes adicionais: %s" % gee_bridge.err_text(e), parent=self.root)
 
     def post_to_gui(self, callback):
         """Envia uma acao para ser executada na thread principal do Tkinter"""
@@ -2446,7 +2446,7 @@ class GEEPluginWindow(object):
 
                 self.post_to_gui(update_tree)
             except Exception as e:
-                err_text = str(e)
+                err_text = gee_bridge.err_text(e)
                 def show_err():
                     messagebox.showerror("Erro Inesperado", err_text, parent=self.root)
                     self.set_progress(0, "Erro: " + err_text[:60])

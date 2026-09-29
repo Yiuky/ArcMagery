@@ -32,9 +32,7 @@ if not exist "%PYTHON27%" (
     echo [OK] ArcGIS Desktop 10.8 e Python 2.7 detectados.
     "%PYTHON27%" -c "import comtypes" 2>nul
     if errorlevel 1 (
-        echo [INFO] Modulo comtypes ausente no Python 2.7. Tentando instalar via pip...
-        "%PYTHON27%" -m pip install comtypes --quiet 2>nul
-        if errorlevel 1 echo [INFO] pip indisponivel no Python 2.7: a simbologia usara o mecanismo nativo ArcPy.
+        echo [OK] comtypes ausente no Python 2.7: sera usada a copia embutida no add-in ^(Installendor^).
     ) else (
         echo [OK] Modulo comtypes disponivel no Python 2.7.
     )

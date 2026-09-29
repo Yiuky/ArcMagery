@@ -128,6 +128,26 @@ class XyzDownloadTest(unittest.TestCase):
         finally:
             xyz_core.time.sleep = orig
 
+    def test_no_tiles_reports_server_answer(self):
+        """Todos os tiles vazios (ex.: dominio bloqueado): a mensagem diz o que o servidor respondeu."""
+        x0, x1, y0, y1 = tilemath.tile_range(BBOX, ZOOM)
+        every = [(x, y) for y in range(y0, y1 + 1) for x in range(x0, x1 + 1)]
+        out = os.path.join(self.tmp, 'vazio.tif')
+        with TileServer(missing=every) as srv:
+            with self.assertRaises(xyz_core.TileDownloadError) as cm:
+                xyz_core.download_mosaic(BBOX, ZOOM, srv.template, out, engine='pil')
+        msg = u"%s" % cm.exception
+        self.assertIn(u"HTTP 404 × %d" % len(every), msg)
+        self.assertIn(u"Exemplo de tile pedido: http://", msg)
+        self.assertIn(u"bloqueando 127.0.0.1", msg)
+        self.assertFalse(os.path.exists(os.path.splitext(out)[0] + '_tiles'), "cache so de vazios deve sair")
+
+    def test_no_tiles_message_suggests_world_imagery_for_clarity(self):
+        prov = xyz_core.get_provider('esri-clarity')
+        msg = xyz_core.no_tiles_message(prov, 18, {'HTTP 404': 5}, ['https://x/t'])
+        self.assertIn(u"clarity.maptiles.arcgis.com", msg)
+        self.assertIn(u"Esri World Imagery", msg)
+
     @unittest.skipUnless(_paths.HAS_GDAL, "GDAL indisponivel")
     def test_reproject_to_sirgas(self):
         srv, out, res = self._run('gdal', target_crs='EPSG:4674')
