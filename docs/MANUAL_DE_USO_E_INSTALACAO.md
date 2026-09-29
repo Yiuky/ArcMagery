@@ -454,6 +454,11 @@ O ArcMagery conta com uma arquitetura de atualização **transacional e à prova
   `%TEMP%\arcmagery_ca_bundle.pem` e os entrega ao GDAL. Se ainda falhar, defina a variável
   `CURL_CA_BUNDLE` apontando para o arquivo `.pem` fornecido pela equipe de TI.
 
+### 8. Onde ficam os registros (logs) para suporte?
+* O ArcMap usa uma pasta temporária própria por sessão: `%LOCALAPPDATA%\TemprcXXXXrcgee_debug.log`
+  (ex.: `arc86DA`). Use a pasta `arc....` mais recente. Cada imagem carregada registra a linha
+  `Simbologia conferida (...)` ou o motivo de um aviso.
+
 ### 7. CBERS: "A área de interesse cai fora da parte imageada da cena"
 * A cena cobre o retângulo, mas não a parte com imagem (bordas NoData de cenas inclinadas).
   Escolha outra cena com **Cobertura da AOI %** próxima de 100.

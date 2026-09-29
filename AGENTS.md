@@ -72,6 +72,9 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
 - **Simbologia:** nunca aplique renderer "no escuro". Use `arcmagery_symbology` (construct → save → reler →
   `compare`) e localize camadas por `IRasterLayer.FilePath` (via `normalize_path`, que expande 8.3),
   nunca por nome. O ArcObjects pode ser testado fora do ArcMap (ver `tests/arcmap/test_symbology.py`).
+- **Logs e arquivos de IPC:** o ArcMap define um `%TEMP%` próprio por sessão (`%LOCALAPPDATA%\TemprcXXXX\`),
+  herdado pela GUI. O `arcgee_debug.log` do ArcMap e os `arcmagery_<PID>_*.json` ficam nessa subpasta, e não
+  em `%TEMP%` direto. Cada carga registra ali `_ensure_live_symbology(...)` com a simbologia conferida.
 - Mensagens para o usuário em **português**. Ao editar arquivos CRLF, preserve o fim de linha.
 - Termos de Uso: Google/Bing exigem o aviso (`TOS_TEXT`) antes do primeiro download.
 - **Fonte ativa na janela principal:** `var_source` (`gee` | `inpe`). Os códigos de sensor do INPE

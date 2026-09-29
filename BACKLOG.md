@@ -24,7 +24,7 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | ID | Verificar no ArcMap | Arquivos |
 |---|---|---|
 | V-01 | Barra **Fonte de imagens**: alternar GEE ↔ CBERS adapta a janela; o botão **Google Earth / Mosaicos XYZ...** abre uma única janela | `gee_gui.on_source_changed`, `on_open_extra_sources` |
-| V-11 | Carregar uma imagem multibanda (ex.: CBERS multibanda, S2 B8-B4-B3) e uma de 1 banda (NDVI): Properties › Symbology mostra RGB Composite com as bandas pedidas / Stretched, com o Stretch e a origem das estatísticas das Configurações | `arcmagery_symbology.py`, `gee_bridge.load_into_toc` |
+| V-11 ✅ 2026-09-29 (S2 1182 e CBERS WPM rgb conferidos no ArcMap real) | Carregar uma imagem multibanda (ex.: CBERS multibanda, S2 B8-B4-B3) e uma de 1 banda (NDVI): Properties › Symbology mostra RGB Composite com as bandas pedidas / Stretched, com o Stretch e a origem das estatísticas das Configurações | `arcmagery_symbology.py`, `gee_bridge.load_into_toc` |
 | V-10 | CBERS pela janela principal: buscar, ver a **Miniatura**, carregar 2 cenas (fila) e usar **Substituir no TOC** numa camada CBERS | `gee_gui`, `arcmagery_inpe.py` |
 | V-02 | Mosaico Google/Esri entra no TOC no grupo `ArcMagery - Google Earth / XYZ`, em RGB e na posição correta sobre uma camada de referência | `arcmagery_sources_gui.py`, `gee_bridge.load_into_toc` |
 | V-03 | CBERS multibanda entra com `rgb_bands=[2,1,0]` (cor natural) e a pancromática entra em tons de cinza | `gee_bridge._rgb_override` |
