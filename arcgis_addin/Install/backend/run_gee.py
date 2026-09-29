@@ -293,7 +293,7 @@ def _attach_capture_dates(tif, bbox, zoom, release, footprints):
 def _write_capture_tags(tif, dates, summary):
     """Data e sensor no GeoTIFF, com as tags padrao que ArcGIS/QGIS exibem nas propriedades
     (TIFFTAG_DATETIME, ACQUISITION_DATE, SATELLITE_SENSOR, IMAGE_PROVIDER) - ideia do
-    C:\DOWNLOADER_EARTH - mais o detalhamento completo (JSON) quando ha varias capturas."""
+    C:/DOWNLOADER_EARTH - mais o detalhamento completo (JSON) quando ha varias capturas."""
     from osgeo import gdal
     main = next((d for d in dates if d.get('date')), None)  # maior cobertura primeiro
     ascii_ = lambda s: (s or u'').encode('ascii', 'replace').decode('ascii')
