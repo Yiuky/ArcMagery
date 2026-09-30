@@ -4,10 +4,10 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [2.4.1-nightly.20260930] - 2026-09-30 (experimental)
+## [2.4.1] - 2026-09-30
 
-> Primeira versão **experimental (nightly)**. Publicada como *pre-release*: o canal estável do
-> atualizador continua na v2.4.0. Para testar: *Assistente de Atualização › Canal: Experimental*.
+> Versão estável com o mesmo conteúdo da prévia experimental `v2.4.1-nightly.20260930`. É por ela que
+> quem está na v2.4.0 passa a ter o seletor de canal (a 2.4.0 ainda não o tinha).
 
 ### ✨ Adicionado
 - **Canais de atualização estável × experimental:** seletor *Canal* no Assistente de Atualização (salvo nas

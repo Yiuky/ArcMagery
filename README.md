@@ -14,7 +14,7 @@
   <a href="https://earthengine.google.com/"><img src="https://img.shields.io/badge/Google%20Earth%20Engine-API-4285F4.svg?logo=googleearthengine&logoColor=white" alt="Google Earth Engine"></a>
   <a href="https://data.inpe.br/stac/browser/"><img src="https://img.shields.io/badge/INPE-STAC%20CBERS-00843D.svg" alt="STAC INPE"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-2.7%20%7C%203.10+-3776AB.svg?logo=python&logoColor=white" alt="Python"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.4.1--nightly.20260930-E67E22.svg" alt="Versão v2.4.1-nightly.20260930 (experimental)"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.4.1-28A745.svg" alt="Versão v2.4.1"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License MIT"></a>
   <a href="https://github.com/Yiuky/arcgis-google-earth-engine-explorer/actions/workflows/tests.yml"><img src="https://github.com/Yiuky/arcgis-google-earth-engine-explorer/actions/workflows/tests.yml/badge.svg" alt="Testes"></a>
 </p>
@@ -154,8 +154,8 @@ set ARCMAGERY_GEE_PROJECT=<id>   :: inclui teste real no Earth Engine
 Com a versão atualizada em `config.xml`, `gee_gui.py` e `gee_updater.py`, e com a entrada no `CHANGELOG.md`:
 
 ```bat
-git tag v2.4.0
-git push origin v2.4.0
+git tag v2.4.1
+git push origin v2.4.1
 ```
 
 O workflow **Release** do GitHub Actions gera `ArcMagery-<versão>.zip` e `SHA256SUMS.txt` e publica a Release,
