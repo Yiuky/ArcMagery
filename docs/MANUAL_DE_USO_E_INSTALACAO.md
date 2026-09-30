@@ -5,7 +5,8 @@
 </p>
 
 <p align="center">
-  <strong>Google Earth Engine, Google Earth e CBERS/INPE no ArcGIS Desktop (ArcMap 10.8 / 10.8.2)</strong><br>
+  <strong>Google Earth Engine, Google Earth (atual e histórico), Esri Wayback, CBERS/INPE e SPOT/CNES no ArcGIS Desktop (ArcMap 10.8 / 10.8.2)</strong><br>
+  <em>Versão 2.4.1</em><br>
   <em>Desenvolvido para operações de Sensoriamento Remoto, Geoprocessamento e Fiscalização Ambiental</em><br>
   <strong>Coordenadoria de Geoprocessamento e Monitoramento Ambiental (CGMA / SEMA-MT)</strong>
 </p>
@@ -40,7 +41,7 @@
 
 ## 1. Apresentação e Visão Geral
 
-O **ArcMagery** é uma extensão oficial (Python Add-In) para **ArcGIS Desktop 10.8 e 10.8.2 (ArcMap)** que integra diretamente o poder de processamento em nuvem do **Google Earth Engine (GEE)** ao ambiente cartográfico da ESRI.
+O **ArcMagery** é uma extensão oficial (Python Add-In) para **ArcGIS Desktop 10.8 e 10.8.2 (ArcMap)** que integra diretamente o poder de processamento em nuvem do **Google Earth Engine (GEE)** ao ambiente cartográfico da ESRI, junto com outras cinco fontes de imagem na mesma janela: **CBERS/Amazônia-1 (INPE)**, **SPOT 1–5 (CNES, 1986–2015)**, **Google Earth histórico**, **Esri Wayback** e mosaicos **Google Earth / XYZ** (seção 6.10 em diante).
 
 Projetado especialmente para fluxos intensivos de sensoriamento remoto, perícias ambientais e monitoramento de cobertura vegetal da **SEMA-MT**, o plugin elimina a necessidade de exportar imagens para o Google Drive ou baixar gigabytes de cenas completas manualmente. 
 
@@ -59,8 +60,9 @@ Projetado especialmente para fluxos intensivos de sensoriamento remoto, perícia
 | **Sistema Operacional** | Windows 10 ou 11 (64-bit) | Windows Server 2016+ também suportado |
 | **ArcGIS Desktop** | ArcMap 10.8 ou 10.8.2 | Requer licença funcional (Basic, Standard ou Advanced) |
 | **Python do ArcGIS** | Python 2.7 (32-bit padrão) | Localizado em `C:\Python27\ArcGIS10.8\python.exe` |
-| **Python do Backend** | Python 3.9, 3.10, 3.11 ou 3.12 (64-bit) | Pode ser o Python oficial, Anaconda, Miniconda ou Python integrado do QGIS 3.x |
-| **Bibliotecas Python 3** | `earthengine-api` e dependências | Instalado automaticamente pelo `install.bat` |
+| **Python do Backend** | **QGIS 3.16 ou mais novo** (Python 3.8 a 3.14, 64-bit) | O ArcMagery usa o Python do QGIS, que já traz GDAL, numpy e Pillow |
+| **Bibliotecas Python 3** | `earthengine-api` e dependências | Instaladas pelo próprio ArcMagery **sem `pip`** (versões fixas, SHA-256), em `%LOCALAPPDATA%\ArcMagery\pylibs` |
+| **SPOT (opcional)** | Chave de API gratuita do GEODES (CNES) | Só para **baixar** cenas SPOT; a busca é livre (seção 6.11) |
 | **Conta Google** | Conta cadastrada no Google Earth Engine | Vinculada a um Google Cloud Project ID |
 | **Acesso à Rede** | Conexão com a Internet | Acesso livre a `*.googleapis.com` e `earthengine.googleapis.com` |
 
@@ -91,17 +93,21 @@ Para utilizar a API do Google Earth Engine, é necessário ter uma conta de aces
 
 O repositório conta com um instalador completo para Windows (`install.bat`) que automatiza todo o processo de preparação:
 
-1. **Baixe ou clone o repositório:**
+1. **Baixe o pacote** `ArcMagery-<versão>.zip` da [última Release](https://github.com/Yiuky/arcgis-google-earth-engine-explorer/releases/latest)
+   e extraia numa **pasta de caminho curto**, por exemplo `C:\ArcMagery` (caminhos longos passam do limite
+   de 260 caracteres do Windows e arquivos do ZIP podem não ser extraídos). Também é possível clonar:
    ```cmd
    git clone https://github.com/Yiuky/arcgis-google-earth-engine-explorer.git
    ```
-   *(Caso tenha baixado em formato `.zip`, extraia o conteúdo em uma pasta de sua escolha, por exemplo `C:\ArcMagery`)*.
 2. Certifique-se de que o **ArcMap esteja fechado**.
 3. Dê um duplo clique no arquivo **`install.bat`**.
 4. O script executará as seguintes ações:
    - Detectará a instalação do ArcGIS Desktop 10.8 e seu Python 2.7.
-   - Criará um ambiente Python 3 **isolado** em `%LOCALAPPDATA%\ArcMagery\venv`, a partir do Python do QGIS 3.x (preferido, pois já traz o GDAL usado no CBERS) ou de um Python 3.10+ oficial. O QGIS e outros projetos não são alterados.
-   - Instalará `earthengine-api`, Pillow e numpy nesse ambiente e conferirá se o GDAL está disponível.
+   - Encontrará o Python do QGIS 3.x (que já traz GDAL, numpy e Pillow). Nada é instalado no QGIS; um
+     venv antigo em `%LOCALAPPDATA%\ArcMagery\venv` continua sendo usado se estiver íntegro.
+   - Rodará o **diagnóstico** (seção 8, item 12): cada item aparece como `[OK]`, `[CORRIGIDO]`, `[AVISO]` ou
+     `[PROBLEMA]`, com *o que fazer*. Os componentes do Earth Engine são instalados **sem `pip`** (~25 MB,
+     ~15 s), compatível com o proxy de inspeção SSL. Relatório: `%LOCALAPPDATA%\ArcMagery\diagnostico.txt`.
    - Empacotará o Add-In `.esriaddin` e o registrará no utilitário ESRI oficial (`ESRIRegAddIn.exe`).
    - Limpará caches de bytecode residuais (`AssemblyCache`), garantindo inicialização limpa.
    - Copiará os templates de simbologia e disponibilizará a caixa de ferramentas `GEE_Tools.pyt`.
@@ -113,10 +119,11 @@ O repositório conta com um instalador completo para Windows (`install.bat`) que
 
 Caso você trabalhe em uma rede corporativa com restrições de execução de scripts `.bat`:
 
-1. **Instalar dependências no seu Python 3:**
-   Abra o prompt de comando do seu Python 3 e execute:
+1. **Componentes do Earth Engine:** não é preciso `pip`. Ao abrir o ArcMagery, a tela de abertura mostra
+   *Componentes do Earth Engine*; se faltarem, clique em **Instalar componentes do Earth Engine**. Pelo
+   prompt, o equivalente é:
    ```cmd
-   pip install earthengine-api
+   "C:\Program Files\QGIS 3.xx\apps\Python3xx\python.exe" arcgis_addin\Install\backend\run_gee.py doctor --text
    ```
 2. **Instalar o Add-In no ArcMap:**
    - Navegue até a subpasta `arcgis_addin`.
@@ -521,8 +528,9 @@ O ArcMagery conta com uma arquitetura de atualização **transacional e à prova
 * **Comportamento v1.6:** O plugin conta com o algoritmo de *Smart Spatial Tiling*. Se a tela ou vetor demandar mais de 48 MB na resolução nativa (ex: uma tela inteira a 1:500.000 gerando 80 MB ou 200 MB), o backend divide a requisição em sub-quadrantes de até 32 MB cada, realiza os downloads concorrentes e os mescla de forma contínua em um GeoTIFF único com GDAL. O processo é 100% transparente para o usuário!
 
 ### 3. O botão na barra do ArcMap foi clicado, mas a janela não abre
-* **Causa 1:** O interpretador Python 3 não possui a biblioteca `earthengine-api` instalada.
-  - *Solução:* Execute o arquivo `install.bat` novamente ou instale manualmente via `pip install earthengine-api`.
+* **Causa 1:** O Python 3 não tem os componentes do Earth Engine (`earthengine-api`).
+  - *Solução:* Clique em **Instalar componentes do Earth Engine** na tela de abertura ou execute o `install.bat`
+    de novo (o diagnóstico instala sem `pip`). Veja o item 11.
 * **Causa 2:** Cache de arquivos compilados antigos (`.pyc`) no diretório do ArcGIS.
   - *Solução:* Execute `desinstalar.bat` e em seguida `install.bat` para regenerar o cache limpo.
 
@@ -536,8 +544,9 @@ O ArcMagery conta com uma arquitetura de atualização **transacional e à prova
   setx GEE_PYTHON3 "C:\MeuPython3\python.exe"
   ```
 * Por padrão o plugin usa, nesta ordem: `GEE_PYTHON3`, o caminho salvo nas configurações, o venv
-  `%LOCALAPPDATA%\ArcMagery\venv` e, por fim, outros Pythons 3 que tenham o `earthengine-api`. Para CBERS
-  e Google Earth, é escolhido um Python 3 com GDAL (venv do ArcMagery ou QGIS).
+  `%LOCALAPPDATA%\ArcMagery\venv` (se existir) e o Python do QGIS. Um Python sem `earthengine-api` próprio
+  conta como apto ao GEE quando os componentes do ArcMagery estão instalados para a versão dele
+  (`%LOCALAPPDATA%\ArcMagery\pylibs\py3XY`). Para CBERS, SPOT e Google Earth, é escolhido um Python 3 com GDAL.
 
 ### 6. CBERS: "Erro SSL" ou "HTTP response code 0" em rede corporativa
 * O ArcMagery exporta os certificados do Windows (incluindo a CA do proxy corporativo) para
