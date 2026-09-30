@@ -15,7 +15,7 @@ e carregá-las no TOC. Nome do produto: **ArcMagery**. Os nomes internos `gee_*`
 ArcMap.exe (Python 2.7 32-bit, arcpy)          <- gee_selector_addin.py + gee_bridge.py
    | arquivos JSON por sessao em %TEMP%: arcmagery_<PID-do-ArcMap>_{cmd,reply,context}.json
    v
-pythonw.exe do ArcGIS (Python 2.7, Tkinter)    <- gee_gui.py (+ arcmagery_inpe.py) + arcmagery_sources_gui.py
+pythonw.exe do ArcGIS (Python 2.7, Tkinter)    <- gee_gui.py (+ arcmagery_inpe.py, arcmagery_gehist.py) + arcmagery_sources_gui.py
    | subprocess: backend/run_gee.py <comando> --params-file=<json UTF-8>
    v
 Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core.py | stac_core.py
@@ -29,7 +29,7 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
   `{`). O progresso vai para o stderr com o prefixo `[ArcGEE]` (ex.: `[ArcGEE] PROGRESS 12/40`),
   que a ponte repassa à interface. O prefixo `[ArcGEE]` é protocolo: não renomeie.
 - Os comandos das fontes novas (`sources_info`, `xyz_estimate`, `xyz_download`, `stac_search`,
-  `stac_thumb`, `stac_download`) não importam o `earthengine-api` (import tardio em `run_gee.py`)
+  `stac_thumb`, `stac_download`, `esri_*`, `gehist_dates`, `gehist_download`) não importam o `earthengine-api` (import tardio em `run_gee.py`)
   e encerram com `os._exit`, porque o GDAL/curl pode travar o encerramento do interpretador.
 
 ## 3. Onde fica cada coisa
@@ -41,6 +41,9 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
 | `arcgis_addin/Install/gee_bridge.py` | 2.7 (também importável em 3) | IPC, arcpy/TOC, simbologia, chamada ao backend, seleção do Python 3 |
 | `arcgis_addin/Install/gee_gui.py` | 2.7 | Janela principal (GEE), configurações, atualizador. **Arquivo com CRLF** |
 | `arcgis_addin/Install/arcmagery_sources_gui.py` | 2.7 | Janela Google Earth / Mosaicos XYZ |
+| `arcgis_addin/Install/arcmagery_gehist.py` | 2.7 | Google Earth histórico na janela principal: zooms como "sensores" `GEH:<zoom>`, cada data como uma linha da tabela; busca/download/miniatura via backend; limite de tiles igual ao do `gehist_core` |
+| `arcgis_addin/Install/arcmagery_wayback.py` | 2.7 | Esri Wayback na janela principal: zooms como "sensores" `EWB:<zoom>` / `EWB:ALL`, cada versão como uma linha; usa `esri_versions`, `xyz_download` e `wayback_thumb`. Mesma interface do `arcmagery_gehist` (a janela usa `gee_gui.tile_source_of`) |
+| `arcgis_addin/Install/arcmagery_tilesource.py` | 2.7 | Funções comuns das fontes de tiles com data (`arcmagery_gehist`, `arcmagery_wayback`): área/AOI, progresso, período, estimativa e limite |
 | `arcgis_addin/Install/arcmagery_inpe.py` | 2.7 | CBERS/Amazônia-1 na janela principal: coleções como "sensores" `INPE:<coleção>`, produtos, busca/recorte/miniatura via backend |
 | `arcgis_addin/Install/arcmagery_symbology.py` | 2.7 | Simbologia garantida (ArcObjects/comtypes): monta, grava, relê e confere bandas RGB + Stretch; localiza camadas pelo caminho exato |
 | `arcgis_addin/Install/gee_updater.py` | 2.7/3 | Atualização (Release + SHA256SUMS, backup, staging, rollback) |
@@ -49,6 +52,8 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
 | `backend/xyz_core.py` | 3 | Mosaicos XYZ (urllib + GDAL ou Pillow) |
 | `backend/stac_core.py` | 3 + GDAL | STAC do INPE e recorte `/vsicurl/` na grade nativa |
 | `backend/esri_core.py` | 3 | Data de captura (metadados públicos da World Imagery) e histórico Wayback (`tilemap`: `select` aponta para a versão MAIS ANTIGA de onde vem o tile) |
+| `backend/gehist_core.py` | 3 | Google Earth histórico por data (catálogo *Time Machine*, protocolo Keyhole: dbRoot + quadtree protobuf + XOR), porta do `C:\DOWNLOADER_EARTH\historical_engine.py`. **A grade é geográfica EPSG:4326, não Web Mercator** (`tilemath.keyhole_*`) |
+| `backend/parallel.py` | 3 | `imap_bounded` (no máximo `workers × 4` tiles em andamento: memória constante), threads de rede padrão (48, teto 64) e núcleos do GDAL (CPU − 2, teto 16). Todo download de tiles passa por aqui |
 | `backend/qgis_env.py` | 3 | Registra `<QGIS>\\bin` como diretório de DLLs antes do import do GDAL (o `sitecustomize` do QGIS pula isso se `OSGEO4W_ROOT` já existir) |
 | `pyt/GEE_Tools.pyt` | 2.7 | Caixa de ferramentas do ArcToolbox |
 | `tests/backend/`, `tests/arcmap/` | 3 / 2.7 | Suítes automatizadas |
@@ -79,9 +84,11 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
   em `%TEMP%` direto. Cada carga registra ali `_ensure_live_symbology(...)` com a simbologia conferida.
 - Mensagens para o usuário em **português**. Ao editar arquivos CRLF, preserve o fim de linha.
 - Termos de Uso: Google/Bing exigem o aviso (`TOS_TEXT`) antes do primeiro download.
-- **Fonte ativa na janela principal:** `var_source` (`gee` | `inpe`). Os códigos de sensor do INPE
-  começam com `INPE:`. Decida sempre por `inpe.is_inpe(sensor)`, nunca por listas fixas de
-  sensores GEE. O download passa por `GEEPluginWindow._download_any`.
+- **Fonte ativa na janela principal:** `var_source` (`gee` | `inpe` | `gehist` | `wayback`). Os códigos de sensor
+  do INPE começam com `INPE:`, os do Google Earth histórico com `GEH:` e os do Esri Wayback com `EWB:`
+  (`...:ALL` = todos os zooms; o zoom de cada linha vem do identificador `..._z<zoom>`). Decida sempre por `inpe.is_inpe(sensor)` /
+  `gehist.is_gehist(sensor)`, nunca por listas fixas de sensores GEE. O download passa por
+  `GEEPluginWindow._download_any`.
 
 ## 5. Ambiente e testes
 

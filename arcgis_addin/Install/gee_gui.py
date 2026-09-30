@@ -88,6 +88,17 @@ else:
 
 import gee_bridge
 import arcmagery_inpe as inpe
+import arcmagery_gehist as gehist
+import arcmagery_wayback as wayback
+
+
+def tile_source_of(sensor):
+    """Modulo da fonte de tiles com data (Google Earth historico / Esri Wayback) ou None."""
+    if gehist.is_gehist(sensor):
+        return gehist
+    if wayback.is_wayback(sensor):
+        return wayback
+    return None
 
 def get_icon_path(filename="app_icon.ico"):
     curr_dir = os.path.dirname(os.path.abspath(__file__))
@@ -320,7 +331,7 @@ class GEESettingsDialog(object):
         self.chk_multi.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=2)
 
         ttk.Label(grp_multi, text=u"Número de Cores (Threads):").grid(row=1, column=0, sticky=tk.W, pady=3)
-        init_cores = int(self.settings.get('multicore_cores', min(4, self.max_system_cores)))
+        init_cores = int(self.settings.get('multicore_cores', gee_bridge.default_cores()))
         self.var_cores = tk.StringVar(value=str(min(max(1, init_cores), self.max_system_cores)))
         self.spn_cores = tk.Spinbox(
             grp_multi,
@@ -340,13 +351,23 @@ class GEESettingsDialog(object):
         )
         lbl_cores_hint.grid(row=1, column=1, sticky=tk.W, padx=(85, 0), pady=3)
 
+        ttk.Label(grp_multi, text=u"Threads de download de tiles:").grid(row=2, column=0, sticky=tk.W, pady=3)
+        self.var_tile_threads = tk.StringVar(value=str(gee_bridge.clamp_tile_threads(
+            self.settings.get('tile_threads', gee_bridge.default_tile_threads()))))
+        self.spn_tile_threads = tk.Spinbox(grp_multi, from_=gee_bridge.TILE_THREADS_MIN, to=gee_bridge.TILE_THREADS_MAX,
+                                           increment=4, textvariable=self.var_tile_threads, width=8)
+        self.spn_tile_threads.grid(row=2, column=1, sticky=tk.W, padx=8, pady=3)
+        ttk.Label(grp_multi, text=u"(padrão %d · Google Earth / Wayback / XYZ)" % gee_bridge.default_tile_threads(),
+                  font=("Segoe UI", 8), foreground="#555").grid(row=2, column=1, sticky=tk.W, padx=(85, 0), pady=3)
+
         lbl_multi_desc = ttk.Label(
             grp_multi,
-            text=u"• Acelera a geração de pirâmides e estatísticas no ArcMap.\n• Permite o download simultâneo de múltiplos quadrantes em segundo plano.",
+            text=u"• Acelera a geração de pirâmides e estatísticas no ArcMap.\n• Permite o download simultâneo de múltiplos quadrantes em segundo plano.\n"
+                 u"• Threads de tiles: o ganho satura perto de 48; valores altos demais fazem o servidor recusar (HTTP 429).",
             font=("Segoe UI", 8),
             foreground="#0b5345"
         )
-        lbl_multi_desc.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(3, 0))
+        lbl_multi_desc.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(3, 0))
 
         # 5. Grupo Buffer da Camada Vetorial (AOI)
         grp_aoi = ttk.LabelFrame(tab_sys, text=u" Buffer do Retângulo Envolvente (AOI) ", padding=8)
@@ -425,7 +446,8 @@ class GEESettingsDialog(object):
         self.var_std_param.set("2.0")
         self.var_stats.set("From Current Display Extent")
         self.var_multicore.set(True)
-        self.var_cores.set(str(min(4, self.max_system_cores)))
+        self.var_cores.set(str(gee_bridge.default_cores()))
+        self.var_tile_threads.set(str(gee_bridge.default_tile_threads()))
         self.var_aoi_buffer.set("1000")
         self.var_layer_visible.set(True)
         self._on_stretch_changed()
@@ -438,7 +460,8 @@ class GEESettingsDialog(object):
                 'stretch_std_param': _safe_float(self.var_std_param.get(), 2.0),
                 'statistics_type': self.var_stats.get(),
                 'multicore_enabled': bool(self.var_multicore.get()),
-                'multicore_cores': _safe_int(self.var_cores.get(), min(4, self.max_system_cores)),
+                'multicore_cores': _safe_int(self.var_cores.get(), gee_bridge.default_cores()),
+                'tile_threads': gee_bridge.clamp_tile_threads(self.var_tile_threads.get()),
                 'aoi_buffer_meters': _safe_float(self.var_aoi_buffer.get(), 1000.0),
                 'load_layer_visible': bool(self.var_layer_visible.get())
             }
@@ -462,7 +485,8 @@ class GEESettingsDialog(object):
                 'stretch_std_param': _safe_float(self.var_std_param.get(), 2.0),
                 'statistics_type': self.var_stats.get(),
                 'multicore_enabled': bool(self.var_multicore.get()),
-                'multicore_cores': _safe_int(self.var_cores.get(), min(4, self.max_system_cores)),
+                'multicore_cores': _safe_int(self.var_cores.get(), gee_bridge.default_cores()),
+                'tile_threads': gee_bridge.clamp_tile_threads(self.var_tile_threads.get()),
                 'aoi_buffer_meters': _safe_float(self.var_aoi_buffer.get(), 1000.0),
                 'load_layer_visible': bool(self.var_layer_visible.get())
             }
@@ -1395,6 +1419,11 @@ class GEEPluginWindow(object):
             if hasattr(self, 'btn_thumb'):
                 self.btn_thumb.config(state=tk.NORMAL if count == 1 else tk.DISABLED)
 
+            # 6. Interromper: habilitado enquanto houver busca, fila ou backend em andamento
+            if hasattr(self, 'btn_cancel'):
+                busy = is_dl or getattr(self, '_search_running', False) or gee_bridge.active_backend_count() > 0
+                self.btn_cancel.config(state=tk.NORMAL if busy else tk.DISABLED)
+
 
         except Exception as e:
             print("Erro ao atualizar estado dos botoes:", e)
@@ -1649,7 +1678,9 @@ class GEEPluginWindow(object):
                  bg="#eaf2f8", fg="#1b4f72").pack(side=tk.LEFT, padx=(0, 8))
         self.var_source = tk.StringVar(value="gee")
         for value, text in (("gee", u"Google Earth Engine (Sentinel-2 / Landsat)"),
-                            ("inpe", u"CBERS / Amazônia-1 (INPE)")):
+                            ("inpe", u"CBERS / Amazônia-1 (INPE)"),
+                            ("gehist", u"Google Earth histórico (por data)"),
+                            ("wayback", u"Esri Wayback (por versão)")):
             tk.Radiobutton(source_bar, text=text, variable=self.var_source, value=value, indicatoron=0,
                            font=("Segoe UI", 9), padx=10, pady=2, selectcolor="#aed6f1", bg="#fdfefe",
                            command=self.on_source_changed).pack(side=tk.LEFT, padx=2)
@@ -1810,19 +1841,22 @@ class GEEPluginWindow(object):
         table_frame = self.table_frame = ttk.LabelFrame(right_frame, text=u" 2. Imagens Disponiveis (Selecione uma ou varias com Ctrl / Shift) ", padding=6)
         table_frame.pack(fill=tk.BOTH, expand=True, side=tk.TOP, pady=(0, 4))
 
-        cols = ("date", "cloud", "tile", "name", "status")
+        cols = ("date", "cloud", "tile", "name", "status", "zoom")
         self.tree = ttk.Treeview(table_frame, columns=cols, show="headings", selectmode="extended")
         self.tree.heading("date", text=u"Data / Hora")
         self.tree.heading("cloud", text=u"Nuvens (%)")
         self.tree.heading("tile", text=u"Tile / P-R")
         self.tree.heading("name", text=u"Nome da Cena")
         self.tree.heading("status", text=u"Status")
+        self.tree.heading("zoom", text=u"Zoom")
 
         self.tree.column("date", width=125, anchor=tk.CENTER)
         self.tree.column("cloud", width=70, anchor=tk.CENTER)
         self.tree.column("tile", width=80, anchor=tk.CENTER)
         self.tree.column("name", width=320, anchor=tk.W)
         self.tree.column("status", width=95, anchor=tk.CENTER)
+        self.tree.column("zoom", width=90, anchor=tk.CENTER)
+        self.tree['displaycolumns'] = self.BASE_COLUMNS
 
         # Tags visuais de status na tabela
         self.tree.tag_configure("loaded", background="#e8f8f5", foreground="#117a65")
@@ -1916,6 +1950,10 @@ class GEEPluginWindow(object):
             anchor=tk.W
         )
         self.lbl_progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 6))
+
+        self.btn_cancel = ttk.Button(status_bar_frame, text=u"\u25a0 Interromper", width=14,
+                                     command=self.on_cancel_clicked, state=tk.DISABLED)
+        self.btn_cancel.pack(side=tk.LEFT, padx=(0, 6))
 
         self.pbar = ttk.Progressbar(
             status_bar_frame,
@@ -2039,11 +2077,15 @@ class GEEPluginWindow(object):
             today_str = datetime.date.today().strftime("%Y%m%d")
             if inpe.is_inpe(sensor):
                 default_name = "INPE_%s_%s_%s" % (inpe.collection_of(sensor), comp, today_str)
+            elif tile_source_of(sensor):
+                prefix = "GEH" if gehist.is_gehist(sensor) else "EWB"
+                zoom = tile_source_of(sensor).zoom_of(sensor)
+                default_name = "%s_%s_%s" % (prefix, ("z%d" % zoom) if zoom else "zooms", today_str)
             else:
                 default_name = "GEE_%s_%s_%s" % (sensor, comp, today_str)
             if hasattr(self, 'txt_group_name'):
                 current = self.txt_group_name.get().strip()
-                if not current or current.startswith("GEE_") or current.startswith("INPE_"):
+                if not current or current.startswith(("GEE_", "INPE_", "GEH_", "EWB_")):
                     self.txt_group_name.delete(0, tk.END)
                     self.txt_group_name.insert(0, default_name)
         except Exception:
@@ -2062,34 +2104,72 @@ class GEEPluginWindow(object):
             return items[idx][1]
         return items[0][1] if items else "S2"
 
+    def source_kind(self):
+        """'gee', 'inpe', 'gehist' (Google Earth histórico) ou 'wayback' (Esri Wayback)."""
+        return self.var_source.get() if getattr(self, 'var_source', None) is not None else 'gee'
+
     def is_inpe_source(self):
-        return getattr(self, 'var_source', None) is not None and self.var_source.get() == 'inpe'
+        return self.source_kind() == 'inpe'
+
+    def is_gee_source(self):
+        return self.source_kind() == 'gee'
+
+    # (rótulo do botão de busca, título da tabela, cabeçalhos nuvens/tile/nome) por fonte
+    SOURCE_UI = {
+        'gee': (u"[ Buscar Imagens no GEE ]", u" 2. Imagens Disponiveis (Selecione uma ou varias com Ctrl / Shift) ",
+                u"Nuvens (%)", u"Tile / P-R", u"Nome da Cena"),
+        'inpe': (u"[ Buscar Cenas no INPE ]", u" 2. Cenas CBERS / Amazônia-1 (STAC INPE) - selecione uma ou várias ",
+                 u"Nuvens (%)", u"Órbita/Ponto · Cobertura", u"Nome da Cena"),
+        'wayback': (u"[ Listar Versões do Esri Wayback ]",
+                    u" 2. Versões do Esri Wayback nesta área (data de captura) - selecione uma ou várias ",
+                    u"Versão Wayback", u"Satélite / Resolução", u"Identificador"),
+        'gehist': (u"[ Listar Datas do Google Earth ]",
+                   u" 2. Datas do histórico do Google Earth nesta área - selecione uma ou várias ",
+                   u"Cobertura", u"Provedor / Satélite", u"Identificador"),
+    }
+
+    BASE_COLUMNS = ("date", "cloud", "tile", "name", "status")
+    TILE_COLUMNS = ("date", "zoom", "cloud", "tile", "name", "status")
 
     def on_source_changed(self):
-        """Alterna a janela entre Google Earth Engine e CBERS / Amazonia-1 (STAC do INPE)."""
-        is_inpe = self.is_inpe_source()
-        self._sensor_items = inpe.INPE_SENSOR_DISPLAY if is_inpe else SENSOR_DISPLAY
+        """Alterna a janela entre Google Earth Engine, CBERS / Amazonia-1 e Google Earth histórico."""
+        kind = self.source_kind()
+        self._sensor_items = {'inpe': inpe.INPE_SENSOR_DISPLAY,
+                              'gehist': gehist.GEHIST_SENSOR_DISPLAY,
+                              'wayback': wayback.WAYBACK_SENSOR_DISPLAY}.get(kind, SENSOR_DISPLAY)
         self.cbo_sensor['values'] = [item[0] for item in self._sensor_items]
         self.cbo_sensor.current(0)
-        gee_only = tk.DISABLED if is_inpe else tk.NORMAL
+        gee_only = tk.NORMAL if kind == 'gee' else tk.DISABLED
         for w in (getattr(self, 'txt_custom_bands', None), getattr(self, 'rb_multi', None),
                   getattr(self, 'rb_rgb', None), getattr(self, 'cbo_pixel_size', None)):
             if w is not None:
                 w.config(state=gee_only)
+        btn_text, table_title, h_cloud, h_tile, h_name = self.SOURCE_UI[kind]
         if hasattr(self, 'btn_search'):
-            self.btn_search.config(text=u"[ Buscar Cenas no INPE ]" if is_inpe else u"[ Buscar Imagens no GEE ]")
+            self.btn_search.config(text=btn_text)
         if hasattr(self, 'tree'):
-            self.tree.heading("tile", text=u"Órbita/Ponto · Cobertura" if is_inpe else u"Tile / P-R")
+            self.tree.heading("cloud", text=h_cloud)
+            self.tree.heading("tile", text=h_tile)
+            self.tree.heading("name", text=h_name)
+            self.tree['displaycolumns'] = self.TILE_COLUMNS if kind in ('gehist', 'wayback') else self.BASE_COLUMNS
         if hasattr(self, 'table_frame'):
-            self.table_frame.config(text=(u" 2. Cenas CBERS / Amazônia-1 (STAC INPE) - selecione uma ou várias " if is_inpe
-                                          else u" 2. Imagens Disponiveis (Selecione uma ou varias com Ctrl / Shift) "))
-        if is_inpe:
+            self.table_frame.config(text=table_title)
+        if kind == 'inpe':
             self.set_quick_dates(120)
+        elif kind in ('gehist', 'wayback'):
+            self.txt_start_date.delete(0, tk.END)
+            self.txt_start_date.insert(0, u"01/01/1985")          # o histórico todo
+            self.txt_end_date.delete(0, tk.END)
+            self.txt_end_date.insert(0, datetime.date.today().strftime("%d/%m/%Y"))
         self.on_sensor_changed()
+
+    def _sensor_meta(self, sensor):
+        return (SENSOR_METADATA.get(sensor) or inpe.INPE_SENSOR_METADATA.get(sensor)
+                or gehist.GEHIST_SENSOR_METADATA.get(sensor) or wayback.WAYBACK_SENSOR_METADATA.get(sensor, {}))
 
     def update_sensor_info_display(self):
         sensor = self.get_selected_sensor_code()
-        meta = SENSOR_METADATA.get(sensor) or inpe.INPE_SENSOR_METADATA.get(sensor, {})
+        meta = self._sensor_meta(sensor)
         if meta and hasattr(self, 'lbl_sensor_period') and self.lbl_sensor_period is not None:
             period_str = meta.get('period_display', '')
             collection = meta.get('collection', '')
@@ -2098,7 +2178,8 @@ class GEEPluginWindow(object):
             bands_str = meta.get('available_bands', '')
 
             self.lbl_sensor_period.config(text=u"📅 Período: %s" % period_str)
-            source_tag = u"STAC INPE" if inpe.is_inpe(sensor) else u"GEE"
+            source_tag = u"STAC INPE" if inpe.is_inpe(sensor) else (
+                u"Google Earth" if gehist.is_gehist(sensor) else (u"Esri Wayback" if wayback.is_wayback(sensor) else u"GEE"))
             self.lbl_sensor_detail.config(text=u"📡 %s: %s (%s | %s)" % (source_tag, collection, agency, res))
             if hasattr(self, 'lbl_sensor_bands') and self.lbl_sensor_bands is not None:
                 self.lbl_sensor_bands.config(text=u"🌈 Bandas: %s" % bands_str)
@@ -2122,9 +2203,12 @@ class GEEPluginWindow(object):
 
         # Atualizar tamanho do pixel padrao de acordo com a resolucao nativa do satelite
         s = self.get_selected_sensor_code()
-        meta = SENSOR_METADATA.get(s) or inpe.INPE_SENSOR_METADATA.get(s, {})
+        meta = self._sensor_meta(s)
         if hasattr(self, 'var_pixel_size'):
-            if inpe.is_inpe(s):
+            if tile_source_of(s):
+                self.var_pixel_size.set(meta['res'].lstrip(u'~').replace(u' m', u'') if tile_source_of(s).zoom_of(s)
+                                        else u"por zoom")
+            elif inpe.is_inpe(s):
                 self.var_pixel_size.set(str(inpe.native_res(s) or ''))  # grade nativa da cena
             elif s == "S2":
                 self.var_pixel_size.set("10")
@@ -2164,8 +2248,8 @@ class GEEPluginWindow(object):
 
     def update_compositions_list(self):
         sensor = self.get_selected_sensor_code()
-        if inpe.is_inpe(sensor):
-            items = inpe.composition_items(sensor)
+        if inpe.is_inpe(sensor) or tile_source_of(sensor):
+            items = (inpe if inpe.is_inpe(sensor) else tile_source_of(sensor)).composition_items(sensor)
             self.cbo_comp['values'] = items
             if items:
                 self.cbo_comp.current(0)
@@ -2191,6 +2275,11 @@ class GEEPluginWindow(object):
         if inpe.is_inpe(sensor):
             if hasattr(self, 'lbl_custom_bands'):
                 self.lbl_custom_bands.config(text=u"CBERS/INPE: bandas definidas pelo produto, recorte na grade nativa.")
+            return
+        if tile_source_of(sensor):
+            if hasattr(self, 'lbl_custom_bands'):
+                self.lbl_custom_bands.config(text=u"Google Earth: imagem RGB da data, grade nativa EPSG:4326." if gehist.is_gehist(sensor)
+                                             else u"Esri Wayback: imagem RGB da versão, Web Mercator EPSG:3857.")
             return
 
         if hasattr(self, 'lbl_custom_bands'):
@@ -2326,7 +2415,7 @@ class GEEPluginWindow(object):
         return ids
 
     def on_search_clicked(self):
-        if not self.is_authenticated and not self.is_inpe_source():
+        if not self.is_authenticated and self.is_gee_source():
             if messagebox.askyesno(
                 "Autenticacao Necessaria",
                 "O Google Earth Engine ainda nao esta conectado.\n\nDeseja abrir a tela de autenticacao agora no navegador?",
@@ -2362,8 +2451,19 @@ class GEEPluginWindow(object):
         current_token = self._active_search_token
 
         use_inpe = inpe.is_inpe(sensor)
-        src_name = u"STAC do INPE" if use_inpe else u"Google Earth Engine"
+        tile_mod = tile_source_of(sensor)
+        use_gehist = tile_mod is not None
+        src_name = u"STAC do INPE" if use_inpe else (
+            u"histórico do Google Earth" if tile_mod is gehist else (
+                u"Esri Wayback" if tile_mod is wayback else u"Google Earth Engine"))
+        if tile_mod is not None and bbox and tile_mod.zoom_of(sensor):
+            limit_msg = tile_mod.check_limit(bbox, tile_mod.zoom_of(sensor))
+            if limit_msg:
+                messagebox.showwarning(u"Área grande demais", limit_msg, parent=self.root)
+                return
         self.btn_search.config(state=tk.DISABLED)
+        self._search_running = True
+        self._cancel_requested = False
         self.set_progress(0, u"Iniciando busca no %s..." % src_name)
         self.update_action_buttons_state()
 
@@ -2379,9 +2479,13 @@ class GEEPluginWindow(object):
                         if rep.get('success'):
                             g_file = rep.get('file')
 
+                self._last_search_geojson = g_file     # a miniatura usa a mesma area da busca
                 self.post_to_gui(lambda: self.set_progress(0, u"Buscando cenas no catálogo do %s... Aguarde." % src_name))
                 if use_inpe:
                     resp = inpe.search(sensor, s_date, e_date, bbox=bbox, geojson_file=g_file, max_images=100)
+                elif use_gehist:
+                    resp = tile_mod.search(sensor, s_date, e_date, bbox=bbox, geojson_file=g_file,
+                                         on_progress=lambda msg, pct: self.set_progress(pct, msg))
                 else:
                     resp = gee_bridge.search_images(
                         sensor=sensor,
@@ -2399,6 +2503,10 @@ class GEEPluginWindow(object):
                         self.tree.delete(row_id)
                     self.images_cache = []
 
+                    if resp.get('cancelled'):
+                        self.set_progress(0, u"Busca interrompida pelo usuário.")
+                        self.update_action_buttons_state()
+                        return
                     if not resp.get('success'):
                         err_msg = resp.get('message', 'Erro desconhecido')
                         messagebox.showerror("Erro de Busca", err_msg, parent=self.root)
@@ -2426,16 +2534,21 @@ class GEEPluginWindow(object):
 
                         item_id = self.tree.insert("", tk.END, values=(
                             img.get('date'),
-                            inpe.format_cloud(img.get('cloud_pct')),
+                            img.get('cloud_display') or inpe.format_cloud(img.get('cloud_pct')),
                             tile_str,
                             short_name,
-                            status_val
+                            status_val,
+                            img.get('zoom_display') or u''
                         ))
                         if tag_val:
                             self.tree.item(item_id, tags=(tag_val,))
 
                     count = len(images)
-                    self.set_progress(0, "Busca concluida: %d imagens encontradas." % count)
+                    if use_gehist:
+                        self.set_progress(0, u"Busca concluída: %d linha(s) no período (%d no histórico da área)."
+                                          % (count, resp.get('total_dates', count)))
+                    else:
+                        self.set_progress(0, "Busca concluida: %d imagens encontradas." % count)
                     if count > 0:
                         first_item = self.tree.get_children()[0]
                         self.tree.selection_set(first_item)
@@ -2453,16 +2566,20 @@ class GEEPluginWindow(object):
                     self.update_action_buttons_state()
                 self.post_to_gui(show_err)
             finally:
-                def reenable():
-                    try:
-                        if current_token == self._active_search_token:
-                            self.btn_search.config(state=tk.NORMAL)
-                            self.update_action_buttons_state()
-                    except Exception:
-                        pass
-                self.post_to_gui(reenable)
+                self.post_to_gui(lambda: self._finish_search(current_token))
 
         threading.Thread(target=run_search_thread).start()
+
+    def _finish_search(self, token):
+        """Fim de uma busca: so a busca ATUAL libera o botao e o estado 'em andamento' (uma busca
+        cancelada que termina depois nao pode desligar o Interromper de uma busca nova)."""
+        try:
+            if token == self._active_search_token:
+                self._search_running = False
+                self.btn_search.config(state=tk.NORMAL)
+            self.update_action_buttons_state()
+        except Exception:
+            pass
 
     def on_image_selected(self, event=None):
         selected_ids = self.get_all_selected_image_ids()
@@ -2479,7 +2596,23 @@ class GEEPluginWindow(object):
             self.lbl_selected_title.config(text=short_name)
 
             for img in self.images_cache:
-                if img.get('id') == full_id:
+                if img.get('id') == full_id and img.get('source') in ('GEHIST', 'WAYBACK'):
+                    mod = gehist if img.get('source') == 'GEHIST' else wayback
+                    if mod is gehist:
+                        info = u"Data: %s | Zoom: %s | Cobertura: %s | Provedor: %s" % (
+                            img.get('date'), img.get('zoom'), img.get('cloud_display'), img.get('provider') or u'n/d')
+                    else:
+                        info = u"Captura: %s | Zoom: %s | %s | %s" % (
+                            img.get('date') if img.get('capture_known') else u"n/d", img.get('zoom'),
+                            img.get('cloud_display'), img.get('mgrs'))
+                    bbox = (self.arcmap_context or {}).get('bbox')
+                    if bbox and self.var_spatial_type.get() == 'extent':
+                        try:
+                            info += u"\n" + mod.estimate_text(bbox, img.get('zoom'))
+                        except Exception:
+                            pass
+                    self.lbl_selected_info.config(text=info)
+                elif img.get('id') == full_id:
                     self.lbl_selected_info.config(
                         text=u"Data: %s | Nuvens: %s | %s: %s" % (
                             img.get('date'),
@@ -2687,7 +2820,14 @@ class GEEPluginWindow(object):
 
         # Validacao preventiva de tamanho para resolucao nativa estrita (100% de qualidade)
         # (especifica do GEE: o limite do INPE e verificado no backend ao recortar a cena)
-        if st == "extent" and bbox and not inpe.is_inpe(sensor):
+        tile_mod = tile_source_of(sensor)
+        if st == "extent" and bbox and tile_mod is not None:
+            for i_id in image_ids:
+                limit_msg = tile_mod.check_limit(bbox, tile_mod.zoom_of_row_id(i_id) or tile_mod.zoom_of(sensor))
+                if limit_msg:
+                    messagebox.showerror(u"Área Excessivamente Extensa", limit_msg, parent=self.root)
+                    return
+        if st == "extent" and bbox and not inpe.is_inpe(sensor) and tile_mod is None:
             import math
             req_scale = pixel_size
             if req_scale is None or req_scale <= 0:
@@ -2756,6 +2896,7 @@ class GEEPluginWindow(object):
             if g_val:
                 group_name = g_val
 
+        self._cancel_requested = False
         with self._queue_lock:
             # Filtrar IDs ja na fila ou em download ativo para evitar duplicatas por duplo clique
             clean_image_ids = [
@@ -2855,7 +2996,9 @@ class GEEPluginWindow(object):
                         self.current_downloading_ids.clear()
                         self.refresh_toc_rasters()
                         self.update_action_buttons_state()
-                        if errors_occurred:
+                        if getattr(self, '_cancel_requested', False):
+                            self.set_progress(0, u"Interrompido pelo usuário.")
+                        elif errors_occurred:
                             self.set_progress(0, u"Aviso: Ocorreu erro no processamento (%s)" % errors_occurred[0][:40])
                         else:
                             self.set_progress(100, u"Concluído! Todas as tarefas da fila foram processadas com sucesso.")
@@ -2876,10 +3019,19 @@ class GEEPluginWindow(object):
         return False
 
     PARTIAL_SCENE_PCT = 50.0
+    MAX_PARALLEL_DOWNLOADS = 4
 
     def _warn_if_partial_scene(self, resp, layer_title):
         """Cenas INPE com footprint retangular (CBERS-2/2B) podem cobrir so parte da area:
         o backend mede os pixels validos do recorte ('valid_pct') e o usuario e avisado."""
+        failed = resp.get('failed_tiles')
+        if failed:
+            self.post_to_gui(lambda: messagebox.showwarning(
+                u"Tiles não baixados",
+                u"A camada '%s' foi carregada, mas %d tile(s) não puderam ser baixados mesmo após novas "
+                u"tentativas e ficaram pretos. Tente baixar de novo mais tarde." % (layer_title, failed),
+                parent=self.root))
+            return True
         pct = resp.get('valid_pct')
         if pct is None or pct >= self.PARTIAL_SCENE_PCT:
             return False
@@ -2889,12 +3041,44 @@ class GEEPluginWindow(object):
             u"(a cena não cobre toda a área)." % (layer_title, pct), parent=self.root))
         return True
 
+    def on_cancel_clicked(self):
+        """Interrompe a busca e os downloads em andamento e esvazia a fila."""
+        if not messagebox.askyesno(u"Interromper",
+                                   u"Interromper a busca e os downloads em andamento?\n\n"
+                                   u"A fila será esvaziada e o que estiver sendo baixado agora é descartado.",
+                                   parent=self.root):
+            return
+        self._cancel_requested = True
+        self._active_search_token += 1          # descarta o resultado de uma busca em andamento
+        dropped = []
+        with self._queue_lock:
+            while True:
+                try:
+                    task = self.download_queue.get_nowait()
+                except queue_mod.Empty:
+                    break
+                dropped.extend(task.get('image_ids', []))
+                self.download_queue.task_done()
+            self.queued_ids.clear()
+        killed = gee_bridge.cancel_backend_commands()
+        for i_id in dropped + list(self.current_downloading_ids):
+            self.set_row_status(i_id.split('/')[-1], u"Cancelado", tag="error")
+        self._search_running = False
+        if hasattr(self, 'btn_search'):
+            self.btn_search.config(state=tk.NORMAL)
+        self.set_progress(0, u"Interrompido pelo usuário (%d processo(s) encerrado(s), %d item(ns) retirado(s) da fila)."
+                          % (killed, len(dropped)))
+        self.update_action_buttons_state()
+
     def _download_any(self, img_id, sensor, comp, out_tif, custom_bands, load_mode, bbox, geojson_file,
                       pixel_size, on_progress=None):
         """Baixa uma cena do GEE ou recorta uma cena do INPE; a resposta traz 'file' (e 'rgb_bands')."""
         if inpe.is_inpe(sensor):
             return inpe.download(img_id, sensor, comp, out_tif, bbox=bbox, geojson_file=geojson_file,
                                  on_progress=on_progress)
+        if tile_source_of(sensor):
+            return tile_source_of(sensor).download(img_id, sensor, out_tif, bbox=bbox, geojson_file=geojson_file,
+                                   on_progress=(lambda msg, pct: on_progress(msg)) if on_progress else None)
         return gee_bridge.download_image(
             image_ids=[img_id], sensor=sensor, comp_code=comp, out_tif=out_tif, custom_bands=custom_bands,
             load_mode=load_mode, bbox=bbox, geojson_file=geojson_file, scale=pixel_size, on_progress=on_progress)
@@ -2918,6 +3102,12 @@ class GEEPluginWindow(object):
             try:
                 if row.get('source') == 'INPE':
                     resp = inpe.thumbnail(row, out_png)
+                elif row.get('source') in ('GEHIST', 'WAYBACK'):
+                    aoi = getattr(self, '_last_search_geojson', None) if self.var_spatial_type.get() == 'layer' else None
+                    if not aoi and not bbox:
+                        raise RuntimeError(u"Área da miniatura indisponível: atualize a extensão do ArcMap ou refaça a busca.")
+                    mod = gehist if row.get('source') == 'GEHIST' else wayback
+                    resp = mod.thumbnail(row, bbox, out_png, geojson_file=aoi)
                 else:
                     resp = gee_bridge.get_thumbnail(ids[0], sensor, comp, out_png, bbox=bbox)
                 gif = resp.get('gif') if resp.get('success') else None
@@ -2966,25 +3156,32 @@ class GEEPluginWindow(object):
         settings = self.settings if hasattr(self, 'settings') else {}
         system_cores = getattr(self, 'max_system_cores', 4)
         use_multicore = bool(settings.get('multicore_enabled', True)) and (concurrent is not None)
-        max_cores = int(settings.get('multicore_cores', min(4, system_cores)))
+        max_cores = int(settings.get('multicore_cores', gee_bridge.default_cores()))
 
         loaded_count = 0
 
-        # Carregamento de imagens (Multicore paralelo para múltiplas imagens ou Sequencial)
-        if use_multicore and total > 1 and not replace_map:
-            num_workers = min(total, max_cores)
+        # Carregamento de imagens (Multicore paralelo para múltiplas imagens ou Sequencial).
+        # Fontes de tiles (Google Earth / Wayback) ja usam dezenas de threads em cada download: em
+        # paralelo multiplicariam as conexoes (6 datas x 48 threads) e o servidor recusaria. Os nucleos
+        # (multicore_cores) servem ao geoprocessamento; downloads simultaneos ficam limitados a 4.
+        if use_multicore and total > 1 and not replace_map and tile_source_of(sensor) is None:
+            num_workers = min(total, max_cores, self.MAX_PARALLEL_DOWNLOADS)
             q_remaining = self.download_queue.qsize()
             q_info = (u"[Fila: %d pendente(s)] " % q_remaining) if q_remaining > 0 else ""
             self.set_progress(5, u"%s[Multicore %d threads] Baixando %d imagens em paralelo..." % (q_info, num_workers, total))
 
             def process_single_image(idx, img_id):
                 short_name = img_id.split('/')[-1]
+                if getattr(self, '_cancel_requested', False):
+                    return False, short_name, None
                 layer_title = "%s_%s" % (short_name, comp)
                 out_tif = os.path.join(tempfile.gettempdir(), "%s.tif" % layer_title)
                 self.set_row_status(short_name, u"Baixando...", tag="downloading")
 
                 resp = self._download_any(img_id, sensor, comp, out_tif, custom_bands, load_mode,
                                           bbox, geojson_file, pixel_size)
+                if resp.get('cancelled'):
+                    return False, short_name, None
 
                 if resp.get('success'):
                     tif_file = resp.get('file')
@@ -2999,7 +3196,7 @@ class GEEPluginWindow(object):
                             'sensor': sensor,
                             'custom_bands': custom_bands,
                             'rgb_bands': resp.get('rgb_bands')
-                        }, timeout=120)
+                        }, timeout=gee_bridge.load_timeout_seconds(resp.get('width'), resp.get('height')))
 
                     if rep.get('success'):
                         self._warn_if_symbology_not_guaranteed(rep, layer_title)
@@ -3022,6 +3219,8 @@ class GEEPluginWindow(object):
                         pct = int((float(loaded_count) / total) * 90)
                         self.set_progress(pct, u"%s[Multicore %d/%d] '%s' carregada!" % (q_info, loaded_count, total, short_name))
                         self.set_row_status(short_name, u"✓ Carregado", tag="loaded")
+                    elif getattr(self, '_cancel_requested', False):
+                        self.set_row_status(short_name, u"Cancelado", tag="error")
                     else:
                         self.set_row_status(short_name, u"Falha", tag="error")
                         if err_msg:
@@ -3034,6 +3233,9 @@ class GEEPluginWindow(object):
             # Sequencial
             for idx, img_id in enumerate(image_ids):
                 short_name = img_id.split('/')[-1]
+                if getattr(self, '_cancel_requested', False):
+                    self.set_row_status(short_name, u"Cancelado", tag="error")
+                    continue
                 layer_title = "%s_%s" % (short_name, comp)
                 out_tif = os.path.join(tempfile.gettempdir(), "%s.tif" % layer_title)
 
@@ -3068,6 +3270,9 @@ class GEEPluginWindow(object):
 
                 resp = self._download_any(img_id, sensor, comp, out_tif, custom_bands, load_mode,
                                           bbox, geojson_file, pixel_size, on_progress=on_single_prog)
+                if resp.get('cancelled'):
+                    self.set_row_status(short_name, u"Cancelado", tag="error")
+                    continue
 
                 if resp.get('success'):
                     tif_file = resp.get('file')
@@ -3085,7 +3290,7 @@ class GEEPluginWindow(object):
                                 'sensor': sensor,
                                 'custom_bands': custom_bands,
                                 'rgb_bands': resp.get('rgb_bands')
-                            }, timeout=120)
+                            }, timeout=gee_bridge.load_timeout_seconds(resp.get('width'), resp.get('height')))
                         else:
                             rep = gee_bridge.send_arcmap_command({
                                 'action': 'load_layer',
@@ -3097,7 +3302,7 @@ class GEEPluginWindow(object):
                                 'sensor': sensor,
                                 'custom_bands': custom_bands,
                                 'rgb_bands': resp.get('rgb_bands')
-                            }, timeout=120)
+                            }, timeout=gee_bridge.load_timeout_seconds(resp.get('width'), resp.get('height')))
 
                     if rep.get('success'):
                         loaded_count += 1

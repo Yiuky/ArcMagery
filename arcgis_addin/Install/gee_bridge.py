@@ -412,7 +412,72 @@ MULTIBAND_DEFAULT_BANDS = {
     'L1': ['B4', 'B5', 'B6', 'B7']
 }
 
-def run_backend_cmd(subcmd, args_dict, on_progress=None, python_exe=None):
+# Backends em execucao (para o botao Interromper) e prazo apos o resultado chegar
+_ACTIVE_BACKENDS = {}
+_ACTIVE_LOCK = threading.Lock()
+RESULT_GRACE_SECONDS = 5.0
+CANCELLED_MESSAGE = u"Interrompido pelo usuário."
+
+
+def kill_process_tree(proc):
+    """Encerra o processo E os filhos: o python.exe do venv e um lancador que inicia o Python real;
+    proc.kill() so matava o lancador e deixava o backend orfao."""
+    try:
+        if os.name == 'nt':
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = subprocess.SW_HIDE
+            with open(os.devnull, 'w') as devnull:
+                tk_proc = subprocess.Popen(['taskkill', '/PID', str(proc.pid), '/T', '/F'], stdout=devnull,
+                                           stderr=devnull, startupinfo=si)
+                deadline = time.time() + 5.0   # nunca prender a interface esperando o taskkill
+                while tk_proc.poll() is None and time.time() < deadline:
+                    time.sleep(0.1)
+        if proc.poll() is None:
+            proc.kill()
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+MAIN_GROUP = 'main'
+
+
+def cancel_backend_commands(group=MAIN_GROUP):
+    """Interrompe os comandos do backend do grupo (a janela principal nao encerra os da janela
+    Mosaicos XYZ). Nao bloqueia: o encerramento (taskkill, ate 5 s por processo) roda em threads;
+    run_backend_cmd ja devolve 'cancelado' ao ver a marca. Retorna quantos foram interrompidos."""
+    with _ACTIVE_LOCK:
+        items = [(proc, st) for proc, st in _ACTIVE_BACKENDS.items() if st.get('group') == group]
+    for proc, state in items:
+        state['cancelled'] = True
+        t = threading.Thread(target=kill_process_tree, args=(proc,))
+        t.daemon = True
+        t.start()
+    return len(items)
+
+
+def active_backend_count(group=MAIN_GROUP):
+    with _ACTIVE_LOCK:
+        return len([1 for st in _ACTIVE_BACKENDS.values() if st.get('group') == group])
+
+
+def parse_backend_output(out):
+    """Ultima linha JSON do stdout (contrato do backend) ou None."""
+    for line in reversed(out.strip().splitlines()):
+        line_str = line.decode('utf-8', 'ignore') if hasattr(line, 'decode') else str(line)
+        line_str = line_str.strip()
+        if line_str.startswith('{') and line_str.endswith('}'):
+            try:
+                return json.loads(line_str)
+            except Exception:
+                pass
+    return None
+
+
+def run_backend_cmd(subcmd, args_dict, on_progress=None, python_exe=None, group=MAIN_GROUP):
     py3 = python_exe or find_python3()
     script = get_backend_script()
     if not os.path.exists(script):
@@ -519,24 +584,52 @@ def run_backend_cmd(subcmd, args_dict, on_progress=None, python_exe=None):
             timeout_seconds = 90   # 90 segundos para busca no catalogo GEE
         elif subcmd == 'thumb':
             timeout_seconds = 60   # 60 segundos para miniaturas
-        elif subcmd in ('xyz_download', 'stac_download'):
-            timeout_seconds = 1800  # 30 minutos: mosaicos XYZ e recortes CBERS grandes
-        elif subcmd in ('stac_search', 'stac_thumb', 'sources_info', 'xyz_estimate', 'esri_dates', 'esri_versions'):
+        elif subcmd == 'stac_download':
+            timeout_seconds = 1800  # 30 minutos: recortes CBERS grandes
+        elif subcmd in ('xyz_download', 'gehist_download'):
+            timeout_seconds = 4 * 3600  # ate 100 mil tiles (~30 tiles/s na rede da SEMA: ~1 h)
+        elif subcmd == 'gehist_dates':
+            timeout_seconds = 1800  # varredura do catalogo historico (1 consulta por tile)
+        elif subcmd in ('gehist_thumb', 'wayback_thumb'):
+            timeout_seconds = 120
+        elif subcmd == 'esri_versions':
+            timeout_seconds = 600   # varios zooms do Wayback (cada um ~15-20 s)
+        elif subcmd in ('stac_search', 'stac_thumb', 'sources_info', 'xyz_estimate', 'esri_dates'):
             timeout_seconds = 120
         else:
             timeout_seconds = 120
 
+        state = {'cancelled': False, 'group': group}
+        with _ACTIVE_LOCK:
+            _ACTIVE_BACKENDS[proc] = state
         start_time = time.time()
         timed_out = False
-        while proc.poll() is None:
-            time.sleep(0.1)
-            if time.time() - start_time > timeout_seconds:
-                timed_out = True
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
-                break
+        result_seen = None
+        seen_lines = 0
+        try:
+            while proc.poll() is None:
+                time.sleep(0.1)
+                if state['cancelled']:
+                    break
+                # Resultado ja entregue: nao esperar o encerramento do interpretador (o GDAL/curl pode
+                # travar a saida por muitos minutos depois de gravar o arquivo - visto no CBERS-2).
+                # So examina as linhas novas (a saida inteira nao e relida a cada 100 ms).
+                n = len(out_chunks)
+                if result_seen is None and n > seen_lines:
+                    if any(parse_backend_output(c) is not None for c in out_chunks[seen_lines:n]):
+                        result_seen = time.time()
+                    seen_lines = n
+                if result_seen is not None and time.time() - result_seen > RESULT_GRACE_SECONDS:
+                    _log_debug(u"run_backend_cmd(%s): resultado recebido, processo nao encerrou; finalizando." % subcmd)
+                    kill_process_tree(proc)
+                    break
+                if time.time() - start_time > timeout_seconds:
+                    timed_out = True
+                    kill_process_tree(proc)
+                    break
+        finally:
+            with _ACTIVE_LOCK:
+                _ACTIVE_BACKENDS.pop(proc, None)
 
         t_out.join(timeout=2.0)
         t_err.join(timeout=2.0)
@@ -544,25 +637,18 @@ def run_backend_cmd(subcmd, args_dict, on_progress=None, python_exe=None):
         out = b"".join(out_chunks)
         err = b"".join(err_chunks)
 
+        if state['cancelled']:
+            return {'success': False, 'cancelled': True, 'message': CANCELLED_MESSAGE}
+
         if timed_out:
             return {'success': False, 'message': u"Tempo limite excedido na operacao '%s' (%d s)." % (subcmd, timeout_seconds)}
 
-        if proc.returncode != 0 and not out.strip():
+        if proc.returncode not in (0, None) and not out.strip():
             err_msg = err if isinstance(err, unicode) else unicode(str(err), errors='ignore') if hasattr(str, 'decode') else str(err)
             return {'success': False, 'message': u"Erro executando backend (codigo %d): %s" % (proc.returncode, err_msg)}
 
         # Filtrar saida para encontrar a linha JSON valida (procura de tras para frente)
-        lines = out.strip().splitlines()
-        data = None
-        for line in reversed(lines):
-            line_str = line.decode('utf-8', 'ignore') if hasattr(line, 'decode') else str(line)
-            line_str = line_str.strip()
-            if line_str.startswith('{') and line_str.endswith('}'):
-                try:
-                    data = json.loads(line_str)
-                    break
-                except Exception:
-                    pass
+        data = parse_backend_output(out)
 
         if data is None:
             raw_preview = out[:300].decode('utf-8', 'ignore') if hasattr(out, 'decode') else str(out[:300])
@@ -1083,6 +1169,108 @@ def get_band_indices_for_composition(sensor, comp_code):
 
 SETTINGS_FILE = os.path.expanduser("~/.gee_plugin_settings.json")
 
+
+def system_cores():
+    try:
+        import multiprocessing
+        return multiprocessing.cpu_count()
+    except Exception:
+        return 4
+
+
+def default_cores():
+    """Nucleos para o geoprocessamento (piramides/estatisticas), com folga de 2 para o ArcMap."""
+    return max(1, min(16, system_cores() - 2))
+
+
+TILE_THREADS_MIN, TILE_THREADS_MAX = 4, 64
+
+
+def default_tile_threads():
+    """Threads de rede do download de tiles (backend/parallel.default_workers: satura perto de 48)."""
+    return max(8, min(48, 4 * system_cores()))
+
+
+def clamp_tile_threads(value):
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return default_tile_threads()
+    return max(TILE_THREADS_MIN, min(TILE_THREADS_MAX, value))
+
+
+def tile_threads(settings=None):
+    settings = settings if settings is not None else load_plugin_settings()
+    return clamp_tile_threads(settings.get('tile_threads', default_tile_threads()))
+
+
+def stats_skip_factor(width, height, target_pixels=25e6):
+    """Amostragem do CalculateStatistics: ~25 Mpx lidos em vez do raster inteiro (um mosaico
+    de 1,4 Gpx levava mais que o prazo da interface - P-01). 1 = todos os pixels."""
+    try:
+        n = float(width) * float(height)
+    except (TypeError, ValueError):
+        return 1
+    if n <= target_pixels:
+        return 1
+    import math
+    return int(math.ceil(math.sqrt(n / target_pixels)))
+
+
+def load_timeout_seconds(width=None, height=None, base=120, cap=1800):
+    """Prazo de resposta do ArcMap para carregar um raster, proporcional ao tamanho."""
+    try:
+        mpx = float(width) * float(height) / 1e6
+    except (TypeError, ValueError):
+        return base
+    return int(min(cap, base + 0.4 * mpx))
+
+
+STALE_SIDECARS = ('.ovr', '.aux.xml')
+
+
+def remove_stale_sidecars(tif_path, tolerance=2.0):
+    """Remove .ovr / .aux.xml MAIS ANTIGOS que o .tif: sao de um arquivo anterior com o mesmo nome
+    (os temporarios tem nome fixo) e, com BuildPyramids SKIP_EXISTING, o ArcMap exibiria as piramides
+    e estatisticas da area antiga. Os gerados pelo backend depois do .tif sao mantidos."""
+    removed = []
+    try:
+        tif_time = os.path.getmtime(tif_path)
+    except OSError:
+        return removed
+    for ext in STALE_SIDECARS:
+        side = tif_path + ext
+        try:
+            if os.path.exists(side) and os.path.getmtime(side) < tif_time - tolerance:
+                os.remove(side)
+                removed.append(side)
+        except OSError:
+            pass
+    return removed
+
+
+def _stats_and_pyramids(tif_path):
+    """Estatisticas por amostragem e piramides; as piramides (.ovr) geradas pelo backend sao
+    reaproveitadas (SKIP_EXISTING) em vez de recalculadas na thread do ArcMap."""
+    remove_stale_sidecars(tif_path)
+    skip = 1
+    try:
+        r = arcpy.Raster(tif_path)
+        skip = stats_skip_factor(r.width, r.height)
+    except Exception:
+        pass
+    try:
+        arcpy.CalculateStatistics_management(tif_path, skip, skip, "", "OVERWRITE")
+    except Exception:
+        pass
+    try:
+        arcpy.BuildPyramids_management(tif_path, "", "", "", "", "", "SKIP_EXISTING")
+    except Exception:
+        try:
+            arcpy.BuildPyramids_management(tif_path)
+        except Exception:
+            pass
+
 def load_plugin_settings():
     """Carrega as configuracoes persistentes do plugin ou retorna os padroes"""
     defaults = {
@@ -1090,7 +1278,8 @@ def load_plugin_settings():
         'stretch_std_param': 2.0,
         'statistics_type': 'From Current Display Extent',
         'multicore_enabled': True,
-        'multicore_cores': 4,
+        'multicore_cores': default_cores(),
+        'tile_threads': default_tile_threads(),
         'aoi_buffer_meters': 1000.0,
         'load_layer_visible': True
     }
@@ -1974,15 +2163,8 @@ def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_c
         arcpy.env.overwriteOutput = True
 
         try:
-            # 1. Estatisticas de todas as bandas e piramides (executadas em multicore)
-            try:
-                arcpy.CalculateStatistics_management(tif_path, 1, 1, "", "OVERWRITE")
-            except Exception:
-                pass
-            try:
-                arcpy.BuildPyramids_management(tif_path)
-            except Exception:
-                pass
+            # 1. Estatisticas (amostradas) e piramides (reaproveita o .ovr do backend), em multicore
+            _stats_and_pyramids(tif_path)
 
             # 2. Verificar numero de bandas
             desc = arcpy.Describe(tif_path)
@@ -2118,15 +2300,8 @@ def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=No
         arcpy.env.overwriteOutput = True
 
         try:
-            # 1. Estatisticas e piramides
-            try:
-                arcpy.CalculateStatistics_management(tif_path, 1, 1, "", "OVERWRITE")
-            except Exception:
-                pass
-            try:
-                arcpy.BuildPyramids_management(tif_path)
-            except Exception:
-                pass
+            # 1. Estatisticas (amostradas) e piramides (reaproveita o .ovr do backend)
+            _stats_and_pyramids(tif_path)
 
             if not new_layer_name:
                 new_layer_name = os.path.splitext(os.path.basename(tif_path))[0]

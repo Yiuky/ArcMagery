@@ -7,6 +7,16 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 ## [2.3.3] - 2026-09-29
 
 ### ✨ Adicionado
+- **Google Earth histórico (N-09):** terceira fonte da janela principal (*Fonte de imagens* › *Google Earth histórico (por data)*), com o mesmo fluxo do CBERS e do GEE:
+  - o zoom (15 a 20, ~4,8 a ~0,15 m) ocupa o lugar do satélite. **Listar Datas do Google Earth** preenche a tabela com cada data do histórico da área no período (como no Google Earth Pro), a **cobertura** e o **provedor** (Maxar, CNES/Airbus...);
+  - **Miniatura** da data, carga de uma ou várias datas pela **fila**, grupo no TOC e **Substituir no TOC**. A seleção mostra a estimativa de tiles, tamanho e tempo;
+  - GeoTIFF recortado à área na **grade nativa EPSG:4326** (sem reamostragem), com a data em `ACQUISITION_DATE`/`TIFFTAG_DATETIME`. Datas com cobertura parcial ficam pretas fora da imagem e geram aviso;
+  - implementado direto em Python (protocolo do catálogo *Time Machine*), sem executável externo: usa o repositório de certificados do Windows (rede com inspeção SSL), grava o GeoTIFF por partes e guarda os índices do catálogo em cache (`%LOCALAPPDATA%\ArcMagery\cache\gehist`).
+- **Botão ■ Interromper** na barra de status: encerra a busca e os downloads em andamento (GEE, CBERS, Google Earth, Wayback) e esvazia a fila; as linhas ficam como *Cancelado*.
+- **Esri Wayback** como quarta fonte da janela principal: versões com data de captura, satélite e resolução, zoom numa coluna (todos os zooms numa busca), miniatura, fila e carga no TOC.
+- **Google Earth histórico em todos os zooms (15 a 20)** numa só busca, com a cobertura de cada zoom; em áreas grandes e no z20 a cobertura é estimada por amostragem (marcada com `~`).
+- **Downloads de tiles mais rápidos e com memória constante:** 48 threads por padrão (configurável até 64 em *Configurações*), decodificação nas threads e no máximo `threads × 4` tiles em andamento. Google Earth, 2.596 tiles: 82 s → 20 s. Núcleos padrão = CPU − 2 (antes 4). Reprojeção GDAL multithread com memória limitada.
+- **Limite de tiles de 20 mil para 100 mil** (Google Earth histórico e mosaicos XYZ, cerca de 6,5 Gpx no zoom 18), com tempo limite de 4 h por download.
 - **Catálogo CBERS / Amazônia-1 ampliado de 12 para 32 coleções do STAC do INPE:**
   - **WFI Nível 4 DN** do CBERS-4A (55 m) e do CBERS-4 (64 m);
   - **cubos de dados sem nuvens (Brazil Data Cube):** CBERS-4 WFI 16 dias, CBERS-4/4A WFI 8 dias e CBERS-4 MUX 2 meses, com os produtos **NDVI** e **EVI** prontos;
@@ -17,6 +27,17 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 - **Aviso de cobertura parcial:** após o recorte, o backend mede os pixels com imagem (`valid_pct`). Abaixo de 50% o usuário é avisado.
 
 ### 🛡️ Corrigido
+- **Revisão de código (antes da publicação):**
+  - várias datas do Google Earth / Wayback selecionadas baixavam em paralelo, cada uma com 48 threads (até ~288 conexões): agora uma linha por vez; downloads simultâneos de cenas GEE/CBERS limitados a 4 (os núcleos das Configurações servem ao geoprocessamento);
+  - um tile do Google Earth com falha de rede abortava o download inteiro (e uma consulta sem resposta anulava a busca de datas): agora há uma segunda rodada para os tiles que falharam e aviso dos que faltarem;
+  - pirâmides/estatísticas de um download anterior com o mesmo nome podiam ser reaproveitadas para a imagem nova;
+  - a miniatura ignorava a camada AOI da busca; a amostragem de áreas longas e estreitas no z20 ficava vazia;
+  - **Interromper** não encerra mais os downloads da janela *Mosaicos XYZ* e não trava a interface; uma busca antiga que terminava depois desligava o Interromper da busca atual.
+- **Plugin preso por minutos depois de carregar uma cena CBERS** (visto no CBERS-2): o recorte terminava em ~4 s, mas o processo do backend ficava 5 a 15 min sem encerrar, com as conexões `/vsicurl/` do GDAL abertas com o servidor do INPE, e a interface esperava o fim do processo (até 30 min). Agora as conexões são fechadas antes da saída (4 s), a interface usa o resultado assim que ele chega e, ao estourar o prazo, encerra também o processo filho (antes ficavam backends órfãos).
+- **Cenas CBERS-2/2B duplicadas na lista** (`CBERS_2_CCD_...` e `CBERS2_CCD_...` apontam para os mesmos arquivos no INPE): uma linha por cena, com o polígono real de uma e o horário real de aquisição da outra.
+- **CBERS-4A WPM 2 m fusionada: "Cena ... sem as bandas rgb"**. O STAC do INPE publica a fusionada como um único COG `tci` com as 3 bandas (conferido em cenas de 2023 a 2026), e o plugin procurava `rgb`. Com o nome certo, o recorte ainda pegaria só a 1ª banda (`BuildVRT(separate=True)` num arquivo multibanda): assets únicos multibanda agora entram inteiros. Corrige também os mosaicos *RGB visual* do INPE.
+- **Google Earth histórico: data 1 dia depois da do Google Earth Pro.** O catálogo guarda a data à 00:00 UTC e o Google Earth Pro a exibe no fuso local (UTC−3/−4), que cai no dia anterior. A lista, o nome da camada e a tag `ACQUISITION_DATE` passam a usar a data do Google Earth Pro (conferido pelo mantenedor: catálogo 2017-07-09 = 8/7/2017, 2022-06-28 = 27/6/2022); a data do catálogo fica em `ARCMAGERY_CATALOG_DATE_UTC`.
+- **"Tempo limite esgotado (120s) aguardando resposta do ArcMap" ao carregar rasters grandes** (P-01): o ArcMap calculava estatísticas de todos os pixels e as pirâmides na própria thread. Agora o backend gera as pirâmides (.ovr) com o GDAL em vários núcleos, o ArcMap as reaproveita, as estatísticas são por amostragem (~25 Mpx) e o prazo cresce com o tamanho do raster. Medido com arcpy em 167 Mpx: 38,6 s → 2,1 s.
 - **"'ascii' codec can't encode character u'ó' in position 1" ao carregar qualquer camada** (GEE, CBERS, Google, Esri) em máquinas sem o módulo `comtypes`:
   - a mensagem acentuada "Módulo 'comtypes' ausente..." passava por `str(e)` no Python 2 e derrubava a carga, embora o arquivo tivesse sido baixado;
   - as mensagens de erro agora são convertidas com segurança (`gee_bridge.err_text`, aceita unicode, UTF-8 e cp1252 do arcpy em pt-BR);

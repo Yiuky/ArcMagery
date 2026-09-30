@@ -245,7 +245,7 @@ def src_xyz_download(p):
         provider = release['tile_url']  # template {z}/{y}/{x} da versao escolhida
     res = xyz_core.download_mosaic(
         bbox, zoom, provider=provider,
-        out_tif=p.get('out'), workers=int(p.get('workers', 8)),
+        out_tif=p.get('out'), workers=p.get('workers'),
         max_tiles=int(p.get('max_tiles', xyz_core.DEFAULT_MAX_TILES)),
         compression=p.get('compression', 'JPEG'), target_crs=p.get('crs') or None,
         keep_cache=bool(p.get('keep_cache', False)))
@@ -323,8 +323,90 @@ def src_esri_dates(p):
 def src_esri_versions(p):
     """Versoes do Wayback com imagem diferente na area (uma por data de captura)."""
     import esri_core
-    versions = esri_core.local_versions_cached(_resolve_bbox(p), int(p.get('zoom', 17)))
+    bbox = _resolve_bbox(p)
+    zooms = p.get('zooms')
+    if not zooms:
+        versions = esri_core.local_versions_cached(bbox, int(p.get('zoom', 17)))
+        return {'success': True, 'versions': versions, 'count': len(versions)}
+    # 2 zooms por vez: cada consulta ja usa 8 threads internas, e 5 zooms simultaneos (40 conexoes)
+    # coincidiram com o servidor de metadados da Esri recusando conexoes ("Remote end closed").
+    from concurrent.futures import ThreadPoolExecutor
+    zooms = [int(z) for z in (WAYBACK_ZOOMS if zooms == 'all' else zooms)]
+    with ThreadPoolExecutor(max_workers=min(2, len(zooms))) as pool:
+        per_zoom = list(pool.map(lambda z: [dict(v, zoom=z) for v in esri_core.local_versions_cached(bbox, z)], zooms))
+    versions = [v for vs in per_zoom for v in vs]
+    versions.sort(key=lambda v: (v.get('capture_date') or '', v['zoom']), reverse=True)
     return {'success': True, 'versions': versions, 'count': len(versions)}
+
+
+WAYBACK_ZOOMS = (15, 16, 17, 18, 19)
+
+
+def src_gehist_dates(p):
+    """Datas do catalogo historico do Google Earth (protocolo Keyhole) na area."""
+    import gehist_core
+    zooms = p.get('zooms')
+    if zooms == 'all':
+        zooms = gehist_core.ALL_ZOOMS
+    if zooms:
+        dates = gehist_core.list_dates_multi(_resolve_bbox(p), [int(z) for z in zooms], workers=p.get('workers'))
+    else:
+        dates = gehist_core.list_dates(_resolve_bbox(p), int(p.get('zoom', 18)), workers=p.get('workers'))
+    return {'success': True, 'dates': dates, 'count': len(dates), 'summary': gehist_core.summarize(dates)}
+
+
+def src_gehist_download(p):
+    """Imagem historica do Google Earth de uma data exata (grade nativa EPSG:4326)."""
+    import gehist_core
+    res = gehist_core.download(_resolve_bbox(p), int(p.get('zoom', 18)), p.get('date'), p.get('out'),
+                               compression=p.get('compression', 'JPEG'), target_crs=p.get('crs') or None,
+                               workers=p.get('workers'))
+    providers = u', '.join(res.get('providers') or []) or p.get('providers') or u''
+    res.update(success=True, capture_summary=u"%s%s" % (p['date'], u" (%s)" % providers if providers else u''))
+    try:
+        gehist_core.write_tags(res['file'], p['date'], providers, res['coverage_pct'], res.get('catalog_date'))
+    except Exception:
+        pass  # sem GDAL: o GeoTIFF continua valido, so sem as tags de data
+    return res
+
+
+def src_gehist_thumb(p):
+    import gehist_core
+    return dict(gehist_core.thumbnail(_resolve_bbox(p), int(p.get('zoom', 18)), p.get('date'), p.get('out')),
+                success=True)
+
+
+def src_wayback_thumb(p):
+    """Previa de uma versao Wayback: ate 3x3 tiles no centro da area, no zoom da busca."""
+    import io as _io
+    import esri_core
+    import xyz_core
+    from PIL import Image
+    import tilemath
+    bbox = _resolve_bbox(p)
+    zoom = int(p.get('zoom', 17))
+    release = esri_core.release_by_num(p['wayback_release'])
+    prov = xyz_core.get_provider(release['tile_url'])
+    x0, x1, y0, y1 = tilemath.tile_range(bbox, zoom)
+    cx, cy = tilemath.lonlat_to_tile((bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0, zoom)
+    xs = [x for x in range(cx - 1, cx + 2) if x0 <= x <= x1]
+    ys = [y for y in range(cy - 1, cy + 2) if y0 <= y <= y1]
+    canvas = Image.new('RGB', (len(xs) * 256, len(ys) * 256), (0, 0, 0))
+    got = 0
+    for j, y in enumerate(ys):
+        for i, x in enumerate(xs):
+            data = xyz_core.fetch_tile(xyz_core.tile_url(prov, x, y, zoom), retries=2)
+            if data:
+                with Image.open(_io.BytesIO(data)) as im:
+                    canvas.paste(im.convert('RGB').resize((256, 256)), (i * 256, j * 256))
+                got += 1
+    if not got:
+        raise ValueError(u"A versão Wayback não tem imagem no centro da área.")
+    out = p.get('out')
+    canvas.save(out, 'PNG')
+    gif = os.path.splitext(out)[0] + '.gif'
+    canvas.save(gif, 'GIF')
+    return {'success': True, 'file': out, 'gif': gif, 'tiles': got}
 
 
 def src_stac_search(p):
@@ -358,6 +440,10 @@ SOURCE_COMMANDS = {
     'stac_download': src_stac_download,
     'esri_dates': src_esri_dates,
     'esri_versions': src_esri_versions,
+    'gehist_dates': src_gehist_dates,
+    'gehist_download': src_gehist_download,
+    'gehist_thumb': src_gehist_thumb,
+    'wayback_thumb': src_wayback_thumb,
 }
 
 
@@ -372,7 +458,35 @@ def run_source_command(name, params):
     sys.stderr.flush()
     # O GDAL/curl pode manter threads que travam o encerramento normal do interpretador
     # (observado com /vsicurl/). Todo o resultado ja foi entregue: encerrar imediatamente.
-    os._exit(0 if result.get('success') else 1)
+    hard_exit(0 if result.get('success') else 1)
+
+
+def hard_exit(code):
+    """Encerra o processo sem esperar a limpeza do interpretador.
+
+    Causa raiz do travamento de 5 a 15 min apos um recorte CBERS (medido: recorte em 4 s, processo
+    vivo por 300-900 s): conexoes /vsicurl/ do GDAL ainda abertas com o servidor do INPE. O Windows
+    so encerra o processo depois de cancelar essa E/S de rede - nem os._exit nem TerminateProcess
+    adiantam. Fechar as conexoes antes (VSICurlClearCache) faz o processo sair na hora."""
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+    gdal_mod = sys.modules.get('osgeo.gdal')
+    if gdal_mod is not None:
+        try:
+            gdal_mod.VSICurlClearCache()
+        except Exception:
+            pass
+    if os.name == 'nt':
+        try:
+            import ctypes
+            k32 = ctypes.windll.kernel32
+            k32.TerminateProcess(k32.GetCurrentProcess(), int(code))
+        except Exception:
+            pass
+    os._exit(code)
 
 
 def main():

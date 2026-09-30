@@ -49,6 +49,8 @@ manuais. Foi desenvolvido na Coordenadoria de Geoprocessamento e Monitoramento A
 |---|---|---|
 | **Google Earth Engine** | Sentinel-2, Landsat 1–9: cenas, mosaicos por mediana com máscara de nuvem, índices (NDVI, NDWI, NDMI, NBR, EVI, SAVI), matemática de bandas e multibanda completa | 10–60 m |
 | **Google Earth / XYZ** *(novo)* | Google Satélite, Google Híbrido, Esri World Imagery, Esri Clarity e Bing Aerial, costurados num GeoTIFF georreferenciado. Com a Esri: **data de captura** e **histórico Wayback** desde 2014 | até ~0,15 m (zoom 20) |
+| **Google Earth histórico** *(novo)* | Datas do histórico do Google Earth (como no Google Earth Pro), com provedor e cobertura da área; baixa a imagem de uma ou várias datas na grade nativa EPSG:4326, até 100 mil tiles | ~0,15–4,8 m (zoom 20–15) |
+| **Esri Wayback** *(novo)* | Versões históricas da Esri World Imagery desde 2014, com a **data de captura**, o satélite e a resolução de cada uma; todos os zooms numa busca | ~0,3–4,6 m (zoom 19–15) |
 | **CBERS / Amazônia-1** *(novo)* | STAC do INPE, 32 coleções: CBERS-4A WPM (2 m pan e 8 m multiespectral, fusionada 2 m), MUX, WFI, PAN 5/10 m e Amazônia-1 WFI (Níveis 4 e 2); cubos sem nuvens com NDVI/EVI; histórico CBERS-2/2B (2003–2010, HRC 2,5 m); mosaicos | 2–260 m |
 
 ### Destaques
@@ -109,6 +111,16 @@ Detalhes técnicos, convenções e armadilhas conhecidas estão em [AGENTS.md](A
   (INPE)*. O fluxo é o mesmo do GEE: escolha a coleção (satélite), o produto (composição), o
   período e a área, e clique em **Buscar Cenas no INPE**. Confira a *Cobertura da AOI %* e a
   **Miniatura**, e use **Carregar no ArcMap**. Não exige login no GEE.
+- **Google Earth histórico:** barra **Fonte de imagens** › *Google Earth histórico (por data)*. Escolha o
+  zoom (no lugar do satélite), o período e a área, e clique em **Listar Datas do Google Earth**. A tabela
+  mostra cada data com a cobertura e o provedor. Veja a **Miniatura** e use **Carregar no ArcMap** (uma ou
+  várias datas, com fila). Não exige login no GEE. Com *TODOS os zooms* (padrão), cada data aparece em cada zoom
+  disponível, com a cobertura daquele zoom na coluna **Zoom** (`~` = estimada por amostragem).
+- **Esri Wayback:** barra **Fonte de imagens** › *Esri Wayback (por versão)* › **Listar Versões do Esri Wayback**.
+  Cada linha é uma versão com imagem diferente na área, com a data de captura. A consulta depende dos servidores
+  de metadados da Esri (15 s a 3 min) e fica em cache.
+- **Desempenho:** *Configurações › Processamento & Sistema* define os núcleos (padrão: CPU − 2) e as **threads de
+  download de tiles** (padrão 48, até 64).
 
 > ⚠️ **Termos de Uso:** o download em massa de tiles do **Google** e do **Bing** fora das APIs
 > oficiais viola os Termos de Serviço desses provedores. O ArcMagery exibe um aviso antes do

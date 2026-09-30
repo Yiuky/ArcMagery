@@ -44,7 +44,7 @@ COLLECTIONS = {
     'CB4A-WPM-L4-DN-1': {'label': u'CBERS-4A WPM - 8 m multiespectral + 2 m pancromática (L4)',
                          'ms': _WPM, 'pan': 'BAND0', 'res': 8.0, 'pan_res': 2.0},
     'CB4A-WPM-PCA-FUSED-1': {'label': u'CBERS-4A WPM - 2 m fusionada RGB (PCA)',
-                             'fused': 'rgb', 'res': 2.0},
+                             'fused': 'tci', 'res': 2.0},   # um COG com as 3 bandas
     'CB4A-MUX-L4-DN-1': {'label': u'CBERS-4A MUX - 16 m (L4 DN)', 'ms': _MUX, 'res': 16.5},
     'CB4A-MUX-L4-SR-1': {'label': u'CBERS-4A MUX - 16 m reflectância de superfície', 'ms': _MUX, 'res': 16.5},
     'CB4A-WFI-L4-SR-1': {'label': u'CBERS-4A WFI - 55 m reflectância de superfície', 'ms': _WFI, 'res': 55.0},
@@ -109,6 +109,19 @@ _SPECIAL_PLANS = {
     'wfi2': [('multi', (['BAND1', 'BAND2'], None))],       # vermelho + NIR (sem banda verde/azul)
     'visual': [('visual', (['VISUAL'], [0, 1, 2]))],
 }
+# Nomes alternativos de assets (o STAC do INPE publica a fusionada como 'tci'; 'rgb' era o nome antigo)
+ASSET_ALIASES = {'TCI': ('RGB', 'VISUAL'), 'VISUAL': ('TCI',)}
+
+
+def resolve_asset(assets, name):
+    """Asset pelo nome, sem diferenciar maiusculas e aceitando os nomes alternativos."""
+    by_upper = dict((k.upper(), v) for k, v in assets.items())
+    for cand in (name.upper(),) + ASSET_ALIASES.get(name.upper(), ()):
+        if cand in by_upper:
+            return by_upper[cand]
+    return None
+
+
 _EXTRA_PLANS = {
     'indices': [('ndvi', (['NDVI'], None)), ('evi', (['EVI'], None))],   # Int16, escala 0,0001
 }
@@ -376,8 +389,31 @@ def search(collections, bbox, start_date=None, end_date=None, max_cloud=None, ma
             body = dict(body, **(nxt.get('body') or {})) if nxt.get('merge') else (nxt.get('body') or body)
         else:
             body = None
+    results = dedupe_same_scene(results)
     results.sort(key=lambda it: it.get('datetime') or '', reverse=True)
     return results[:max_items]
+
+
+def dedupe_same_scene(items):
+    """O INPE publica cenas do CBERS-2/2B duas vezes ('CBERS_2_CCD_...' e 'CBERS2_CCD_...') apontando
+    para os MESMOS arquivos. Mantem uma linha por cena (mesmo identificador normalizado): o poligono
+    real (cobertura exata) de uma e o horario real de aquisicao da outra (a segunda marca 00:00)."""
+    by_key, out = {}, []
+    for it in items:
+        key = re.sub(r'^CBERS_2(B?)_', r'CBERS2\1_', it.get('id') or '')
+        prev = by_key.get(key)
+        if prev is None:
+            by_key[key] = it
+            out.append(it)
+            continue
+        keep, other = (prev, it) if not prev.get('coverage_is_estimate') or it.get('coverage_is_estimate') else (it, prev)
+        if (keep.get('datetime') or '').endswith('T00:00:00.000000Z') and other.get('datetime'):
+            keep['datetime'] = other['datetime']
+        keep.setdefault('duplicate_ids', []).append(other['id'])
+        if keep is not prev:
+            out[out.index(prev)] = keep
+            by_key[key] = keep
+    return out
 
 
 def get_item(collection_id, item_id):
@@ -521,10 +557,10 @@ def download(collection_id, item_id, bbox, out_tif=None, mode='rgb', item=None,
     assets_order, rgb = band_plan(collection_id, mode)
     feature = item or get_item(collection_id, item_id)
     assets = feature.get('assets', {})
-    # o catalogo declara 'visual' e os itens trazem 'VISUAL': casar sem diferenciar maiusculas
-    by_upper = dict((k.upper(), v) for k, v in assets.items())
-    assets = dict((a, assets.get(a) or by_upper.get(a.upper())) for a in assets_order if (a in assets or a.upper() in by_upper))
-    missing = [a for a in assets_order if a not in assets]
+    # 'visual' x 'VISUAL', 'tci' x 'rgb': casar sem diferenciar maiusculas e com nomes alternativos
+    assets = dict((a, resolve_asset(assets, a)) for a in assets_order)
+    missing = [a for a in assets_order if not assets[a]]
+    assets = dict((a, v) for a, v in assets.items() if v)
     if missing:
         raise StacError(u"Cena %s sem as bandas %s." % (item_id, ', '.join(missing)))
     sources = [_vsi(assets[a]['href']) for a in assets_order]
@@ -536,7 +572,8 @@ def download(collection_id, item_id, bbox, out_tif=None, mode='rgb', item=None,
 
     _log(u"CBERS %s: abrindo %d banda(s) remotas..." % (item_id, len(sources)))
     vrt_path = '/vsimem/arcmagery_%s_%d.vrt' % (item_id, int(time.time() * 1000))
-    vrt = gdal.BuildVRT(vrt_path, sources, separate=True)
+    # Um asset so (fusionada 'tci', mosaico 'visual') ja traz as 3 bandas: separate=True pegaria so a 1a
+    vrt = gdal.BuildVRT(vrt_path, sources, separate=len(sources) > 1)
     if vrt is None:
         raise StacError(u"Falha ao montar as bandas da cena %s." % item_id)
     try:
@@ -557,8 +594,12 @@ def download(collection_id, item_id, bbox, out_tif=None, mode='rgb', item=None,
                        creationOptions=['TILED=YES', 'COMPRESS=DEFLATE', 'PREDICTOR=2', 'BIGTIFF=IF_SAFER'],
                        callback=_cb)
         out = gdal.Open(tmp, gdal.GA_Update)
-        for i, a in enumerate(assets_order):
-            out.GetRasterBand(i + 1).SetDescription(a)
+        if len(assets_order) == out.RasterCount:
+            for i, a in enumerate(assets_order):
+                out.GetRasterBand(i + 1).SetDescription(a)
+        else:   # asset unico multibanda
+            for i in range(out.RasterCount):
+                out.GetRasterBand(i + 1).SetDescription(u"%s_%s" % (assets_order[0], u"RGB"[i] if i < 3 else i + 1))
         if not _has_valid_pixels(out.GetRasterBand(1)):
             out = None
             os.remove(tmp)
@@ -570,6 +611,9 @@ def download(collection_id, item_id, bbox, out_tif=None, mode='rgb', item=None,
         out = None
         if os.path.exists(out_tif):
             os.remove(out_tif)
+        for ext in ('.ovr', '.aux.xml'):   # piramides/estatisticas de um recorte anterior com o mesmo nome
+            if os.path.exists(out_tif + ext):
+                os.remove(out_tif + ext)
         os.replace(tmp, out_tif)
     finally:
         vrt = None

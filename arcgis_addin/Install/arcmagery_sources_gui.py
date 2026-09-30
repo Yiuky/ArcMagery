@@ -35,6 +35,7 @@ import gee_bridge
 from backend import tilemath
 
 XYZ_GROUP = u"ArcMagery - Google Earth / XYZ"
+XYZ_BACKEND_GROUP = 'xyz'   # o botao Interromper da janela principal nao encerra os downloads desta janela
 
 # Espelho leve dos catalogos do backend (a lista completa e confirmada via 'sources_info').
 XYZ_PROVIDERS = [
@@ -54,8 +55,9 @@ TOS_TEXT = (u"ATENÇÃO - Termos de Uso\n\n"
 
 # ------------------------------------------------------------------------ funcoes puras
 ESRI_KEYS = ('esri', 'esri-clarity')
-NO_DATES_TEXT = (u"Datas de captura indisponíveis para esta fonte: o Google e o Bing não oferecem API pública "
-                 u"com a data das imagens. Use a Esri World Imagery para obter data e histórico.")
+NO_DATES_TEXT = (u"Datas de captura indisponíveis para esta fonte (a imagem atual do Google e do Bing não informa "
+                 u"a data). Para escolher uma data, use a fonte 'Google Earth histórico (por data)' na janela "
+                 u"principal, ou a Esri World Imagery aqui.")
 
 
 def is_esri(provider_key):
@@ -417,12 +419,12 @@ class ExtraSourcesDialog(object):
         try:
             bbox = self._resolve_bbox(area)
             params = {'bbox': ','.join('%.8f' % v for v in bbox), 'zoom': zoom}
-            cur = gee_bridge.run_backend_cmd('esri_dates', params, python_exe=gee_bridge.find_python3_gdal())
+            cur = gee_bridge.run_backend_cmd('esri_dates', params, python_exe=gee_bridge.find_python3_gdal(), group=XYZ_BACKEND_GROUP)
             if not cur.get('success'):
                 raise RuntimeError(cur.get('message') or u"Falha ao consultar as datas.")
             versions = []
             if wayback:
-                ver = gee_bridge.run_backend_cmd('esri_versions', params, python_exe=gee_bridge.find_python3_gdal())
+                ver = gee_bridge.run_backend_cmd('esri_versions', params, python_exe=gee_bridge.find_python3_gdal(), group=XYZ_BACKEND_GROUP)
                 if ver.get('success'):
                     versions = ver.get('versions', [])
             self._post(lambda: self._show_dates(cur, versions))
@@ -503,7 +505,8 @@ class ExtraSourcesDialog(object):
                 'bbox': ','.join('%.8f' % v for v in bbox), 'zoom': p['zoom'], 'provider': p['provider'],
                 'out': out, 'compression': p['compression'], 'crs': p['crs'],
                 'wayback_release': p.get('wayback_release'), 'footprints': p.get('footprints', False),
-            }, on_progress=on_progress, python_exe=gee_bridge.find_python3_gdal())
+                'workers': gee_bridge.tile_threads(self.settings),
+            }, on_progress=on_progress, python_exe=gee_bridge.find_python3_gdal(), group=XYZ_BACKEND_GROUP)
             if not res.get('success'):
                 raise RuntimeError(res.get('message') or u"Falha no download do mosaico.")
             self._post(lambda: self._set_status('xyz', u"Carregando no ArcMap...", 100))

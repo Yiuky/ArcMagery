@@ -24,6 +24,7 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | ID | Verificar no ArcMap | Arquivos |
 |---|---|---|
 | V-01 | Barra **Fonte de imagens**: alternar GEE ↔ CBERS adapta a janela; o botão **Google Earth / Mosaicos XYZ...** abre uma única janela | `gee_gui.on_source_changed`, `on_open_extra_sources` |
+| V-13 | Janela principal, fontes **Google Earth histórico** e **Esri Wayback**: com *todos os zooms*, a tabela mostra a coluna Zoom e uma linha por data/versão e zoom; **Miniatura**; carregar 2 linhas (fila) numa área grande (ex.: 47.920 × 29.369 px no z18) sem o aviso "Tempo limite esgotado (120s)"; a imagem cai no lugar certo; Properties › Source mostra `ACQUISITION_DATE`; Configurações › Threads de download de tiles é respeitado | `arcmagery_gehist.py`, `arcmagery_wayback.py`, `gee_gui.py`, `gee_bridge._stats_and_pyramids` |
 | V-12 | Janela Google Earth / XYZ com a fonte Esri: **Consultar datas desta área** lista a data atual e o histórico; baixar uma versão antiga; o nome da camada traz a data; os polígonos de datas entram com contorno amarelo sem preenchimento e rótulo | `esri_core.py`, `arcmagery_sources_gui.py`, `gee_bridge.load_date_footprints` |
 | V-11 ✅ 2026-09-29 (S2 1182 e CBERS WPM rgb conferidos no ArcMap real) | Carregar uma imagem multibanda (ex.: CBERS multibanda, S2 B8-B4-B3) e uma de 1 banda (NDVI): Properties › Symbology mostra RGB Composite com as bandas pedidas / Stretched, com o Stretch e a origem das estatísticas das Configurações | `arcmagery_symbology.py`, `gee_bridge.load_into_toc` |
 | V-10 | CBERS pela janela principal: buscar, ver a **Miniatura**, carregar 2 cenas (fila) e usar **Substituir no TOC** numa camada CBERS | `gee_gui`, `arcmagery_inpe.py` |
@@ -39,27 +40,6 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 ---
 
 ## P0 — Bloqueia uso ou segurança
-
-### N-09 · Data de captura e imagens históricas do Google Earth ("Data das imagens")
-- **Status:** BLOQUEADO para o Google. A **alternativa Esri foi implementada na v2.3.0** (data de captura,
-  histórico Wayback e polígonos de datas). Em 2026-09-29 o mantenedor indicou os projetos
-  EarthRipper e EarthCapture como referência. Eles usam o mesmo protocolo interno do Google Earth, e o
-  caminho continua fora do escopo pelos mesmos motivos (política de segurança do ambiente e Termos
-  de Serviço do Google).
-- **Pedido:** mostrar a data das imagens (como no rodapé do Google Earth Pro e do Google Earth
-  Online) e permitir baixar imagens históricas por data.
-- **Bloqueio:** não existe API pública do Google para isso. Os dados vêm de um banco interno e
-  não documentado do Google Earth (histórico "timemachine"), cujo acesso exige engenharia reversa
-  e decifração do protocolo. A tentativa de pesquisar e implementar esse caminho foi **negada
-  pela política de segurança do ambiente de desenvolvimento**. Além disso, violaria os Termos de
-  Serviço do Google. **Não implemente por esse caminho.**
-- **Alternativas legítimas (a decidir com o mantenedor):**
-  1. **Esri World Imagery com data de captura:** o serviço público de metadados da World Imagery
-     informa, por área, a data da cena, a fonte (Maxar, Airbus...) e a resolução.
-  2. **Esri World Imagery Wayback:** versões históricas publicadas pela Esri desde 2014, com datas
-     de lançamento. Permite escolher uma versão por data e baixar como XYZ, com o mesmo `xyz_core`.
-  3. **CBERS / Sentinel / Landsat:** já datados por cena (INPE e GEE).
-  4. Imagens comerciais datadas (Maxar/Airbus) apenas via licença ou API oficial.
 
 ### U-02 · O script gerado pelo atualizador encerra TODOS os `pythonw.exe`
 - **Status:** ABERTO
@@ -87,12 +67,6 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 - **Onde:** `gee_updater.generate_and_launch_detached_runner` (`chcp 65001` + arquivo gravado em ANSI/bytes).
 - **Cenário:** usuário `C:\Users\joão.silva`, onde todos os caminhos do `.bat` ficam inválidos.
 - **Correção sugerida:** gravar com `io.open(..., encoding='utf-8')` e caminhos unicode, ou substituir o `.bat` por um executor Python desacoplado.
-
-### P-01 · Timeout de IPC menor que `CalculateStatistics`/`BuildPyramids` em rasters grandes
-- **Status:** ABERTO
-- **Onde:** `gee_bridge.load_into_toc` (roda na thread de interface do ArcMap) e os timeouts de `send_arcmap_command` (120–300 s).
-- **Cenário:** um mosaico XYZ de vários GB passa do tempo limite. A interface mostra "falha", a camada aparece depois, e o usuário baixa de novo.
-- **Correção sugerida:** o ArcMap grava um "ack/em andamento" ao consumir o comando, e a interface estende o prazo enquanto houver heartbeat. Pirâmides opcionais para mosaicos XYZ.
 
 ### G-01 · Janela do atualizador chama `self.top.after` de threads de trabalho
 - **Status:** ABERTO
@@ -182,6 +156,12 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | C-12 | 2.0.0 | Nova fonte CBERS / Amazônia-1 (STAC INPE), com cobertura real da AOI | `tests/backend/test_stac_core.py` |
 | C-13 | 2.0.0 | `gdal.Unlink` no `finally` mascarava o erro real do recorte CBERS | `test_stac_core.py::test_aoi_outside_raster` |
 | C-16 | 2.0.0 | Versão do pacote ZIP lida como "Desconhecida" (namespace do config.xml), o que anulava o bloqueio de downgrade | `test_updater_security.py::RealZipValidationTest` |
+| C-34 | 2.3.3 | Revisão de código: concorrência de fontes de tiles e limite de 4 downloads simultâneos; falhas de rede por tile/pacote no Google Earth histórico (2ª rodada, sem abortar); pirâmides/estatísticas antigas descartadas; miniatura com a AOI; amostragem de faixas estreitas; Interromper por janela e sem bloquear; estado da busca por token; funções comuns das fontes de tiles em `arcmagery_tilesource.py` | `tests/backend/test_review_fixes.py`, `tests/arcmap/test_review_fixes.py` |
+| C-33 | 2.3.3 | Plugin preso após carga CBERS (backend vivo 5-15 min por conexões `/vsicurl/` abertas: `VSICurlClearCache` antes de sair), interface usa o resultado sem esperar o processo, `taskkill /T` (sem órfãos), botão Interromper, CBERS-2/2B duplicados mesclados. Deslocamento CBERS-2 entre datas (~650 m medidos) é do produto Nível 2 do INPE: aviso na descrição da coleção | `tests/arcmap/test_cancel_and_hang.py` (processos reais), `test_stac_core.py::test_duplicate_cbers2_entries_are_merged` |
+| C-32 | 2.3.3 | CBERS fusionada 2 m (asset `tci` multibanda: "sem as bandas rgb" e, depois, só 1 banda) e mosaicos RGB visual; data do Google Earth histórico igual à do Google Earth Pro (catálogo UTC − 1 dia) | `test_stac_core.py::test_single_multiband_asset_keeps_all_bands`, `test_gehist_core.py::test_google_earth_pro_date_convention` |
+| C-31 | 2.3.3 | Esri Wayback como quarta fonte da janela principal (versões na tabela com data de captura, satélite e resolução; zoom numa coluna; todos os zooms em paralelo; miniatura; fila). Google Earth histórico varrendo todos os zooms (15-20) numa busca, com a cobertura de cada zoom (estimada por amostragem em áreas grandes e no z20) | `tests/arcmap/test_wayback_integration.py`, `test_gehist_integration.py`, `test_parallel_and_overviews.py::MultiZoomTest` |
+| C-30 | 2.3.3 | P-01: carga de rasters grandes estourava o prazo de 120 s (mosaico de 1,4 Gpx). O backend gera as pirâmides (.ovr, GDAL multinúcleo) e o ArcMap as reaproveita (`SKIP_EXISTING`); estatísticas por amostragem (~25 Mpx); prazo proporcional ao tamanho. Medido com arcpy em 167 Mpx: 38,6 s → 2,1 s. Download com janela limitada de tiles em andamento (memória constante) e 48 threads por padrão (Google Earth: 82 s → 20 s em 2.596 tiles) | `test_parallel_and_overviews.py`, `test_wayback_integration.py::BridgePerformanceHelpersTest` |
+| C-29 | 2.3.3 | N-09: Google Earth histórico por data como terceira fonte da janela principal (mesmo fluxo do CBERS: zoom como "sensor", datas na tabela, fila, miniatura, TOC), implementado direto em Python (`gehist_core.py`, porta do `C:\DOWNLOADER_EARTH`), sem executável; grade geográfica EPSG:4326; limite de 100 mil tiles (também no XYZ). O bloqueio antes registrado no N-09 não foi determinado pelo mantenedor e foi revogado por ele em 2026-09-29. Uma versão intermediária (não publicada) usava o `downloader_earth.exe` e georreferenciava como Web Mercator: deslocava a imagem (~35 m a 10° S) e abortava em áreas grandes ("Imagem com 30208x21248 px, mas a grade... tem 30208x21760 px") | `tests/backend/test_gehist_core.py` (servidor Keyhole simulado, `test_keyhole_grid_is_not_web_mercator`), `tests/arcmap/test_gehist_integration.py` |
 | C-28 | 2.3.3 | Carga no TOC quebrava com `UnicodeEncodeError` (mensagem acentuada via `str(e)`) em máquina sem `comtypes`; `comtypes` embutido; diagnóstico de "nenhum tile" (Clarity) | `test_bridge.py::ErrTextTest`, `test_xyz_core.py::test_no_tiles_reports_server_answer` |
 | C-27 | 2.3.3 | CBERS: 20 coleções novas (WFI L4 DN, cubos com NDVI/EVI, Nível 2, CBERS-2/2B, mosaicos), cobertura estimada em footprints retangulares, aviso de cobertura parcial, plano B `bbox` no HTTP 500 dos mosaicos | `test_stac_core.py`, `test_inpe_integration.py::test_catalog_sync_with_backend` |
 | C-26 | 2.3.2 | U-01: primeira Release verificável publicada automaticamente pela tag v2.3.2 (zip + SHA256SUMS), reconhecida e validada pelo atualizador do plugin | `.github/workflows/release.yml` |

@@ -27,7 +27,11 @@ class StacPureTest(unittest.TestCase):
         self.assertEqual(stac_core.band_plan('CB4-MUX-L4-SR-1', 'rgb'), (['BAND7', 'BAND6', 'BAND5'], [0, 1, 2]))
         self.assertEqual(stac_core.band_plan('AMZ1-WFI-L4-SR-1', 'rgb'), (['BAND3', 'BAND2', 'BAND1'], [0, 1, 2]))
         self.assertEqual(stac_core.band_plan('CB4-PAN10M-L4-DN-1', 'false'), (['BAND4', 'BAND3', 'BAND2'], [0, 1, 2]))
-        self.assertEqual(stac_core.band_plan('CB4A-WPM-PCA-FUSED-1', 'fused'), (['rgb'], [0, 1, 2]))
+        # o STAC do INPE publica a fusionada como um COG 'tci' com as 3 bandas (conferido em cenas de 2023 a 2026)
+        self.assertEqual(stac_core.band_plan('CB4A-WPM-PCA-FUSED-1', 'fused'), (['tci'], [0, 1, 2]))
+        self.assertEqual(stac_core.resolve_asset({'RGB': 1}, 'tci'), 1)          # nome antigo ainda aceito
+        self.assertEqual(stac_core.resolve_asset({'visual': 2}, 'VISUAL'), 2)
+        self.assertIsNone(stac_core.resolve_asset({'thumbnail': 3}, 'tci'))
         with self.assertRaises(stac_core.StacError):
             stac_core.band_plan('CB4-PAN5M-L4-DN-1', 'rgb')
         with self.assertRaises(stac_core.StacError):
@@ -155,6 +159,23 @@ class StacSearchTest(unittest.TestCase):
         self.assertEqual(self.srv.requests[-1]['bbox'], AOI)
         self.assertNotIn('datetime', self.srv.requests[-1])      # '../..' descartado
 
+    def test_duplicate_cbers2_entries_are_merged(self):
+        """O INPE publica 'CBERS_2_CCD_...' e 'CBERS2_CCD_...' com os MESMOS arquivos."""
+        thumb = 'https://data.inpe.br/.../CBERS_2_CCD_20080811_170_111.png'
+        items = [
+            {'id': 'CBERS_2_CCD_20080811_170_111_L2', 'datetime': '2008-08-11T13:11:08.000000Z', 'thumbnail': thumb,
+             'coverage_pct': 100.0, 'coverage_is_estimate': True},
+            {'id': 'CBERS2_CCD_20080811_170_111_L2', 'datetime': '2008-08-11T00:00:00.000000Z', 'thumbnail': thumb,
+             'coverage_pct': 87.0, 'coverage_is_estimate': False},
+            {'id': 'CBERS_2_CCD_20080811_170_112_L2', 'datetime': '2008-08-11T13:11:08.000000Z', 'thumbnail': thumb,
+             'coverage_pct': 50.0, 'coverage_is_estimate': False},
+        ]
+        out = stac_core.dedupe_same_scene(items)
+        self.assertEqual([i['id'] for i in out], ['CBERS2_CCD_20080811_170_111_L2', 'CBERS_2_CCD_20080811_170_112_L2'])
+        self.assertEqual(out[0]['coverage_pct'], 87.0)                           # poligono real
+        self.assertEqual(out[0]['datetime'], '2008-08-11T13:11:08.000000Z')     # horario real
+        self.assertEqual(out[0]['duplicate_ids'], ['CBERS_2_CCD_20080811_170_111_L2'])
+
     def test_requires_bbox(self):
         with self.assertRaises(stac_core.StacError):
             stac_core.search('CB4-MUX-L4-SR-1', None)
@@ -230,6 +251,28 @@ class StacDownloadTest(unittest.TestCase):
         ds = self._assert_native_grid(out, 8.0)
         self.assertEqual(ds.RasterCount, 4)
         self.assertEqual(res['rgb_bands'], [2, 1, 0])
+
+    def test_single_multiband_asset_keeps_all_bands(self):
+        """Regressao: a fusionada ('tci', 3 bandas num so arquivo) saia 'sem as bandas rgb' e, com o
+        nome certo, o BuildVRT(separate=True) ainda pegaria so a 1a banda."""
+        from osgeo import gdal
+        tci = os.path.join(self.tmp, 'TCI.tif')
+        src = gdal.Open(self.hrefs['BAND1'])
+        ds = gdal.GetDriverByName('GTiff').Create(tci, 2000, 2000, 3, gdal.GDT_Byte, options=['TILED=YES'])
+        ds.SetGeoTransform(self.gt)
+        ds.SetProjection(src.GetProjection())
+        for b, v in enumerate((50, 60, 70)):
+            ds.GetRasterBand(b + 1).Fill(v)
+        ds = None
+        item = {'id': 'FUS', 'collection': 'CB4A-WPM-PCA-FUSED-1', 'assets': {'tci': {'href': tci},
+                                                                               'thumbnail': {'href': 'x.png'}}}
+        out = os.path.join(self.tmp, 'fused.tif')
+        res = stac_core.download('CB4A-WPM-PCA-FUSED-1', 'FUS', AOI, out, mode='fused', item=item)
+        ds = gdal.Open(out)
+        self.assertEqual(ds.RasterCount, 3)
+        self.assertEqual([int(ds.GetRasterBand(i + 1).ReadAsArray(0, 0, 1, 1)[0, 0]) for i in range(3)], [50, 60, 70])
+        self.assertEqual(ds.GetRasterBand(1).GetDescription(), 'tci_R')
+        self.assertEqual(res['rgb_bands'], [0, 1, 2])
 
     def test_missing_band_asset(self):
         hrefs = dict(self.hrefs)

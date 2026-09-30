@@ -114,6 +114,83 @@ def crop_window(bbox, zoom, tile_size=TILE_SIZE):
     }
 
 
+# ---------------------------------------------------------------------------------------------
+# Grade Keyhole (Google Earth historico): geografica EPSG:4326 (Plate Carree), NAO Web Mercator.
+# No nivel L, a grade tem 2^L x 2^L tiles de 360/2^L graus (a latitude vai de -180 a 180, so
+# metade e usada). As linhas crescem para o NORTE, a partir de -180 graus.
+# ---------------------------------------------------------------------------------------------
+METERS_PER_DEGREE = math.pi * EARTH_RADIUS / 180.0
+
+
+def keyhole_tile_deg(level):
+    return 360.0 / (2 ** level)
+
+
+def keyhole_row_col(lat, lon, level):
+    n = 2 ** level
+    row = int(math.floor((lat + 180.0) / 360.0 * n))
+    col = int(math.floor((lon + 180.0) / 360.0 * n))
+    return min(max(row, 0), n - 1), min(max(col, 0), n - 1)
+
+
+def keyhole_tile_range(bbox, level):
+    """Faixa (row_min, row_max, col_min, col_max) da grade Keyhole que cobre o BBOX WGS84."""
+    min_lon, min_lat, max_lon, max_lat = clamp_bbox(bbox)
+    eps = 1e-9  # borda exatamente sobre o limite do tile nao inclui o vizinho
+    r0, c0 = keyhole_row_col(min_lat, min_lon, level)
+    r1, c1 = keyhole_row_col(max_lat - eps, max_lon - eps, level)
+    return r0, r1, c0, c1
+
+
+def keyhole_quadtree_path(row, col, level):
+    """Caminho na quadtree do Google Earth ('0...', um digito por nivel)."""
+    chars = ['0'] * (level + 1)
+    for i in range(level, -1, -1):
+        rb, cb = row & 1, col & 1
+        row >>= 1
+        col >>= 1
+        chars[i] = str((rb << 1) | (rb ^ cb))
+    return ''.join(chars)
+
+
+def keyhole_crop_window(bbox, level, tile_size=TILE_SIZE):
+    """Janela de pixels do BBOX dentro da grade Keyhole (mesma ideia do crop_window).
+
+    A linha 0 da imagem e a linha de tiles MAIS AO NORTE (r1). Coordenadas e resolucao em graus.
+    """
+    min_lon, min_lat, max_lon, max_lat = clamp_bbox(bbox)
+    r0, r1, c0, c1 = keyhole_tile_range([min_lon, min_lat, max_lon, max_lat], level)
+    deg = keyhole_tile_deg(level)
+    res = deg / tile_size
+    grid_left = c0 * deg - 180.0
+    grid_top = (r1 + 1) * deg - 180.0
+    grid_w = (c1 - c0 + 1) * tile_size
+    grid_h = (r1 - r0 + 1) * tile_size
+    px0 = max(0, int(math.floor((min_lon - grid_left) / res + 1e-9)))
+    py0 = max(0, int(math.floor((grid_top - max_lat) / res + 1e-9)))
+    px1 = min(grid_w, int(math.ceil((max_lon - grid_left) / res - 1e-9)))
+    py1 = min(grid_h, int(math.ceil((grid_top - min_lat) / res - 1e-9)))
+    return {
+        'r0': r0, 'r1': r1, 'c0': c0, 'c1': c1,
+        'px0': px0, 'py0': py0, 'width': max(1, px1 - px0), 'height': max(1, py1 - py0),
+        'left': grid_left + px0 * res, 'top': grid_top - py0 * res, 'res': res,
+    }
+
+
+def keyhole_estimate(bbox, level, tile_size=TILE_SIZE, kb_per_tile=25.0):
+    """Estimativa para o Google Earth historico (mesmas chaves do estimate)."""
+    win = keyhole_crop_window(bbox, level, tile_size)
+    cols = win['c1'] - win['c0'] + 1
+    rows = win['r1'] - win['r0'] + 1
+    return {
+        'zoom': level, 'tiles': cols * rows, 'cols': cols, 'rows': rows,
+        'width': win['width'], 'height': win['height'],
+        'ground_res_m': win['res'] * METERS_PER_DEGREE,   # norte-sul; leste-oeste = x cos(lat)
+        'download_mb': cols * rows * kb_per_tile / 1024.0,
+        'output_mb': win['width'] * win['height'] * 3 / (1024.0 * 1024.0),
+    }
+
+
 def estimate(bbox, zoom, tile_size=TILE_SIZE, kb_per_tile=25.0):
     """Estimativa rapida para a GUI: quantidade de tiles, dimensoes e volume."""
     min_lon, min_lat, max_lon, max_lat = clamp_bbox(bbox)

@@ -68,10 +68,12 @@ _COLLECTIONS = [
     # Historico CBERS-2 / 2B
     (u"Histórico · CBERS-2 CCD · 20 m (2003-2009)", 'CB2-CCD-L2-DN-1', 20, u"28/10/2003 a 07/01/2009 (Encerrado)",
      u"B1 azul, B2 verde, B3 vermelho, B4 NIR, B5 pancromática (20 m)",
-     u"Nível 2. O footprint publicado é retangular: a cobertura da busca é estimada; o recorte informa a real."),
+     u"Nível 2 sem ortorretificação: a posição varia centenas de metros entre datas (medido: ~650 m). "
+     u"Footprint retangular: a cobertura da busca é estimada; o recorte informa a real."),
     (u"Histórico · CBERS-2B CCD · 20 m (2007-2010)", 'CB2B-CCD-L2-DN-1', 20, u"25/09/2007 a 11/03/2010 (Encerrado)",
      u"B1 azul, B2 verde, B3 vermelho, B4 NIR, B5 pancromática (20 m)",
-     u"Nível 2. O footprint publicado é retangular: a cobertura da busca é estimada; o recorte informa a real."),
+     u"Nível 2 sem ortorretificação: a posição varia centenas de metros entre datas (medido: ~650 m). "
+     u"Footprint retangular: a cobertura da busca é estimada; o recorte informa a real."),
     (u"Histórico · CBERS-2B HRC · 2,5 m pancromática (2007-2010)", 'CB2B-HRC-L2-DN-1', 2.5,
      u"29/09/2007 a 11/03/2010 (Encerrado)", u"BAND1 pancromática (2,5 m)", u"Nível 2. Cenas pequenas (~27 km)."),
     (u"Histórico · CBERS-2 WFI · 260 m (2003-2005)", 'CB2-WFI-L2-DN-1', 260, u"22/10/2003 a 13/04/2005 (Encerrado)",

@@ -101,7 +101,7 @@ class DialogSmokeTest(unittest.TestCase):
     def test_xyz_worker_calls_backend_and_loads_rgb(self):
         calls = {}
 
-        def fake_backend(cmd, params, on_progress=None, python_exe=None):
+        def fake_backend(cmd, params, on_progress=None, python_exe=None, **kw):
             calls['cmd'], calls['params'] = cmd, params
             on_progress('[ArcGEE] PROGRESS 10/20 tiles')
             return {'success': True, 'file': u'C:\\tmp\\x.tif', 'width': 10, 'height': 10,
@@ -169,7 +169,7 @@ class DialogSmokeTest(unittest.TestCase):
     def test_xyz_worker_names_layer_with_capture_date_and_loads_footprints(self):
         sent, calls = [], {}
 
-        def fake_backend(cmd, params, on_progress=None, python_exe=None):
+        def fake_backend(cmd, params, on_progress=None, python_exe=None, **kw):
             calls['params'] = params
             return {'success': True, 'file': u'C:\\tmp\\w.tif', 'width': 5, 'height': 5, 'ground_res_m': 1.16,
                     'tiles': 81, 'seconds': 10, 'capture_summary': u'2020-06-29 (WV03)',
