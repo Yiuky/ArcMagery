@@ -1140,7 +1140,14 @@ def prepare_staging_environment(zip_path):
 # SCRIPT DESACOPLADO E TRANSAÇÃO COM ROLLBACK AUTOMÁTICO
 # ==============================================================================
 
-def generate_and_launch_detached_runner(staging_info, backup_info):
+def _bat_text(text):
+    """Texto no mesmo tipo do template do .bat (bytes UTF-8 no Python 2; o .bat usa chcp 65001)."""
+    if sys.version_info[0] < 3 and not isinstance(text, bytes):
+        return text.encode("utf-8")
+    return text
+
+
+def generate_and_launch_detached_runner(staging_info, backup_info, sync_dev_repo=True, success_text=None):
     """
     Gera e despacha o script de instalação desacoplado com transação e ROLLBACK AUTOMÁTICO.
     O script roda independente de processos Python (evitando travas de arquivos) e:
@@ -1156,7 +1163,10 @@ def generate_and_launch_detached_runner(staging_info, backup_info):
     sys_dirs = find_system_directories()
     addin_dir = sys_dirs["addin_dir"]
     cache_dir = sys_dirs["cache_dir"]
-    dev_repo = sys_dirs["dev_repo"] or ""
+    # No rollback a versao ANTIGA nunca e copiada para o repositorio de desenvolvimento
+    dev_repo = (sys_dirs["dev_repo"] or "") if sync_dev_repo else ""
+    success_text = success_text or (u"ArcMagery atualizado com sucesso!`n`nTodos os arquivos foram validados, "
+                                    u"instalados e recompilados.`nReabra o ArcMap para carregar a nova versão.")
 
     staging_dir = staging_info["staging_dir"]
     config_file = staging_info["config_file"]
@@ -1272,7 +1282,7 @@ if defined DEV_REPO if exist "%DEV_REPO%\arcgis_addin" (
 echo [%DATE% %TIME%] [SUCESSO] Atualização concluída com êxito e validada! >> "%LOG_FILE%"
 rd /s /q "%STAGING_DIR%" 2>nul
 
-powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show('ArcMagery atualizado com sucesso!`n`nTodos os arquivos foram validados, instalados e recompilados.`nReabra o ArcMap para carregar a nova versão.', 'Atualização Concluída', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)"
+powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show('{success_text}', 'Atualização Concluída', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)"
 (goto) 2>nul & del "%~f0"
 exit /b 0
 
@@ -1340,7 +1350,8 @@ exit /b 1
         install_dir=install_dir,
         config_file=config_file,
         inst_backend=inst_backend,
-        dev_repo=dev_repo
+        dev_repo=dev_repo,
+        success_text=_bat_text(success_text.replace("'", ""))
     )
 
     with open(bat_path, "w") as f_bat:
@@ -1570,3 +1581,123 @@ def execute_online_github_update_flow(current_version="2.3.3", progress_callback
     download_github_archive(tmp_zip, progress_callback=dl_progress, url=zip_url)
     return execute_zip_update_flow(tmp_zip, current_version=current_version, progress_callback=progress_callback,
                                    expected_sha256=expected_sha, allow_downgrade=allow_downgrade)
+
+
+# ==============================================================================
+# ROLLBACK PARA A VERSAO ANTERIOR (a partir dos snapshots de backup)
+# ==============================================================================
+
+def list_version_backups(backups_root=None):
+    """Snapshots validos (com AssemblyCache/gee_gui.py e config.xml), do mais recente ao mais antigo."""
+    import json
+    root = backups_root or get_backups_dir()
+    out = []
+    try:
+        names = os.listdir(root)
+    except Exception:
+        return out
+    for name in names:
+        d = os.path.join(root, name)
+        cache = os.path.join(d, "AssemblyCache")
+        if not (name.startswith("backup_") and os.path.isdir(d)):
+            continue
+        if not (os.path.exists(os.path.join(cache, "gee_gui.py")) and os.path.exists(os.path.join(cache, "config.xml"))):
+            continue
+        meta = {}
+        try:
+            with open(os.path.join(d, "backup_manifest.json"), "r") as f:
+                meta = json.load(f)
+        except Exception:
+            pass
+        version = meta.get("version") or _config_version(os.path.join(cache, "config.xml")) or u"?"
+        out.append({
+            "dir": d, "cache_dir": cache, "version": version,
+            "timestamp": meta.get("timestamp") or u"",
+            "mtime": os.path.getmtime(d),
+            "addin": os.path.join(d, "GEE_Image_Selector.esriaddin") if os.path.exists(
+                os.path.join(d, "GEE_Image_Selector.esriaddin")) else None,
+        })
+    out.sort(key=lambda b: b["mtime"], reverse=True)
+    return out
+
+
+def _config_version(config_xml):
+    try:
+        root = ET.parse(config_xml).getroot()
+        for el in root.iter():
+            if el.tag.endswith("Version") and (el.text or "").strip():
+                return el.text.strip()
+    except Exception:
+        pass
+    return None
+
+
+def describe_backup(b):
+    """'v2.3.3 de 29/09/2026 14:05' para a interface."""
+    ts = b.get("timestamp") or ""
+    when = u""
+    if len(ts) >= 15:
+        when = u" de %s/%s/%s %s:%s" % (ts[6:8], ts[4:6], ts[0:4], ts[9:11], ts[11:13])
+    return u"v%s%s" % (b.get("version"), when)
+
+
+def find_previous_version_backup(backups_root=None):
+    """Versao anterior = o snapshot mais recente (tirado antes da ultima atualizacao ou rollback)."""
+    backups = list_version_backups(backups_root)
+    return backups[0] if backups else None
+
+
+def execute_rollback_to_previous_flow(current_version="2.3.3", progress_callback=None, backup=None):
+    """Reinstala o snapshot da versao anterior pelo mesmo executor desacoplado da atualizacao:
+    snapshot da versao ATUAL primeiro (se a restauracao falhar, o executor volta a ela), copia do
+    backup escolhido para um staging descartavel e nada e copiado para o repositorio de desenvolvimento."""
+    log_info(u"=== INICIANDO ROLLBACK PARA A VERSÃO ANTERIOR ===")
+    target = backup or find_previous_version_backup()
+    if not target:
+        raise UpdaterError(
+            u"Nenhum snapshot de versão anterior encontrado em %s." % get_backups_dir(),
+            title=u"Rollback Indisponível",
+            user_message=u"Não há uma versão anterior salva neste computador.\n\n"
+                         u"Os backups são criados automaticamente a cada atualização pelo assistente.",
+            remediation=[u"Instale uma versão anterior pelo Método 2 (arquivo ZIP da Release)."])
+    if not target.get("addin"):
+        raise CorruptPackageError(
+            u"Snapshot sem GEE_Image_Selector.esriaddin: %s" % target["dir"],
+            title=u"Backup Incompleto",
+            user_message=u"O backup da versão anterior está incompleto e não pode ser restaurado.")
+    label = describe_backup(target)
+    log_info(u"Rollback: v%s -> %s (%s)" % (current_version, label, target["dir"]))
+
+    if progress_callback:
+        progress_callback(u"1/3 Salvando a versão atual (para poder desfazer)...")
+    backup_meta = create_snapshot_backup(current_version=current_version)
+
+    if progress_callback:
+        progress_callback(u"2/3 Preparando %s..." % label)
+    staging_dir = tempfile.mkdtemp(prefix="arcgee_rollback_")
+    install_dir = os.path.join(staging_dir, "Install")
+    shutil.copytree(target["cache_dir"], install_dir)
+    staged_addin = os.path.join(staging_dir, "GEE_Image_Selector.esriaddin")
+    shutil.copy2(target["addin"], staged_addin)
+    for root, _dirs, files in os.walk(install_dir):
+        for f in files:
+            if f.endswith((".pyc", ".pyo")):
+                try:
+                    os.remove(os.path.join(root, f))
+                except Exception:
+                    pass
+    staging_info = {
+        "staging_dir": staging_dir,
+        "config_file": os.path.join(install_dir, "config.xml"),
+        "install_dir": install_dir,
+        "inst_backend": os.path.join(install_dir, "backend"),
+        "staged_addin": staged_addin,
+    }
+
+    if progress_callback:
+        progress_callback(u"3/3 Aplicando %s..." % label)
+    generate_and_launch_detached_runner(
+        staging_info, backup_meta, sync_dev_repo=False,
+        success_text=u"ArcMagery voltou para a versão anterior (%s).`n`nReabra o ArcMap para carregar essa versão. "
+                     u"Para desfazer, use de novo o botão de rollback." % label)
+    return target

@@ -12,6 +12,19 @@ import argparse
 # Adicionar pasta atual ao path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import qgis_env  # noqa: E402,F401  (registra <QGIS>\bin antes de qualquer import do GDAL)
+import pylibs  # noqa: E402  (earthengine-api instalado sem pip em %LOCALAPPDATA%\ArcMagery\pylibs)
+
+pylibs.activate()
+
+EE_MISSING_MESSAGE = (
+    u"Componentes do Google Earth Engine (earthengine-api) ausentes neste Python 3 (%s).\n"
+    u"Abra o ArcMagery e clique em \"Instalar componentes do Earth Engine\" na tela de abertura, "
+    u"ou execute o install.bat. Não é preciso pip nem internet sem proxy: o ArcMagery baixa os "
+    u"arquivos com os certificados do Windows.")
+
+
+class EarthEngineMissing(RuntimeError):
+    pass
 
 
 class _LazyGeeCore(object):
@@ -21,7 +34,12 @@ class _LazyGeeCore(object):
 
     def __getattr__(self, name):
         if _LazyGeeCore._mod is None:
-            import gee_core as _gc
+            try:
+                import gee_core as _gc
+            except ImportError as e:
+                if getattr(e, 'name', None) == 'ee' or "'ee'" in str(e):
+                    raise EarthEngineMissing(EE_MISSING_MESSAGE % sys.executable)
+                raise
             _LazyGeeCore._mod = _gc
         return getattr(_LazyGeeCore._mod, name)
 
@@ -431,6 +449,116 @@ def src_stac_download(p):
                                    out_tif=p.get('out'), mode=p.get('mode', 'rgb')), success=True)
 
 
+def _spot_satellites(value):
+    if not value:
+        return None
+    return [s for s in str(value).replace(' ', '').split(',') if s]
+
+
+def src_spot_search(p):
+    import spot_core
+    scenes = spot_core.search(_resolve_bbox(p), start_date=p.get('start_date'), end_date=p.get('end_date'),
+                              max_cloud=p.get('max_cloud'), satellites=_spot_satellites(p.get('satellites')),
+                              kind=p.get('kind'), max_items=int(p.get('max_items', 500)),
+                              min_coverage=float(p.get('min_coverage') or 0.5))
+    for s in scenes:
+        s.pop('footprint', None)
+        s.pop('zip_url', None)
+    return {'success': True, 'items': scenes, 'count': len(scenes)}
+
+
+def src_spot_download(p):
+    import spot_core
+    return dict(spot_core.download(p.get('item_id'), _resolve_bbox(p), p.get('out'), p.get('api_key'),
+                                   mode=p.get('mode', 'false'), align=bool(p.get('align', True)),
+                                   cache_dir=p.get('cache_dir') or None,
+                                   keep_zip=bool(p.get('keep_zip', True))), success=True)
+
+
+def src_spot_thumb(p):
+    import spot_core
+    return dict(spot_core.thumbnail(p.get('href'), p.get('out')), success=True)
+
+
+def src_spot_check_key(p):
+    import spot_core
+    return dict(spot_core.check_key(p.get('api_key')), success=True)
+
+
+def src_pylibs_install(p):
+    return dict(pylibs.install(force=bool(p.get('force'))), success=True, ee=_ee_version_subprocess())
+
+
+def _ee_version_subprocess():
+    """Importa o 'ee' num processo novo (o atual pode ter falhado antes de a pasta existir)."""
+    import subprocess
+    code = ("import sys; sys.path.insert(0, %r); import pylibs; pylibs.activate(); import ee; "
+            "print(ee.__version__)" % os.path.dirname(os.path.abspath(__file__)))
+    try:
+        flags = ['-I'] if sys.flags.isolated else []
+        out = subprocess.run([sys.executable] + flags + ['-c', code], capture_output=True, text=True, timeout=120)
+        return out.stdout.strip().splitlines()[-1] if out.returncode == 0 and out.stdout.strip() else None
+    except Exception:
+        return None
+
+
+def src_pylibs_status(p):
+    return dict(pylibs.status(), success=True, ee=pylibs.ee_version(), python=sys.executable)
+
+
+def src_selfcheck(p):
+    """Diagnostico rapido para a tela de abertura: bibliotecas, internet e chave do GEODES.
+    Cada verificacao e independente e tem prazo curto; o comando sempre responde success=True."""
+    import concurrent.futures
+    import ssl
+    import urllib.request
+    out = {'success': True, 'python': sys.version.split()[0]}
+    try:
+        from osgeo import gdal
+        out['gdal'] = gdal.__version__
+    except Exception as e:
+        out['gdal'] = None
+        out['gdal_error'] = str(e)
+    try:
+        import numpy
+        out['numpy'] = numpy.__version__
+    except Exception:
+        out['numpy'] = None
+    urls = {'geodes': 'https://geodes-portal.cnes.fr/api/stac',
+            'inpe': 'https://data.inpe.br/bdc/stac/v1/',
+            'esri': 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer?f=json'}
+    ctx = ssl.create_default_context()
+    timeout = float(p.get('timeout', 8))
+
+    def probe(url):
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'ArcMagery-selfcheck'})
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+                return {'ok': True, 'status': r.status}
+        except Exception as e:
+            return {'ok': False, 'error': str(e)[:200]}
+
+    def key_check():
+        if not p.get('api_key'):
+            return None
+        import spot_core
+        try:
+            return dict(spot_core.check_key(p.get('api_key')), ok=True)
+        except Exception as e:
+            return {'ok': False, 'error': str(e)[:300]}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+        futs = dict((k, pool.submit(probe, u)) for k, u in urls.items())
+        fut_key = pool.submit(key_check)
+        fut_ee = pool.submit(pylibs.ee_version)
+        out['net'] = dict((k, f.result()) for k, f in futs.items())
+        out['geodes_key'] = fut_key.result()
+        out['ee'] = fut_ee.result()
+    st = pylibs.status()
+    out['pylibs'] = {'installed': st['installed'], 'current': st['current'], 'dir': st['dir']}
+    return out
+
+
 SOURCE_COMMANDS = {
     'sources_info': src_sources_info,
     'xyz_estimate': src_xyz_estimate,
@@ -444,6 +572,13 @@ SOURCE_COMMANDS = {
     'gehist_download': src_gehist_download,
     'gehist_thumb': src_gehist_thumb,
     'wayback_thumb': src_wayback_thumb,
+    'spot_search': src_spot_search,
+    'spot_download': src_spot_download,
+    'spot_thumb': src_spot_thumb,
+    'spot_check_key': src_spot_check_key,
+    'selfcheck': src_selfcheck,
+    'pylibs_install': src_pylibs_install,
+    'pylibs_status': src_pylibs_status,
 }
 
 
@@ -557,6 +692,10 @@ def main():
             params_file = sys.argv[i + 1]
             break
 
+    if not params_file and len(sys.argv) > 1 and sys.argv[1] in SOURCE_COMMANDS:
+        run_source_command(sys.argv[1], {})
+        return
+
     if params_file and os.path.exists(params_file):
         with open(params_file, "r", encoding="utf-8") as pf:
             data = json.load(pf)
@@ -577,6 +716,13 @@ def main():
     else:
         args = parser.parse_args()
 
+    try:
+        _dispatch(parser, args)
+    except EarthEngineMissing as e:
+        print(json.dumps({'success': False, 'message': str(e), 'ee_missing': True}))
+
+
+def _dispatch(parser, args):
     if args.command == "check":
         cmd_check(args)
     elif args.command == "auth":

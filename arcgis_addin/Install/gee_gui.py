@@ -90,6 +90,8 @@ import gee_bridge
 import arcmagery_inpe as inpe
 import arcmagery_gehist as gehist
 import arcmagery_wayback as wayback
+import arcmagery_spot as spot
+import arcmagery_startup as startup
 
 
 def tile_source_of(sensor):
@@ -420,6 +422,12 @@ class GEESettingsDialog(object):
         )
         btn_open_updater.pack(anchor=tk.W)
 
+        # --- ABA 3: CHAVE DO GEODES (SPOT 1-5) ---
+        tab_key = ttk.Frame(nb, padding=10)
+        nb.add(tab_key, text=u"  Chave do GEODES (SPOT)  ")
+        self.geodes_key = startup.GeodesKeyFrame(tab_key)
+        self.geodes_key.frame.pack(fill=tk.BOTH, expand=True)
+
         self._on_stretch_changed()
         self._on_multi_toggled()
 
@@ -708,7 +716,7 @@ class GEEUpdaterDialog(object):
         self.parent = parent
         self.top = tk.Toplevel(parent.root if hasattr(parent, 'root') else parent)
         self.top.title(u"Atualização Segura - ArcMagery")
-        self.top.geometry("560x420")
+        self.top.geometry("560x520")
         self.top.resizable(False, False)
         setup_window_icon(self.top)
         self.top.transient(parent.root if hasattr(parent, 'root') else parent)
@@ -717,7 +725,7 @@ class GEEUpdaterDialog(object):
         try:
             p_win = parent.root if hasattr(parent, 'root') else parent
             x = p_win.winfo_rootx() + (p_win.winfo_width() // 2) - 280
-            y = p_win.winfo_rooty() + (p_win.winfo_height() // 2) - 210
+            y = p_win.winfo_rooty() + (p_win.winfo_height() // 2) - 260
             self.top.geometry("+%d+%d" % (max(0, x), max(0, y)))
         except Exception:
             pass
@@ -762,6 +770,24 @@ class GEEUpdaterDialog(object):
 
         self.btn_zip_update = ttk.Button(box_zip, text=u"📂 Selecionar Arquivo ZIP e Atualizar", command=self._do_zip_update)
         self.btn_zip_update.pack(anchor=tk.W)
+
+        # Método 3: Rollback para a versão anterior (snapshot salvo antes da última atualização)
+        box_rb = ttk.LabelFrame(pad, text=u" Método 3: Voltar para a Versão Anterior (Rollback) ", padding=10)
+        box_rb.pack(fill=tk.X, pady=(0, 8))
+        self._rollback_target = None
+        try:
+            import gee_updater
+            self._rollback_target = gee_updater.find_previous_version_backup()
+            rb_text = (u"Reinstala a versão salva antes da última atualização: %s."
+                       % gee_updater.describe_backup(self._rollback_target)) if self._rollback_target else \
+                u"Nenhuma versão anterior salva neste computador (os backups são criados a cada atualização)."
+        except Exception as e_rb:
+            rb_text = u"Backups indisponíveis: %s" % gee_bridge.err_text(e_rb)
+        ttk.Label(box_rb, text=rb_text, wraplength=500).pack(anchor=tk.W, pady=(0, 6))
+        self.btn_rollback = ttk.Button(box_rb, text=u"↩ Voltar para a Versão Anterior", command=self._do_rollback)
+        self.btn_rollback.pack(anchor=tk.W)
+        if not self._rollback_target:
+            self.btn_rollback.config(state=tk.DISABLED)
 
         # Barra de progresso e status
         self.prog_bar = ttk.Progressbar(pad, mode="indeterminate")
@@ -809,13 +835,18 @@ class GEEUpdaterDialog(object):
             messagebox.showerror(u"Erro", gee_bridge.err_text(e), parent=self.top)
 
     def _set_busy(self, is_busy, status_text=u""):
+        rb_state = tk.NORMAL if getattr(self, '_rollback_target', None) else tk.DISABLED
         if is_busy:
             self.btn_git_update.config(state=tk.DISABLED)
             self.btn_zip_update.config(state=tk.DISABLED)
+            if hasattr(self, 'btn_rollback'):
+                self.btn_rollback.config(state=tk.DISABLED)
             self.prog_bar.start(10)
         else:
             self.btn_git_update.config(state=tk.NORMAL)
             self.btn_zip_update.config(state=tk.NORMAL)
+            if hasattr(self, 'btn_rollback'):
+                self.btn_rollback.config(state=rb_state)
             self.prog_bar.stop()
 
         if status_text:
@@ -892,6 +923,56 @@ class GEEUpdaterDialog(object):
                     return
                 def show_err():
                     self._set_busy(False, u"Falha na validação da atualização.")
+                    GEEUpdaterErrorDialog(self.top, ex)
+                self.top.after(0, show_err)
+
+        threading.Thread(target=worker).start()
+
+    def _do_rollback(self):
+        """Reinstala o snapshot da versão anterior (mesmo executor com backup e rollback automático)."""
+        import gee_updater
+        target = self._rollback_target
+        if not target:
+            return
+        label = gee_updater.describe_backup(target)
+        if not messagebox.askyesno(
+                u"Voltar para a Versão Anterior",
+                u"Reinstalar %s no lugar da versão atual (v%s)?\n\n"
+                u"A versão atual é salva antes, e o mesmo botão desfaz o rollback depois.\n"
+                u"A interface será fechada para substituir os arquivos; reabra o ArcMap em seguida." % (label, CURRENT_VERSION),
+                parent=self.top, icon=messagebox.WARNING):
+            return
+        self._set_busy(True, u"Preparando o rollback para %s..." % label)
+
+        def worker():
+            try:
+                def on_progress(step_msg):
+                    self.top.after(0, lambda: self.lbl_status.config(text=step_msg))
+
+                gee_updater.execute_rollback_to_previous_flow(
+                    current_version=CURRENT_VERSION, progress_callback=on_progress, backup=target)
+
+                def show_success_and_exit():
+                    messagebox.showinfo(
+                        u"Rollback Preparado",
+                        u"%s foi preparada e a versão atual foi salva.\n\n"
+                        u"A interface será fechada para aplicar o rollback. Uma mensagem do Windows "
+                        u"confirmará a conclusão; depois reabra o ArcMap." % label, parent=self.top)
+                    try:
+                        self.top.destroy()
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(self.parent, 'root'):
+                            self.parent.root.destroy()
+                    except Exception:
+                        pass
+                    sys.exit(0)
+
+                self.top.after(0, show_success_and_exit)
+            except Exception as ex:
+                def show_err():
+                    self._set_busy(False, u"Falha ao preparar o rollback.")
                     GEEUpdaterErrorDialog(self.top, ex)
                 self.top.after(0, show_err)
 
@@ -1103,6 +1184,20 @@ class GEEPluginWindow(object):
         self.root.geometry("1100x740")
         self.root.minsize(960, 640)
         setup_window_icon(self.root)
+
+        # Tela de abertura: aparece ja, enquanto a janela principal e montada escondida e as
+        # verificacoes (Python 3, GDAL, internet, GEE, chave do GEODES, ArcMap) rodam em paralelo.
+        self.splash = None
+        try:
+            if os.environ.get('ARCMAGERY_NO_SPLASH') == '1':   # testes automatizados
+                raise RuntimeError("desativada por ARCMAGERY_NO_SPLASH")
+            self.root.withdraw()
+            self.splash = startup.StartupSplash(self.root, CURRENT_VERSION,
+                                                logo=get_tk_image("icon48") or get_tk_image("icon32"))
+        except Exception as e:
+            print("Splash indisponivel:", e)
+            self.splash = None
+            self.root.deiconify()
 
         # Interceptar fechamento da janela
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -1431,9 +1526,37 @@ class GEEPluginWindow(object):
     def _deferred_init(self):
         self._schedule_poll()
         self.sync_arcmap_context()
-        self.async_check_gee()
+        if self.splash is not None:
+            try:
+                self.splash.start(self._on_startup_done)
+            except Exception as e:
+                print("Falha nas verificacoes de abertura:", e)
+                self._on_startup_done(None)
+        else:
+            self.async_check_gee()
+            self.root.after(2500, self._start_startup_update_check)
         self.root.after(2000, self._poll_arcmap_context)
-        self.root.after(2500, self._start_startup_update_check)
+
+    def _on_startup_done(self, splash):
+        """Fim da tela de abertura: mostra a janela principal ja com o estado das verificacoes."""
+        self.splash = None
+        try:
+            self.root.deiconify()
+            self.root.lift()
+            self.root.focus_force()
+        except Exception:
+            pass
+        gee_resp = getattr(splash, 'gee_resp', None) if splash is not None else None
+        if gee_resp is not None:
+            self._apply_gee_status(gee_resp)
+        else:
+            self.async_check_gee()
+        self.root.after(1500, self._start_startup_update_check)   # aviso de versao so com a janela visivel
+        states = getattr(splash, 'states', {}) if splash is not None else {}
+        problems = [label for key, label in startup.CHECKS if states.get(key) == startup.FAIL]
+        if problems and hasattr(self, 'lbl_progress'):
+            self.lbl_progress.config(text=u"Atenção na abertura: %s. Veja Configurações / install.bat."
+                                     % u", ".join(problems))
 
     def _start_startup_update_check(self):
         t = threading.Thread(target=self._async_check_update_on_startup)
@@ -1677,16 +1800,18 @@ class GEEPluginWindow(object):
         tk.Label(source_bar, text=u"Fonte de imagens:", font=("Segoe UI", 9, "bold"),
                  bg="#eaf2f8", fg="#1b4f72").pack(side=tk.LEFT, padx=(0, 8))
         self.var_source = tk.StringVar(value="gee")
+        # botao das fontes XYZ empacotado antes (a direita): nunca some quando os botoes de fonte nao cabem
+        self.btn_sources = ttk.Button(source_bar, text=u"Google Earth / Mosaicos XYZ...", style="Action.TButton",
+                                      command=self.on_open_extra_sources)
+        self.btn_sources.pack(side=tk.RIGHT, padx=(12, 2))
         for value, text in (("gee", u"Google Earth Engine (Sentinel-2 / Landsat)"),
                             ("inpe", u"CBERS / Amazônia-1 (INPE)"),
                             ("gehist", u"Google Earth histórico (por data)"),
-                            ("wayback", u"Esri Wayback (por versão)")):
+                            ("wayback", u"Esri Wayback (por versão)"),
+                            ("spot", u"SPOT 1-5 (CNES)")):
             tk.Radiobutton(source_bar, text=text, variable=self.var_source, value=value, indicatoron=0,
                            font=("Segoe UI", 9), padx=10, pady=2, selectcolor="#aed6f1", bg="#fdfefe",
                            command=self.on_source_changed).pack(side=tk.LEFT, padx=2)
-        self.btn_sources = ttk.Button(source_bar, text=u"Google Earth / Mosaicos XYZ...", style="Action.TButton",
-                                      command=self.on_open_extra_sources)
-        self.btn_sources.pack(side=tk.LEFT, padx=(12, 2))
 
         # 2. Painel Central Dividido (PanedWindow)
         middle_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
@@ -2077,6 +2202,8 @@ class GEEPluginWindow(object):
             today_str = datetime.date.today().strftime("%Y%m%d")
             if inpe.is_inpe(sensor):
                 default_name = "INPE_%s_%s_%s" % (inpe.collection_of(sensor), comp, today_str)
+            elif spot.is_spot(sensor):
+                default_name = "SPOT_%s_%s_%s" % (sensor[len(spot.PREFIX):], comp, today_str)
             elif tile_source_of(sensor):
                 prefix = "GEH" if gehist.is_gehist(sensor) else "EWB"
                 zoom = tile_source_of(sensor).zoom_of(sensor)
@@ -2085,7 +2212,7 @@ class GEEPluginWindow(object):
                 default_name = "GEE_%s_%s_%s" % (sensor, comp, today_str)
             if hasattr(self, 'txt_group_name'):
                 current = self.txt_group_name.get().strip()
-                if not current or current.startswith(("GEE_", "INPE_", "GEH_", "EWB_")):
+                if not current or current.startswith(("GEE_", "INPE_", "GEH_", "EWB_", "SPOT_")):
                     self.txt_group_name.delete(0, tk.END)
                     self.txt_group_name.insert(0, default_name)
         except Exception:
@@ -2105,7 +2232,7 @@ class GEEPluginWindow(object):
         return items[0][1] if items else "S2"
 
     def source_kind(self):
-        """'gee', 'inpe', 'gehist' (Google Earth histórico) ou 'wayback' (Esri Wayback)."""
+        """'gee', 'inpe', 'gehist' (Google Earth histórico), 'wayback' (Esri Wayback) ou 'spot' (SPOT 1-5)."""
         return self.var_source.get() if getattr(self, 'var_source', None) is not None else 'gee'
 
     def is_inpe_source(self):
@@ -2126,6 +2253,9 @@ class GEEPluginWindow(object):
         'gehist': (u"[ Listar Datas do Google Earth ]",
                    u" 2. Datas do histórico do Google Earth nesta área - selecione uma ou várias ",
                    u"Cobertura", u"Provedor / Satélite", u"Identificador"),
+        'spot': (u"[ Buscar Cenas SPOT (GEODES) ]",
+                 u" 2. Cenas SPOT 1-5 do CNES (1986-2015) - selecione uma ou várias ",
+                 u"Nuvens (%)", u"Satélite · Modo · Resolução · Cobertura", u"Cena"),
     }
 
     BASE_COLUMNS = ("date", "cloud", "tile", "name", "status")
@@ -2136,7 +2266,8 @@ class GEEPluginWindow(object):
         kind = self.source_kind()
         self._sensor_items = {'inpe': inpe.INPE_SENSOR_DISPLAY,
                               'gehist': gehist.GEHIST_SENSOR_DISPLAY,
-                              'wayback': wayback.WAYBACK_SENSOR_DISPLAY}.get(kind, SENSOR_DISPLAY)
+                              'wayback': wayback.WAYBACK_SENSOR_DISPLAY,
+                              'spot': spot.SPOT_SENSOR_DISPLAY}.get(kind, SENSOR_DISPLAY)
         self.cbo_sensor['values'] = [item[0] for item in self._sensor_items]
         self.cbo_sensor.current(0)
         gee_only = tk.NORMAL if kind == 'gee' else tk.DISABLED
@@ -2156,6 +2287,11 @@ class GEEPluginWindow(object):
             self.table_frame.config(text=table_title)
         if kind == 'inpe':
             self.set_quick_dates(120)
+        elif kind == 'spot':
+            self.txt_start_date.delete(0, tk.END)
+            self.txt_start_date.insert(0, u"01/01/1986")          # o acervo SPOT inteiro
+            self.txt_end_date.delete(0, tk.END)
+            self.txt_end_date.insert(0, u"31/12/2015")
         elif kind in ('gehist', 'wayback'):
             self.txt_start_date.delete(0, tk.END)
             self.txt_start_date.insert(0, u"01/01/1985")          # o histórico todo
@@ -2165,7 +2301,8 @@ class GEEPluginWindow(object):
 
     def _sensor_meta(self, sensor):
         return (SENSOR_METADATA.get(sensor) or inpe.INPE_SENSOR_METADATA.get(sensor)
-                or gehist.GEHIST_SENSOR_METADATA.get(sensor) or wayback.WAYBACK_SENSOR_METADATA.get(sensor, {}))
+                or gehist.GEHIST_SENSOR_METADATA.get(sensor) or spot.SPOT_SENSOR_METADATA.get(sensor)
+                or wayback.WAYBACK_SENSOR_METADATA.get(sensor, {}))
 
     def update_sensor_info_display(self):
         sensor = self.get_selected_sensor_code()
@@ -2179,7 +2316,8 @@ class GEEPluginWindow(object):
 
             self.lbl_sensor_period.config(text=u"📅 Período: %s" % period_str)
             source_tag = u"STAC INPE" if inpe.is_inpe(sensor) else (
-                u"Google Earth" if gehist.is_gehist(sensor) else (u"Esri Wayback" if wayback.is_wayback(sensor) else u"GEE"))
+                u"Google Earth" if gehist.is_gehist(sensor) else (u"Esri Wayback" if wayback.is_wayback(sensor) else (
+                    u"CNES GEODES" if spot.is_spot(sensor) else u"GEE")))
             self.lbl_sensor_detail.config(text=u"📡 %s: %s (%s | %s)" % (source_tag, collection, agency, res))
             if hasattr(self, 'lbl_sensor_bands') and self.lbl_sensor_bands is not None:
                 self.lbl_sensor_bands.config(text=u"🌈 Bandas: %s" % bands_str)
@@ -2210,6 +2348,8 @@ class GEEPluginWindow(object):
                                         else u"por zoom")
             elif inpe.is_inpe(s):
                 self.var_pixel_size.set(str(inpe.native_res(s) or ''))  # grade nativa da cena
+            elif spot.is_spot(s):
+                self.var_pixel_size.set(u"nativa")                      # resolucao da cena (2,5 a 20 m)
             elif s == "S2":
                 self.var_pixel_size.set("10")
             elif s in ["L8", "L7", "L5", "L4"]:
@@ -2248,8 +2388,9 @@ class GEEPluginWindow(object):
 
     def update_compositions_list(self):
         sensor = self.get_selected_sensor_code()
-        if inpe.is_inpe(sensor) or tile_source_of(sensor):
-            items = (inpe if inpe.is_inpe(sensor) else tile_source_of(sensor)).composition_items(sensor)
+        if inpe.is_inpe(sensor) or spot.is_spot(sensor) or tile_source_of(sensor):
+            mod = inpe if inpe.is_inpe(sensor) else (spot if spot.is_spot(sensor) else tile_source_of(sensor))
+            items = mod.composition_items(sensor)
             self.cbo_comp['values'] = items
             if items:
                 self.cbo_comp.current(0)
@@ -2275,6 +2416,10 @@ class GEEPluginWindow(object):
         if inpe.is_inpe(sensor):
             if hasattr(self, 'lbl_custom_bands'):
                 self.lbl_custom_bands.config(text=u"CBERS/INPE: bandas definidas pelo produto, recorte na grade nativa.")
+            return
+        if spot.is_spot(sensor):
+            if hasattr(self, 'lbl_custom_bands'):
+                self.lbl_custom_bands.config(text=u"SPOT: resolução nativa, UTM (SIRGAS 2000), alinhada à Esri World Imagery.")
             return
         if tile_source_of(sensor):
             if hasattr(self, 'lbl_custom_bands'):
@@ -2319,32 +2464,33 @@ class GEEPluginWindow(object):
     def async_check_gee(self):
         def do_check():
             resp = gee_bridge.check_gee()
-            def apply_status():
-                try:
-                    if not self._alive:
-                        return
-                    if resp.get('success'):
-                        self.is_authenticated = True
-                        self.top_frame.config(bg="#d4efdf")
-                        if hasattr(self, 'lbl_top_ico') and self.lbl_top_ico is not None:
-                            self.lbl_top_ico.config(bg="#d4efdf")
-                        self.lbl_status_icon.config(text="[OK]", bg="#d4efdf", fg="#145a32")
-                        self.lbl_status.config(text=resp.get('message', 'Conectado ao Google Earth Engine!'), bg="#d4efdf", fg="#145a32")
-                        self.btn_auth.config(text="Configurar Projeto GEE")
-                    else:
-                        self.is_authenticated = False
-                        self.top_frame.config(bg="#fadbd8")
-                        if hasattr(self, 'lbl_top_ico') and self.lbl_top_ico is not None:
-                            self.lbl_top_ico.config(bg="#fadbd8")
-                        self.lbl_status_icon.config(text="[X]", bg="#fadbd8", fg="#922b21")
-                        self.lbl_status.config(text=resp.get('message', 'Nao conectado ao GEE'), bg="#fadbd8", fg="#922b21")
-                        self.btn_auth.config(text="Autenticar GEE")
-                except Exception as ex:
-                    print("Erro ao atualizar status:", ex)
-
-            self.post_to_gui(apply_status)
+            self.post_to_gui(lambda: self._apply_gee_status(resp))
 
         threading.Thread(target=do_check).start()
+
+    def _apply_gee_status(self, resp):
+        """Barra de topo verde/vermelha conforme o login do Earth Engine (thread do Tk)."""
+        try:
+            if not self._alive:
+                return
+            if resp.get('success'):
+                self.is_authenticated = True
+                self.top_frame.config(bg="#d4efdf")
+                if hasattr(self, 'lbl_top_ico') and self.lbl_top_ico is not None:
+                    self.lbl_top_ico.config(bg="#d4efdf")
+                self.lbl_status_icon.config(text="[OK]", bg="#d4efdf", fg="#145a32")
+                self.lbl_status.config(text=resp.get('message', 'Conectado ao Google Earth Engine!'), bg="#d4efdf", fg="#145a32")
+                self.btn_auth.config(text="Configurar Projeto GEE")
+            else:
+                self.is_authenticated = False
+                self.top_frame.config(bg="#fadbd8")
+                if hasattr(self, 'lbl_top_ico') and self.lbl_top_ico is not None:
+                    self.lbl_top_ico.config(bg="#fadbd8")
+                self.lbl_status_icon.config(text="[X]", bg="#fadbd8", fg="#922b21")
+                self.lbl_status.config(text=resp.get('message', 'Nao conectado ao GEE'), bg="#fadbd8", fg="#922b21")
+                self.btn_auth.config(text="Autenticar GEE")
+        except Exception as ex:
+            print("Erro ao atualizar status:", ex)
 
     def on_configure_project(self):
         proj = simpledialog.askstring(
@@ -2451,11 +2597,13 @@ class GEEPluginWindow(object):
         current_token = self._active_search_token
 
         use_inpe = inpe.is_inpe(sensor)
+        use_spot = spot.is_spot(sensor)
         tile_mod = tile_source_of(sensor)
         use_gehist = tile_mod is not None
         src_name = u"STAC do INPE" if use_inpe else (
-            u"histórico do Google Earth" if tile_mod is gehist else (
-                u"Esri Wayback" if tile_mod is wayback else u"Google Earth Engine"))
+            u"GEODES (CNES)" if use_spot else (
+                u"histórico do Google Earth" if tile_mod is gehist else (
+                    u"Esri Wayback" if tile_mod is wayback else u"Google Earth Engine")))
         if tile_mod is not None and bbox and tile_mod.zoom_of(sensor):
             limit_msg = tile_mod.check_limit(bbox, tile_mod.zoom_of(sensor))
             if limit_msg:
@@ -2483,6 +2631,8 @@ class GEEPluginWindow(object):
                 self.post_to_gui(lambda: self.set_progress(0, u"Buscando cenas no catálogo do %s... Aguarde." % src_name))
                 if use_inpe:
                     resp = inpe.search(sensor, s_date, e_date, bbox=bbox, geojson_file=g_file, max_images=100)
+                elif use_spot:
+                    resp = spot.search(sensor, s_date, e_date, bbox=bbox, geojson_file=g_file)
                 elif use_gehist:
                     resp = tile_mod.search(sensor, s_date, e_date, bbox=bbox, geojson_file=g_file,
                                          on_progress=lambda msg, pct: self.set_progress(pct, msg))
@@ -2612,6 +2762,8 @@ class GEEPluginWindow(object):
                         except Exception:
                             pass
                     self.lbl_selected_info.config(text=info)
+                elif img.get('id') == full_id and img.get('source') == 'SPOT':
+                    self.lbl_selected_info.config(text=spot.row_info(img))
                 elif img.get('id') == full_id:
                     self.lbl_selected_info.config(
                         text=u"Data: %s | Nuvens: %s | %s: %s" % (
@@ -2803,6 +2955,14 @@ class GEEPluginWindow(object):
 
         sensor = self.get_selected_sensor_code()
         comp = self.get_selected_composition_code()
+        if spot.is_spot(sensor) and not spot.load_api_key():
+            if messagebox.askyesno(
+                    u"Chave do GEODES necessária",
+                    u"A busca de cenas SPOT é livre, mas o DOWNLOAD exige a chave de API gratuita do GEODES "
+                    u"(CNES).\n\nDeseja configurar a chave agora? O tutorial mostra como obtê-la em 3 minutos.",
+                    parent=self.root):
+                startup.GeodesKeyDialog(self.root)
+            return
         custom_bands = self.txt_custom_bands.get().strip() or None
         load_mode = self.var_load_mode.get() if hasattr(self, 'var_load_mode') else 'multiband'
         st = self.var_spatial_type.get()
@@ -2827,7 +2987,7 @@ class GEEPluginWindow(object):
                 if limit_msg:
                     messagebox.showerror(u"Área Excessivamente Extensa", limit_msg, parent=self.root)
                     return
-        if st == "extent" and bbox and not inpe.is_inpe(sensor) and tile_mod is None:
+        if st == "extent" and bbox and not inpe.is_inpe(sensor) and not spot.is_spot(sensor) and tile_mod is None:
             import math
             req_scale = pixel_size
             if req_scale is None or req_scale <= 0:
@@ -3076,6 +3236,19 @@ class GEEPluginWindow(object):
         if inpe.is_inpe(sensor):
             return inpe.download(img_id, sensor, comp, out_tif, bbox=bbox, geojson_file=geojson_file,
                                  on_progress=on_progress)
+        if spot.is_spot(sensor):
+            resp = spot.download(img_id, sensor, comp, out_tif, bbox=bbox, geojson_file=geojson_file,
+                                 on_progress=on_progress)
+            if resp.get('success'):
+                self.set_progress(None, u"SPOT %s: %s" % (resp.get('date') or u'', spot.alignment_text(resp)))
+                if not (resp.get('alignment') or {}).get('applied'):
+                    self.post_to_gui(lambda: messagebox.showwarning(
+                        u"SPOT sem alinhamento",
+                        u"A cena %s foi carregada, mas NÃO pôde ser alinhada à Esri World Imagery (%s).\n\n"
+                        u"A posição pode ter erro de até ~500 m. Prefira uma cena com menos nuvens ou "
+                        u"uma área maior." % (img_id, (resp.get('alignment') or {}).get('reason') or u"não medido"),
+                        parent=self.root))
+            return resp
         if tile_source_of(sensor):
             return tile_source_of(sensor).download(img_id, sensor, out_tif, bbox=bbox, geojson_file=geojson_file,
                                    on_progress=(lambda msg, pct: on_progress(msg)) if on_progress else None)
@@ -3102,6 +3275,8 @@ class GEEPluginWindow(object):
             try:
                 if row.get('source') == 'INPE':
                     resp = inpe.thumbnail(row, out_png)
+                elif row.get('source') == 'SPOT':
+                    resp = spot.thumbnail(row, out_png)
                 elif row.get('source') in ('GEHIST', 'WAYBACK'):
                     aoi = getattr(self, '_last_search_geojson', None) if self.var_spatial_type.get() == 'layer' else None
                     if not aoi and not bbox:

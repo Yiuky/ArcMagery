@@ -39,11 +39,13 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
 | `arcgis_addin/config.xml` | — | Metadados do Add-In. **Não altere o `AddInID`** (quebra a atualização das instalações existentes) |
 | `arcgis_addin/Install/gee_selector_addin.py` | 2.7 | Botão/extensão do ArcMap |
 | `arcgis_addin/Install/gee_bridge.py` | 2.7 (também importável em 3) | IPC, arcpy/TOC, simbologia, chamada ao backend, seleção do Python 3 |
-| `arcgis_addin/Install/gee_gui.py` | 2.7 | Janela principal (GEE), configurações, atualizador. **Arquivo com CRLF** |
+| `arcgis_addin/Install/gee_gui.py` | 2.7 | Janela principal (GEE), configurações, atualizador. (fim de linha LF, como os demais) |
 | `arcgis_addin/Install/arcmagery_sources_gui.py` | 2.7 | Janela Google Earth / Mosaicos XYZ |
 | `arcgis_addin/Install/arcmagery_gehist.py` | 2.7 | Google Earth histórico na janela principal: zooms como "sensores" `GEH:<zoom>`, cada data como uma linha da tabela; busca/download/miniatura via backend; limite de tiles igual ao do `gehist_core` |
 | `arcgis_addin/Install/arcmagery_wayback.py` | 2.7 | Esri Wayback na janela principal: zooms como "sensores" `EWB:<zoom>` / `EWB:ALL`, cada versão como uma linha; usa `esri_versions`, `xyz_download` e `wayback_thumb`. Mesma interface do `arcmagery_gehist` (a janela usa `gee_gui.tile_source_of`) |
 | `arcgis_addin/Install/arcmagery_tilesource.py` | 2.7 | Funções comuns das fontes de tiles com data (`arcmagery_gehist`, `arcmagery_wayback`): área/AOI, progresso, período, estimativa e limite |
+| `arcgis_addin/Install/arcmagery_spot.py` | 2.7 | SPOT 1-5 (CNES/GEODES) na janela principal: grupos como "sensores" `SPOT:<grupo>`, cenas, chave do GEODES (`%APPDATA%\ArcGEE\geodes_config.json`), tutorial; usa `spot_search`, `spot_download`, `spot_thumb`, `spot_check_key` |
+| `arcgis_addin/Install/arcmagery_startup.py` | 2.7 | Tela de abertura (verificações em paralelo, regras puras testáveis), `GeodesKeyFrame`/`GeodesKeyDialog` e o tutorial da chave. `ARCMAGERY_NO_SPLASH=1` desliga a splash (os testes em `tests/arcmap` fazem isso) |
 | `arcgis_addin/Install/arcmagery_inpe.py` | 2.7 | CBERS/Amazônia-1 na janela principal: coleções como "sensores" `INPE:<coleção>`, produtos, busca/recorte/miniatura via backend |
 | `arcgis_addin/Install/arcmagery_symbology.py` | 2.7 | Simbologia garantida (ArcObjects/comtypes): monta, grava, relê e confere bandas RGB + Stretch; localiza camadas pelo caminho exato |
 | `arcgis_addin/Install/gee_updater.py` | 2.7/3 | Atualização (Release + SHA256SUMS, backup, staging, rollback) |
@@ -52,6 +54,9 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
 | `backend/xyz_core.py` | 3 | Mosaicos XYZ (urllib + GDAL ou Pillow) |
 | `backend/stac_core.py` | 3 + GDAL | STAC do INPE e recorte `/vsicurl/` na grade nativa |
 | `backend/esri_core.py` | 3 | Data de captura (metadados públicos da World Imagery) e histórico Wayback (`tilemap`: `select` aponta para a versão MAIS ANTIGA de onde vem o tile) |
+| `backend/pylibs.py` | 3 | earthengine-api **sem pip**: baixa as rodas fixadas em `pylibs_manifest.json` (urllib + certificados do Windows, SHA-256) para `%LOCALAPPDATA%\ArcMagery\pylibs\py3XY`; `activate()` (chamado no início do `run_gee.py`) só entra se o Python não tiver `ee` próprio. Regenere o manifesto com `tools/build_pylibs_manifest.py` |
+| `backend/ee_auth.py` | 3 | Autenticação interativa do GEE (console) com qualquer Python 3 apto, via `pylibs` |
+| `backend/spot_core.py` | 3 + GDAL + numpy | SPOT 1-5 via STAC do GEODES: busca (filtrar coleções por `query.dataset`; a data de aquisição é `start_datetime`), download com `X-API-Key` + MD5 + cache, georreferência pelo `Simplified_Location_Model` do L1A e **alinhamento à Esri** por correlação de fase |
 | `backend/gehist_core.py` | 3 | Google Earth histórico por data (catálogo *Time Machine*, protocolo Keyhole: dbRoot + quadtree protobuf + XOR), porta do `C:\DOWNLOADER_EARTH\historical_engine.py`. **A grade é geográfica EPSG:4326, não Web Mercator** (`tilemath.keyhole_*`) |
 | `backend/parallel.py` | 3 | `imap_bounded` (no máximo `workers × 4` tiles em andamento: memória constante), threads de rede padrão (48, teto 64) e núcleos do GDAL (CPU − 2, teto 16). Todo download de tiles passa por aqui |
 | `backend/qgis_env.py` | 3 | Registra `<QGIS>\\bin` como diretório de DLLs antes do import do GDAL (o `sitecustomize` do QGIS pula isso se `OSGEO4W_ROOT` já existir) |
@@ -67,6 +72,10 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
   lança `IOError(9)`. Os módulos redirecionam com `_stream_is_usable`. Não remova isso.
 - **Caminhos com acento** (ex.: `C:\Users\João`): parâmetros vão ao backend num JSON UTF-8
   (`--params-file`), nunca como argumentos unicode no `Popen` do Python 2.
+- **Dependências Python 3:** não adicione pacotes que exijam `pip` na máquina do usuário. O backend deve
+  rodar no Python do QGIS (GDAL, numpy, Pillow) + `pylibs`. Pacote novo = entrada nova no manifesto
+  (roda pura ou abi3/cp310–cp314 win_amd64). `No module named 'ee'` vira `EarthEngineMissing` (JSON
+  com `ee_missing`), nunca traceback.
 - **Rede corporativa com inspeção SSL:** use `urllib` com `ssl.create_default_context()`, que
   lê o repositório do Windows. O `requests`/`certifi` falha nessa rede. Para o curl do GDAL,
   `stac_core.windows_ca_bundle()` exporta os certificados do Windows para
@@ -84,7 +93,11 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
   em `%TEMP%` direto. Cada carga registra ali `_ensure_live_symbology(...)` com a simbologia conferida.
 - Mensagens para o usuário em **português**. Ao editar arquivos CRLF, preserve o fim de linha.
 - Termos de Uso: Google/Bing exigem o aviso (`TOS_TEXT`) antes do primeiro download.
-- **Fonte ativa na janela principal:** `var_source` (`gee` | `inpe` | `gehist` | `wayback`). Os códigos de sensor
+- **SPOT (L1A):** termos do modelo direto = `[1, linha, coluna, linha*coluna, linha², coluna²]` (índices
+  DIMAP, origem 1); o `IMAGERY.TIF` grava XS3, XS2, XS1, SWIR (inverso do XML). Não remova o
+  alinhamento: sem ele o erro é de 150–480 m. Nunca gaste a cota do usuário em testes: o GEODES tem
+  `/processing/download/get` para validar a chave.
+- **Fonte ativa na janela principal:** `var_source` (`gee` | `inpe` | `gehist` | `wayback` | `spot`). Os códigos de sensor
   do INPE começam com `INPE:`, os do Google Earth histórico com `GEH:` e os do Esri Wayback com `EWB:`
   (`...:ALL` = todos os zooms; o zoom de cada linha vem do identificador `..._z<zoom>`). Decida sempre por `inpe.is_inpe(sensor)` /
   `gehist.is_gehist(sensor)`, nunca por listas fixas de sensores GEE. O download passa por

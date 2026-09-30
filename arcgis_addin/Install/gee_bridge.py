@@ -243,7 +243,7 @@ def python_has_modules(py_exe, modules, timeout=40):
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = subprocess.SW_HIDE
-        code = "import sys; import %s; sys.exit(0 if sys.version_info[0] == 3 else 1)" % ", ".join(modules)
+        code = probe_code(modules)
         proc = subprocess.Popen([py_exe, "-c", code], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 startupinfo=startupinfo, env=env)
         start = time.time()
@@ -257,6 +257,30 @@ def python_has_modules(py_exe, modules, timeout=40):
         ok = False
     _MODULE_CHECK_CACHE[key] = ok
     return ok
+
+def probe_code(modules):
+    """Codigo do teste de modulos: ativa antes as bibliotecas instaladas sem pip (backend/pylibs.py),
+    para que o Python do QGIS sem 'ee' proprio conte como apto ao GEE."""
+    backend = os.path.dirname(get_backend_script())
+    return ("import sys; sys.path.insert(0, %r)\n"
+            "try:\n    import pylibs; pylibs.activate()\nexcept Exception:\n    pass\n"
+            "import %s; sys.exit(0 if sys.version_info[0] == 3 else 1)" % (str(backend), ", ".join(modules)))
+
+
+def reset_python_cache():
+    """Esquece o Python 3 escolhido e os testes de modulos (apos instalar componentes)."""
+    global _FOUND_PYTHON3, _FOUND_PYTHON3_GDAL
+    _FOUND_PYTHON3 = None
+    _FOUND_PYTHON3_GDAL = None
+    _MODULE_CHECK_CACHE.clear()
+
+
+def install_ee_components(on_progress=None):
+    """Instala o earthengine-api sem pip (backend 'pylibs_install') no Python 3 com GDAL."""
+    resp = run_backend_cmd('pylibs_install', {}, on_progress=on_progress, python_exe=find_python3_gdal())
+    reset_python_cache()
+    return resp
+
 
 def get_backend_script():
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -677,19 +701,21 @@ def authenticate_gee(project=None):
 
 def launch_auth_console(project=None):
     """Abre uma janela de console interativa com earthengine authenticate para o usuario logar no navegador"""
+    # Python 3 + backend/ee_auth.py: funciona sem venv (earthengine-api instalado sem pip, pylibs)
     py3 = find_python3()
-    py_dir = os.path.dirname(py3)
-    ee_exe = os.path.join(py_dir, "earthengine.exe")
-    if not os.path.exists(ee_exe):
-        ee_exe = "earthengine"
+    auth_script = os.path.join(os.path.dirname(get_backend_script()), "ee_auth.py")
 
     # Salvar projeto na config isolada de usuario (%APPDATA%\ArcGEE) se fornecido
     if project:
         save_user_gee_project(project)
 
-    cmd = 'start "Google Earth Engine - Autenticacao" cmd /k ""%s" authenticate --auth_mode=localhost && echo. && echo ======================================================== && echo [SUCESSO] Autenticacao salva! && echo Voce ja pode fechar esta janela e voltar ao ArcMap. && echo ======================================================== && pause"' % ee_exe
+    cmd = 'start "Google Earth Engine - Autenticacao" cmd /k ""%s" "%s" %s & pause"' % (
+        py3, auth_script, (project or "").replace('"', ''))
+    env = dict(os.environ)
+    env.pop('PYTHONPATH', None)   # nunca herdar o Python 2.7 do ArcGIS no Python 3
+    env.pop('PYTHONHOME', None)
     try:
-        subprocess.Popen(cmd, shell=True)
+        subprocess.Popen(cmd, shell=True, env=env)
         return True, "Janela de autenticacao aberta. Siga as instrucoes no navegador."
     except Exception as e:
         return False, err_text(e)

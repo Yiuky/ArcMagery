@@ -12,6 +12,10 @@ if INSTALL not in sys.path:
 
 PYTHONW = os.path.join(sys.prefix, 'pythonw.exe')
 
+# A tela de abertura roda verificacoes reais (backend, GEE, internet): fora das janelas dos testes.
+# Os testes da propria splash (test_spot_integration) a criam com dependencias simuladas.
+os.environ.setdefault('ARCMAGERY_NO_SPLASH', '1')
+
 
 def qgis_python():
     """Um Python 3 com GDAL para testes que precisam de interpretador real (ou None)."""

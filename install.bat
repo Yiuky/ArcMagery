@@ -38,50 +38,42 @@ if not exist "%PYTHON27%" (
     )
 )
 
-:: 2. Python 3 do backend: venv PROPRIO do ArcMagery (nao altera o QGIS nem outros projetos)
+:: 2. Python 3 do backend. NAO precisa de pip nem de venv: o Python do QGIS ja traz GDAL, numpy e
+::    Pillow, e o earthengine-api e baixado com os certificados do Windows (funciona com o proxy de
+::    inspecao SSL) para %LOCALAPPDATA%\ArcMagery\pylibs (backend\pylibs.py). Um venv antigo e mantido.
 echo.
-echo [2/5] Preparando ambiente Python 3 isolado em "%VENV_DIR%"...
+echo [2/5] Preparando o Python 3 do backend...
 set "BASE_PY="
-:: 2a. Preferencia: Python do QGIS/OSGeo4W (ja traz GDAL, numpy e Pillow - necessarios ao CBERS)
+:: 2a. Preferencia: Python do QGIS/OSGeo4W (ja traz GDAL, numpy e Pillow - necessarios ao CBERS e SPOT)
 for /d %%D in ("C:\Program Files\QGIS 3*" "C:\OSGeo4W" "C:\OSGeo4W64") do (
     for /d %%P in ("%%~D\apps\Python3*") do (
         if exist "%%~P\python.exe" set "BASE_PY=%%~P\python.exe"
     )
 )
-:: 2b. Alternativa: Python 3 oficial (o CBERS exigira GDAL; Google Earth funciona com Pillow)
+:: 2b. Alternativa: Python 3 oficial (CBERS e SPOT exigirao GDAL; Google Earth funciona com Pillow)
 if not defined BASE_PY for %%P in ("%LOCALAPPDATA%\Programs\Python\Python312\python.exe" "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" "%LOCALAPPDATA%\Programs\Python\Python310\python.exe" "C:\Python312\python.exe" "C:\Python311\python.exe" "C:\Python310\python.exe") do (
     if not defined BASE_PY if exist "%%~P" set "BASE_PY=%%~P"
 )
-
-if exist "%VENV_PY%" goto :venv_ready
-if not defined BASE_PY (
+set "PY3=%BASE_PY%"
+if exist "%VENV_PY%" set "PY3=%VENV_PY%"
+if not defined PY3 (
     echo [ERRO] Nenhum Python 3 encontrado ^(QGIS 3.x ou Python 3.10+^).
-    echo        Instale o QGIS 3.x ^(recomendado^) ou o Python 3 e execute este instalador novamente.
+    echo        Instale o QGIS 3.x ^(recomendado^) e execute este instalador novamente.
     set "FAILED=1"
     goto :step3
 )
-echo [INFO] Criando venv a partir de: %BASE_PY%
-"%BASE_PY%" -I -m venv --system-site-packages "%VENV_DIR%"
+echo [INFO] Python 3: %PY3%
+set "BACKEND=%SCRIPT_DIR%arcgis_addin\Install\backend"
+echo [INFO] Instalando os componentes do Earth Engine ^(sem pip; ~25 MB^)...
+"%PY3%" "%BACKEND%\run_gee.py" pylibs_install
+"%PY3%" -c "import sys; sys.path.insert(0, r'%BACKEND%'); import pylibs; pylibs.activate(); import ee; print('[OK] earthengine-api', ee.__version__)"
 if errorlevel 1 (
-    echo [ERRO] Falha ao criar o ambiente virtual.
+    echo [ERRO] earthengine-api indisponivel. Verifique a internet e rode o install.bat de novo
+    echo        ^(ou use o botao "Instalar componentes do Earth Engine" na tela de abertura^).
     set "FAILED=1"
-    goto :step3
 )
-
-:venv_ready
-echo [INFO] Instalando dependencias ^(earthengine-api, Pillow, ...^)...
-:: Sem --upgrade em -r: numpy/GDAL herdados do QGIS nao sao substituidos (ABI do GDAL)
-"%VENV_PY%" -m pip install -r "%SCRIPT_DIR%requirements.txt" --disable-pip-version-check --quiet
-if errorlevel 1 (
-    echo [ERRO] Falha no pip. Verifique a conexao de internet/proxy.
-    set "FAILED=1"
-    goto :step3
-)
-"%VENV_PY%" -m pip install --upgrade earthengine-api --disable-pip-version-check --quiet
-"%VENV_PY%" -c "import ee; print('[OK] earthengine-api', ee.__version__)"
-if errorlevel 1 set "FAILED=1"
-"%VENV_PY%" -c "from osgeo import gdal; print('[OK] GDAL', gdal.__version__, '(CBERS/INPE habilitado)')" 2>nul
-if errorlevel 1 echo [AVISO] GDAL indisponivel neste Python: o download CBERS/INPE requer o QGIS 3.x instalado.
+"%PY3%" -c "from osgeo import gdal; import numpy; print('[OK] GDAL', gdal.__version__, '- CBERS/INPE e SPOT habilitados')" 2>nul
+if errorlevel 1 echo [AVISO] GDAL/numpy indisponiveis neste Python: CBERS/INPE e SPOT exigem o QGIS 3.x instalado.
 
 :step3
 :: 3. Empacotar o Add-in (backend autocontido em arcgis_addin\Install\backend)

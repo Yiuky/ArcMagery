@@ -51,6 +51,7 @@ manuais. Foi desenvolvido na Coordenadoria de Geoprocessamento e Monitoramento A
 | **Google Earth / XYZ** *(novo)* | Google Satélite, Google Híbrido, Esri World Imagery, Esri Clarity e Bing Aerial, costurados num GeoTIFF georreferenciado. Com a Esri: **data de captura** e **histórico Wayback** desde 2014 | até ~0,15 m (zoom 20) |
 | **Google Earth histórico** *(novo)* | Datas do histórico do Google Earth (como no Google Earth Pro), com provedor e cobertura da área; baixa a imagem de uma ou várias datas na grade nativa EPSG:4326, até 100 mil tiles | ~0,15–4,8 m (zoom 20–15) |
 | **Esri Wayback** *(novo)* | Versões históricas da Esri World Imagery desde 2014, com a **data de captura**, o satélite e a resolução de cada uma; todos os zooms numa busca | ~0,3–4,6 m (zoom 19–15) |
+| **SPOT 1–5 (CNES)** *(novo)* | Acervo SPOT World Heritage 1986–2015 pelo GEODES: SPOT 1–3 (20 m XS, 10 m PAN), SPOT 4 (20 m XI, 10 m PAN) e SPOT 5 (10 m HI, 5 m HM, 2,5 m THR). Cada cena é **alinhada automaticamente à Esri World Imagery** (erro de 150–480 m do produto L1A corrigido para ~5 m). Busca livre; download com a chave gratuita do GEODES | 2,5–20 m |
 | **CBERS / Amazônia-1** *(novo)* | STAC do INPE, 32 coleções: CBERS-4A WPM (2 m pan e 8 m multiespectral, fusionada 2 m), MUX, WFI, PAN 5/10 m e Amazônia-1 WFI (Níveis 4 e 2); cubos sem nuvens com NDVI/EVI; histórico CBERS-2/2B (2003–2010, HRC 2,5 m); mosaicos | 2–260 m |
 
 ### Destaques
@@ -62,6 +63,10 @@ manuais. Foi desenvolvido na Coordenadoria de Geoprocessamento e Monitoramento A
 - **Área de interesse:** extensão atual do mapa ou camada vetorial (AOI) do TOC. No CBERS, cada
   cena mostra quanto da AOI ela **realmente** cobre.
 - **Estável:** a interface roda em processo próprio, e o ArcMap nunca congela.
+- **Poucos requisitos:** basta o ArcGIS 10.8 e o QGIS 3.x. O `earthengine-api` é instalado pelo próprio
+  ArcMagery, sem `pip` e compatível com o proxy de inspeção SSL.
+- **Abre pronto para uso:** a tela de abertura confere o Python 3, o GDAL/numpy, a internet
+  (GEODES, INPE, Esri), o login do GEE, a chave do GEODES e o ArcMap antes de mostrar a janela.
 - **Atualização segura:** pela GitHub Release, com verificação SHA-256, ou por arquivo ZIP, com
   backup e rollback.
 

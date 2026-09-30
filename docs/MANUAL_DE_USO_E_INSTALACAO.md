@@ -30,6 +30,8 @@
    - [6.5 Busca, Tabela de Resultados e Miniaturas Sob Demanda](#65-busca-tabela-de-resultados-e-miniaturas-sob-demanda)
    - [6.6 Carregamento no TOC, Mosaicos Automáticos e Substituição](#66-carregamento-no-toc-mosaicos-automáticos-e-substituição)
    - [6.7 Painel de Configurações Avançadas (Stretch, DRA e Multicore)](#67-painel-de-configurações-avançadas-stretch-dra-e-multicore)
+   - [6.11 SPOT 1-5 (CNES, 1986-2015) e a chave do GEODES](#611-spot-1-5-cnes-1986-2015-e-a-chave-do-geodes)
+   - [6.12 Tela de abertura (verificações automáticas)](#612-tela-de-abertura-verificações-automáticas)
 7. [Atualizações e Manutenção](#7-atualizações-e-manutenção)
 8. [Resolução de Problemas Frequentes (FAQ & Troubleshooting)](#8-resolução-de-problemas-frequentes-faq--troubleshooting)
 9. [Créditos e Licença](#9-créditos-e-licença)
@@ -401,6 +403,66 @@ Selecione **CBERS / Amazônia-1 (INPE)** na barra *Fonte de imagens*. A janela s
   a ordem espectral (azul, verde, vermelho, NIR) e é exibido em cor natural.
 * **Requisito:** GDAL no Python 3 do backend. O `install.bat` o obtém do QGIS 3.x.
 
+### 6.11 SPOT 1-5 (CNES, 1986-2015) e a chave do GEODES
+
+Acervo **SPOT World Heritage** do CNES (licença aberta Etalab 2.0), acessado pela API do portal
+[GEODES](https://geodes-portal.cnes.fr). Na barra **Fonte de imagens**, escolha **SPOT 1-5 (CNES)**.
+
+| Grupo (combo Satélite / Sensor) | Resolução | Bandas no arquivo |
+|---|---|---|
+| SPOT 1, 2 e 3 multiespectral (1986-2009) | 20 m | XS3 NIR, XS2 vermelho, XS1 verde |
+| SPOT 1, 2 e 3 pancromática | 10 m | PAN |
+| SPOT 4 multiespectral (1998-2013) | 20 m | XS3, XS2, XS1, SWIR |
+| SPOT 4 pancromática | 10 m | PAN (banda M) |
+| SPOT 5 multiespectral (2002-2015) | 10 m | XS3, XS2, XS1, SWIR (20 m reamostrado) |
+| SPOT 5 pancromática | 5 m (HM) e 2,5 m (THR) | PAN |
+
+* **Busca:** livre (não usa cota nem chave). A tabela mostra data, nuvens, satélite, resolução, modo
+  e quanto da área cada cena cobre. **Miniatura** mostra a prévia oficial da cena.
+* **Composições:** *Falsa cor* (NIR, vermelho, verde: vegetação em vermelho), *SWIR, NIR, vermelho*
+  (SPOT 4 e 5), *Multibanda* e *Pancromática*. O SPOT não tem banda azul (não há cor natural).
+* **Download:** exige a **chave de API gratuita do GEODES** (cota: 50 cenas por hora). Cada cena é
+  um pacote de 15 a 110 MB, baixado uma vez e guardado em `%LOCALAPPDATA%\ArcMagery\spot_cache`
+  (o MD5 é conferido; recortes seguintes da mesma cena não usam a cota).
+* **Posição corrigida automaticamente:** o produto do CNES é de nível 1A (sem ortorretificação) e
+  vem com erro de posição de 150 a 480 m (medido em Cuiabá). O ArcMagery mede esse deslocamento
+  contra a **Esri World Imagery**, em várias janelas, e o corrige antes de gravar: resíduo de ~2 a
+  5 m nas cenas testadas. Se a cena tiver nuvens demais ou pouca textura em comum, a imagem é
+  carregada **sem** a correção e um aviso é exibido.
+* **Saída:** GeoTIFF em UTM (SIRGAS 2000 no Brasil, ex.: EPSG:31981 em Cuiabá), na resolução
+  nativa, recortado à área, com pirâmides. Atribuição obrigatória:
+  *"SPOT images acquired by CNES's Spot World Heritage Programme"*.
+
+#### Como obter e cadastrar a chave do GEODES (≈ 3 minutos)
+1. Acesse <https://geodes-portal.cnes.fr>, clique em **Log in › Register** e crie a conta gratuita
+   (nome, e-mail, organização). Confirme pelo link recebido por e-mail.
+2. Entre no portal, clique no seu nome (canto superior direito) › **My Profile**.
+3. No quadro **Authentication**, em **API Key**, clique em **Generate** (ou copie a chave existente).
+4. No ArcMagery: **⚙ Configurações › Chave do GEODES (SPOT)** › cole a chave › **Testar chave**
+   (mostra a cota, ex.: *47 de 50 downloads disponíveis nesta hora*) › **Salvar chave**.
+5. O botão **Como obter a chave (tutorial)** repete estes passos e abre o portal.
+
+A chave fica **só neste computador**, em `%APPDATA%\ArcGEE\geodes_config.json`. Não a compartilhe;
+se vazar, gere outra no mesmo quadro do portal (ícone de atualizar). Também é aceita a variável de
+ambiente `GEODES_API_KEY`.
+
+### 6.12 Tela de abertura (verificações automáticas)
+
+Ao clicar no botão do ArcMagery, uma tela de abertura aparece imediatamente e confere, em paralelo:
+
+| Verificação | Se falhar |
+|---|---|
+| Python 3 do ArcMagery | ✖ Rode o `install.bat` |
+| GDAL e numpy | ✖/! CBERS e SPOT não funcionam: rode o `install.bat` |
+| Internet: GEODES, INPE e Esri | ! Lista os serviços inacessíveis (proxy/firewall) |
+| Login do Google Earth Engine | ! As demais fontes funcionam; use **Autenticar GEE** |
+| Componentes do Earth Engine | ✖ Botão **Instalar componentes do Earth Engine** (sem pip) |
+| Chave do GEODES | i Opcional (só para baixar SPOT); ✖ se a chave for recusada |
+| Comunicação com o ArcMap | ! A janela abre; a carga no TOC aguarda o ArcMap |
+
+Com tudo OK a janela principal abre sozinha em menos de 1 s. Com avisos, abre após 6 s (o botão
+**Aguardar** pausa a contagem para ler). A janela já abre com o estado do GEE aplicado.
+
 ---
 
 ## 7. Atualizações e Manutenção
@@ -430,6 +492,11 @@ O ArcMagery conta com uma arquitetura de atualização **transacional e à prova
    - Acesse **Configurações (⚙)** > clique em **`[ 🔄 Abrir Assistente de Atualização (GitHub / ZIP) ]`**.
    - Escolha **"Atualizar Diretamente via GitHub"**. O pacote vem da **última Release publicada** e só é instalado se o hash SHA-256 conferir com o `SHA256SUMS.txt` da Release. Se ainda não houver Release, o assistente pergunta se você aceita baixar a versão de desenvolvimento do branch `main` **sem verificação**. Downgrades também exigem confirmação.
    - Ou escolha **"Selecionar Arquivo ZIP e Atualizar"** para pacotes manuais offline.
+   - **Voltar para a versão anterior (Método 3):** o botão **↩ Voltar para a Versão Anterior** reinstala o
+     backup salvo antes da última atualização (o diálogo mostra qual versão e a data). A versão atual é
+     salva antes, então o mesmo botão desfaz o rollback. A interface fecha para trocar os arquivos e uma
+     mensagem do Windows confirma o fim; depois reabra o ArcMap. Os backups ficam em
+     `%LOCALAPPDATA%\CGMA_ArcGEEackups` (os 5 mais recentes).
 2. **Por Linha de Comando:**
    - Feche o ArcMap e execute o arquivo **`install.bat`** ou **`deploy.ps1`** na raiz da pasta do plugin.
 
@@ -471,6 +538,24 @@ O ArcMagery conta com uma arquitetura de atualização **transacional e à prova
 * O ArcMagery exporta os certificados do Windows (incluindo a CA do proxy corporativo) para
   `%TEMP%\arcmagery_ca_bundle.pem` e os entrega ao GDAL. Se ainda falhar, defina a variável
   `CURL_CA_BUNDLE` apontando para o arquivo `.pem` fornecido pela equipe de TI.
+
+### 11. "Componentes do Google Earth Engine (earthengine-api) ausentes" / `No module named 'ee'`
+* O Python 3 do backend não tem o `earthengine-api` (o `pip` costuma falhar pela inspeção SSL da rede).
+* Na **tela de abertura**, clique em **Instalar componentes do Earth Engine** (~15 s, sem pip; os arquivos
+  são baixados com os certificados do Windows e conferidos por SHA-256), ou rode o `install.bat`.
+* Os componentes ficam em `%LOCALAPPDATA%\ArcMagery\pylibs\py3XY` e funcionam com o Python do QGIS
+  (não é preciso venv). Para reinstalar, apague essa pasta e repita.
+
+### 9. SPOT: "O download de cenas SPOT exige a chave de API do GEODES"
+* Configure a chave em **Configurações › Chave do GEODES (SPOT)** (passo a passo na seção 6.11).
+* "GEODES recusou a chave (HTTP 401)": a chave foi digitada incompleta ou foi regenerada no portal.
+  Copie de novo o texto inteiro do campo **API Key**.
+* "DownloadQuotaPlugin" ou cota zerada: o limite é de 50 cenas por hora; aguarde. Cenas já baixadas
+  estão em cache e não contam.
+
+### 10. SPOT: "SPOT sem alinhamento"
+* A cena foi carregada, mas não pôde ser alinhada à Esri (nuvens, água ou pouca textura em comum).
+  A posição pode ter erro de até ~500 m. Prefira uma cena com menos nuvens ou uma área maior.
 
 ### 8. Onde ficam os registros (logs) para suporte?
 * O ArcMap usa uma pasta temporária própria por sessão: `%LOCALAPPDATA%\Temp\arcXXXX\arcgee_debug.log`

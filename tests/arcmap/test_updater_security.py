@@ -231,5 +231,98 @@ class RealZipValidationTest(unittest.TestCase):
             up.find_system_directories = saved
 
 
+class RollbackToPreviousTest(unittest.TestCase):
+    """Rollback para a versao anterior a partir dos snapshots (tudo em pastas temporarias)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='arcmagery_rb_')
+        self.root = os.path.join(self.tmp, 'backups')
+        os.makedirs(self.root)
+        self.saved = {}
+        self.runner = []
+
+    def tearDown(self):
+        for k, v in self.saved.items():
+            setattr(up, k, v)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _patch(self, name, fn):
+        self.saved.setdefault(name, getattr(up, name))
+        setattr(up, name, fn)
+
+    def _snapshot(self, name, version, mtime, complete=True):
+        d = os.path.join(self.root, name)
+        cache = os.path.join(d, 'AssemblyCache')
+        os.makedirs(os.path.join(cache, 'backend'))
+        for f in ('gee_gui.py', 'config.xml', 'gee_gui.pyc', os.path.join('backend', 'run_gee.py')):
+            with open(os.path.join(cache, f), 'w') as fh:
+                fh.write('# %s' % version)
+        if complete:
+            with open(os.path.join(d, 'GEE_Image_Selector.esriaddin'), 'wb') as fh:
+                fh.write(b'PK')
+        with open(os.path.join(d, 'backup_manifest.json'), 'w') as fh:
+            json.dump({'version': version, 'timestamp': '20260929_140500'}, fh)
+        os.utime(d, (mtime, mtime))
+        return d
+
+    def test_previous_is_the_newest_valid_snapshot(self):
+        self._snapshot('backup_2_3_2_a', '2.3.2', 1000)
+        newest = self._snapshot('backup_2_3_3_b', '2.3.3', 2000)
+        os.makedirs(os.path.join(self.root, 'backup_lixo'))          # sem AssemblyCache: ignorado
+        b = up.find_previous_version_backup(self.root)
+        self.assertEqual((b['dir'], b['version']), (newest, '2.3.3'))
+        self.assertEqual(up.describe_backup(b), u'v2.3.3 de 29/09/2026 14:05')
+        self.assertEqual([x['version'] for x in up.list_version_backups(self.root)], ['2.3.3', '2.3.2'])
+
+    def test_rollback_restores_a_copy_without_touching_dev_repo(self):
+        target = self._snapshot('backup_2_3_2_a', '2.3.2', 1000)
+        self._patch('get_backups_dir', lambda: self.root)
+        self._patch('create_snapshot_backup', lambda current_version=None: {'snapshot_dir': os.path.join(self.tmp, 'atual')})
+        self._patch('generate_and_launch_detached_runner',
+                    lambda staging, backup, sync_dev_repo=True, success_text=None:
+                    self.runner.append((staging, backup, sync_dev_repo, success_text)))
+        got = up.execute_rollback_to_previous_flow(current_version='2.3.3')
+        self.assertEqual(got['dir'], target)
+        staging, backup, sync, text = self.runner[0]
+        self.assertFalse(sync, u"o rollback nunca sincroniza o repositorio de desenvolvimento")
+        self.assertEqual(backup['snapshot_dir'], os.path.join(self.tmp, 'atual'))
+        # o executor apaga o staging no fim: tem de ser uma COPIA, nunca o proprio backup
+        self.assertFalse(staging['staging_dir'].startswith(self.root))
+        self.assertTrue(os.path.exists(os.path.join(staging['install_dir'], 'gee_gui.py')))
+        self.assertTrue(os.path.exists(os.path.join(staging['install_dir'], 'backend', 'run_gee.py')))
+        self.assertFalse(os.path.exists(os.path.join(staging['install_dir'], 'gee_gui.pyc')))
+        self.assertTrue(os.path.exists(os.path.join(target, 'AssemblyCache', 'gee_gui.py')))   # backup intacto
+        self.assertIn(u'v2.3.2', text)
+        shutil.rmtree(staging['staging_dir'], ignore_errors=True)
+
+    def test_without_backup_or_incomplete_backup(self):
+        self._patch('get_backups_dir', lambda: self.root)
+        with self.assertRaises(up.UpdaterError):
+            up.execute_rollback_to_previous_flow(current_version='2.3.3')
+        self._snapshot('backup_x', '2.3.2', 1000, complete=False)
+        with self.assertRaises(up.CorruptPackageError):
+            up.execute_rollback_to_previous_flow(current_version='2.3.3')
+
+    def test_runner_script_for_rollback(self):
+        """O .bat gerado (sem executar) nao sincroniza o repo e mostra a mensagem do rollback."""
+        written = {}
+        self._patch('find_system_directories', lambda: {'addin_dir': os.path.join(self.tmp, 'addin'),
+                                                        'cache_dir': os.path.join(self.tmp, 'cache'),
+                                                        'dev_repo': os.path.join(self.tmp, 'repo')})
+        import subprocess
+        saved_popen = subprocess.Popen
+        subprocess.Popen = lambda args, **kw: written.setdefault('bat', open(args[-1]).read())
+        try:
+            up.generate_and_launch_detached_runner(
+                {'staging_dir': 's', 'config_file': 'c', 'install_dir': 'i', 'inst_backend': 'b', 'staged_addin': 'a'},
+                {'snapshot_dir': 'bk'}, sync_dev_repo=False, success_text=u'Voltou para a versão anterior')
+        finally:
+            subprocess.Popen = saved_popen
+        bat = written['bat']
+        lines = [l.strip() for l in bat.splitlines()]
+        self.assertIn('set DEV_REPO=', lines)          # vazio: o rollback nao sincroniza o repositorio
+        self.assertIn('Voltou para a vers', bat)
+
+
 if __name__ == '__main__':
     unittest.main()

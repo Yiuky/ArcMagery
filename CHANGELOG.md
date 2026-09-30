@@ -4,6 +4,54 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [Não publicado]
+
+### ✨ Adicionado
+- **SPOT 1–5 (CNES SPOT World Heritage, 1986–2015):** quinta fonte da janela principal
+  (*Fonte de imagens* › *SPOT 1-5 (CNES)*), pela API STAC do GEODES, com o mesmo fluxo do CBERS:
+  grupos por satélite (multiespectral/pancromática), busca livre, miniatura, fila, grupo e
+  *Substituir no TOC*. Composições falsa cor, SWIR/NIR/vermelho, multibanda e pancromática.
+  - **Alinhamento automático à Esri World Imagery:** o produto L1A tem erro de posição de 150–480 m
+    (medido em Cuiabá: SPOT 2 ~477 m, SPOT 5 ~145 m, translação quase uniforme). A correlação de fase
+    em várias janelas mede e corrige o deslocamento: resíduo de 2–5 m, conferido de forma independente
+    contra a Esri z16. Sem medição confiável, a cena entra sem correção e com aviso.
+  - GeoTIFF em UTM SIRGAS 2000 na resolução nativa, bandas nomeadas (XS3, XS2, XS1, SWIR: o
+    `IMAGERY.TIF` grava as bandas em ordem inversa ao XML do produto), pirâmides e `ACQUISITION_DATE`.
+  - Pacotes baixados uma vez para `%LOCALAPPDATA%\ArcMagery\spot_cache`, com MD5 conferido.
+- **Chave do GEODES:** aba *Configurações › Chave do GEODES (SPOT)* com *Testar chave* (valida e mostra
+  a cota de downloads sem gastá-la), *Salvar* e um **tutorial** passo a passo com botão para o portal.
+  A chave fica em `%APPDATA%\ArcGEE\geodes_config.json`. Sem chave, o download SPOT oferece a
+  configuração em vez de falhar.
+- **Tela de abertura:** confere em paralelo o Python 3, GDAL/numpy, internet (GEODES, INPE, Esri),
+  login do GEE, chave do GEODES e ArcMap enquanto a janela principal é montada; ela abre já com o
+  estado do GEE aplicado. Novo comando de backend `selfcheck` (~3 s).
+
+- **Earth Engine sem pip (menos requisitos na máquina):** o `earthengine-api` e suas 25 dependências
+  são baixados pelo próprio ArcMagery com `urllib` e os **certificados do Windows** (funciona com o
+  proxy de inspeção SSL, onde o `pip` falhava), com versões fixas e SHA-256 conferido
+  (`backend/pylibs_manifest.json`), para `%LOCALAPPDATA%\ArcMagery\pylibs\py3XY` (~26 MB, ~15 s).
+  Basta o **Python do QGIS**: não é mais preciso venv, pip nem compilador. Um venv existente continua
+  sendo usado sem mudança (a pasta só é ativada se o Python não tiver o `ee` próprio).
+  - A tela de abertura ganhou a linha *Componentes do Earth Engine* e o botão **Instalar componentes
+    do Earth Engine**, que instala e reverifica o login sem fechar a tela.
+  - `install.bat` e `autenticar_gee.bat` usam o mesmo mecanismo; a autenticação passou a usar
+    `backend/ee_auth.py` (não depende mais do `earthengine.exe` do venv).
+  - Manutenção: `tools/build_pylibs_manifest.py` regenera o manifesto (pura > abi3 > uma roda por CPython 3.10–3.14).
+
+### 🛡️ Corrigido
+- `No module named 'ee'` aparecia como traceback cru na barra do topo e na autenticação (visto na máquina de
+  um colega com a v2.3.2): agora é uma mensagem clara com a ação a tomar.
+
+- **Rollback para a versão anterior:** *Assistente de Atualização › Método 3* reinstala o backup
+  salvo antes da última atualização, pelo mesmo executor transacional (a versão atual é salva antes;
+  se a restauração falhar, o executor volta a ela). Nunca copia a versão antiga para o repositório de
+  desenvolvimento, e o mesmo botão desfaz o rollback.
+
+### 🔧 Alterado
+- O botão *Google Earth / Mosaicos XYZ...* fica fixo à direita da barra de fontes (não some quando os
+  botões de fonte não cabem).
+- O aviso de nova versão só aparece depois que a janela principal está visível.
+
 ## [2.3.3] - 2026-09-29
 
 ### ✨ Adicionado
