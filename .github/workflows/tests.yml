@@ -36,10 +36,12 @@ jobs:
           v = ET.parse('arcgis_addin/config.xml').getroot().find('e:Version', ns).text.strip()
           gui = re.search(r'^CURRENT_VERSION = "([^"]+)"', io.open('arcgis_addin/Install/gee_gui.py', encoding='utf-8').read(), re.M).group(1)
           upd = set(re.findall(r'current_version="([^"]+)"', io.open('arcgis_addin/Install/gee_updater.py', encoding='utf-8').read()))
-          badge = re.search('Versão-v([0-9.]+)-', io.open('README.md', encoding='utf-8').read())
-          print('config.xml', v, '| gee_gui', gui, '| gee_updater', upd, '| README', badge and badge.group(1))
+          # shields.io escreve "-" como "--": 2.4.1-nightly.X aparece como 2.4.1--nightly.X
+          badge = re.search(r'Versão-v(.+?)-[0-9A-Fa-f]{6}[.]svg', io.open('README.md', encoding='utf-8').read())
+          readme_v = badge.group(1).replace('--', '-') if badge else None
+          print('config.xml', v, '| gee_gui', gui, '| gee_updater', upd, '| README', readme_v)
           assert gui == v and upd == {v}, 'versoes divergentes'
-          assert badge and badge.group(1) == v, 'selo de versao do README desatualizado'
+          assert readme_v == v, 'selo de versao do README desatualizado'
 
       - name: Suite do backend
         run: python tests/backend/run_all.py -v
