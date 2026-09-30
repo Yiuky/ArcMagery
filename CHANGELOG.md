@@ -4,7 +4,7 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Não publicado]
+## [2.4.0] - 2026-09-30
 
 ### ✨ Adicionado
 - **SPOT 1–5 (CNES SPOT World Heritage, 1986–2015):** quinta fonte da janela principal

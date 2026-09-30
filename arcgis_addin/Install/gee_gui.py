@@ -579,7 +579,7 @@ class GEEAboutDialog(object):
         info_frame.pack(fill=tk.X, pady=(0, 10))
 
         info_text = (
-            u"• Versão: v2.3.3 (ArcMagery: GEE, CBERS/INPE, Google Earth / XYZ e datas Esri Wayback)\n"
+            u"• Versão: v2.4.0 (ArcMagery: GEE, CBERS/INPE, SPOT 1-5 (CNES), Google Earth / XYZ e Esri Wayback)\n"
             u"• Organização: Coordenadoria de Geoprocessamento e Monitoramento Ambiental\n"
             u"  Secretaria de Estado de Meio Ambiente de Mato Grosso (CGMA / SEMA-MT)\n"
             u"• Desenvolvedor: Joberth Firmino Gambati\n"
@@ -1030,7 +1030,7 @@ class GEEUpdaterDialog(object):
         threading.Thread(target=worker).start()
 
 
-CURRENT_VERSION = "2.3.3"
+CURRENT_VERSION = "2.4.0"
 APP_NAME = u"ArcMagery"
 APP_WINDOW_TITLE = u"ArcMagery (ArcGIS 10.8)  |  v" + CURRENT_VERSION
 
