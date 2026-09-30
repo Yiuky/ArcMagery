@@ -16,6 +16,7 @@ As regras (o que e erro, aviso ou OK) ficam em funcoes puras, testadas sem Tk.
 """
 from __future__ import division
 
+import os
 import threading
 import time
 import webbrowser
@@ -109,6 +110,8 @@ def evaluate_selfcheck(resp, has_key):
 def evaluate_gee(resp):
     if resp and resp.get('success'):
         return OK, resp.get('message') or u"Conectado."
+    if resp and resp.get('ee_missing'):
+        return WARN, u"Aguardando os componentes do Earth Engine (linha acima)."
     msg = (resp or {}).get('message') or u"não conectado"
     return WARN, u"%s. As demais fontes funcionam; use \"Autenticar GEE\" para o Earth Engine." % msg
 
@@ -219,12 +222,7 @@ class StartupSplash(object):
         self.top = tk.Toplevel(root)
         self.top.overrideredirect(True)
         self.top.configure(bg="#1b4f72")
-        w, h = 680, 410
-        try:
-            sw, sh = self.top.winfo_screenwidth(), self.top.winfo_screenheight()
-            self.top.geometry("%dx%d+%d+%d" % (w, h, (sw - w) // 2, (sh - h) // 3))
-        except Exception:
-            pass
+        # sem altura fixa: a janela cresce com o conteudo (textos longos nunca escondem os botoes)
         try:
             self.top.attributes('-topmost', True)
         except Exception:
@@ -240,6 +238,9 @@ class StartupSplash(object):
                  fg="#1b4f72").pack(side=tk.LEFT)
         tk.Label(head, text=u"  v%s" % version, font=("Segoe UI", 10), bg="#fdfefe",
                  fg="#5d6d7e").pack(side=tk.LEFT, pady=(8, 0))
+        if "-" in str(version):   # versao experimental (nightly)
+            tk.Label(head, text=u" EXPERIMENTAL ", font=("Segoe UI", 8, "bold"), bg="#ca6f1e",
+                     fg="#ffffff").pack(side=tk.LEFT, padx=(8, 0), pady=(8, 0))
         tk.Label(body, text=u"Preparando o ambiente: verificando conexões, login e bibliotecas...",
                  font=("Segoe UI", 9), bg="#fdfefe", fg="#34495e").pack(anchor=tk.W, pady=(6, 8))
         grid = tk.Frame(body, bg="#fdfefe")
@@ -258,17 +259,30 @@ class StartupSplash(object):
         grid.columnconfigure(2, weight=1)
         self.pbar = ttk.Progressbar(body, mode='determinate', maximum=len(CHECKS))
         self.pbar.pack(fill=tk.X, pady=(10, 6))
-        bar = tk.Frame(body, bg="#fdfefe")
-        bar.pack(fill=tk.X)
-        self.lbl_summary = tk.Label(bar, text=u"", font=("Segoe UI", 9, "bold"), bg="#fdfefe", fg="#1b4f72")
-        self.lbl_summary.pack(side=tk.LEFT)
+        self.lbl_summary = tk.Label(body, text=u"", font=("Segoe UI", 9, "bold"), bg="#fdfefe", fg="#1b4f72",
+                                    anchor=tk.W)
+        self.lbl_summary.pack(fill=tk.X)
+        bar = tk.Frame(body, bg="#fdfefe")          # botoes numa linha propria, abaixo do resumo
+        bar.pack(fill=tk.X, pady=(4, 0))
         self.btn_go = ttk.Button(bar, text=u"Abrir o ArcMagery", command=self.finish)
         self.btn_key = ttk.Button(bar, text=u"Configurar chave do GEODES", command=self._open_key)
         self.btn_wait = ttk.Button(bar, text=u"Aguardar", command=self._hold)
         self.btn_ee = ttk.Button(bar, text=u"Instalar componentes do Earth Engine", command=self._install_ee)
+        self.btn_doctor = ttk.Button(bar, text=u"Diagnosticar e corrigir", command=self._run_doctor)
         self._check_kwargs = {}
         self._countdown = None
-        self.top.update()
+        self._recenter()
+
+    def _recenter(self):
+        """Centraliza pela altura real (chamado ao criar e quando o conteudo muda de tamanho)."""
+        try:
+            self.top.update_idletasks()
+            w, h = max(680, self.top.winfo_reqwidth()), self.top.winfo_reqheight()
+            sw, sh = self.top.winfo_screenwidth(), self.top.winfo_screenheight()
+            self.top.geometry("+%d+%d" % (max(0, (sw - w) // 2), max(0, min((sh - h) // 3, sh - h - 40))))
+            self.top.update()
+        except Exception:
+            pass
 
     # chamado de qualquer thread
     def report(self, key, state, text, extra=None):
@@ -277,7 +291,8 @@ class StartupSplash(object):
     def start(self, on_done, **check_kwargs):
         self._done_cb = on_done
         self._check_kwargs = dict(check_kwargs)
-        check_kwargs.pop('installer', None)        # so usado pelo botao de instalacao
+        check_kwargs.pop('installer', None)        # so usados pelos botoes de instalacao e diagnostico
+        check_kwargs.pop('doctor', None)
         run_checks(self.report, **check_kwargs)
         self._poll()
 
@@ -307,6 +322,15 @@ class StartupSplash(object):
         self.top.after(120, self._poll)
 
     def _apply(self, key, state, text, extra):
+        if key == '_summary':
+            self._doctor_busy = False
+            self._summary_locked = True        # o resumo do diagnostico nao e sobrescrito
+            self.lbl_summary.config(text=text, fg=COLORS[WARN])
+            try:
+                self.btn_doctor.config(state=tk.NORMAL)
+            except Exception:
+                pass
+            return
         self.states[key] = state
         if key == 'gee' and extra is not None:
             self.gee_resp = extra
@@ -319,18 +343,24 @@ class StartupSplash(object):
         self.lbl_summary.config(text={OK: u"Tudo pronto!", WARN: u"Pronto, com avisos (veja acima).",
                                       FAIL: u"Há problemas: algumas fontes não vão funcionar."}[result],
                                 fg=COLORS[result])
-        if self.states.get('geodes') in (INFO, WARN, FAIL) and not self.btn_key.winfo_ismapped():
-            self.btn_key.pack(side=tk.RIGHT, padx=(0, 6))
-        if self.states.get('ee') == FAIL and not self.btn_ee.winfo_ismapped():
-            self.btn_ee.pack(side=tk.RIGHT, padx=(0, 6))
+        # ordem fixa: [Diagnosticar] ... [Chave GEODES] [Instalar componentes] [Aguardar] [Abrir]
+        for btn in (self.btn_go, self.btn_wait, self.btn_ee, self.btn_key, self.btn_doctor):
+            btn.pack_forget()
         self.btn_go.config(text=u"Abrir o ArcMagery")
-        if not self.btn_go.winfo_ismapped():
-            self.btn_go.pack(side=tk.RIGHT)
+        self.btn_go.pack(side=tk.RIGHT)
+        if result == WARN:
+            self.btn_wait.pack(side=tk.RIGHT, padx=(0, 6))
+        if self.states.get('ee') == FAIL:
+            self.btn_ee.pack(side=tk.RIGHT, padx=(0, 6))
+        if self.states.get('geodes') in (INFO, WARN, FAIL):
+            self.btn_key.pack(side=tk.RIGHT, padx=(0, 6))
+        if result == FAIL:
+            self.btn_doctor.pack(side=tk.LEFT)
+        self._recenter()
         if result == OK:
             self.top.after(AUTO_CLOSE_MS, self.finish)
         elif result == WARN:
             self._countdown = WARN_CLOSE_S
-            self.btn_wait.pack(side=tk.RIGHT, padx=(0, 6))
             self._tick()
 
     def _tick(self):
@@ -391,6 +421,41 @@ class StartupSplash(object):
         t.start()
         self._restart_poll()
 
+    def _run_doctor(self, runner=None, opener=None):
+        """Mesmo diagnostico do install.bat (corrige o que for seguro) e abre o relatorio."""
+        self._hold()
+        runner = runner or self._check_kwargs.get('doctor') or (lambda: gee_bridge.run_backend_cmd(
+            'doctor', {'fix': True, 'test_gee': False}, python_exe=gee_bridge.find_python3_gdal()))
+        opener = opener or _open_file
+        try:
+            self.btn_doctor.config(state=tk.DISABLED)
+        except Exception:
+            pass
+        self._doctor_busy, self._summary_locked = True, False
+        self.lbl_summary.config(text=u"Diagnosticando e corrigindo... (até ~1 min)", fg=COLORS[RUNNING])
+
+        def work():
+            try:
+                res = runner()
+            except Exception as e:
+                res = {'success': False, 'message': gee_bridge.err_text(e)}
+            for c in res.get('checks') or []:
+                if c.get('id') == 'ee':
+                    self.report('ee', OK if c['status'] in ('ok', 'fixed') else FAIL, c.get('detail'))
+                elif c.get('id') == 'libs':
+                    self.report('libs', {'ok': OK, 'fixed': OK, 'warn': WARN}.get(c['status'], FAIL), c.get('detail'))
+            fixed = sum(1 for c in res.get('checks') or [] if c.get('status') == 'fixed')
+            problems = sum(1 for c in res.get('checks') or [] if c.get('status') == 'fail')
+            self.report('_summary', RUNNING, u"Diagnóstico: %d corrigido(s), %d problema(s) restante(s). "
+                                             u"Relatório aberto." % (fixed, problems))
+            if res.get('report'):
+                opener(res['report'])
+
+        t = threading.Thread(target=work)
+        t.daemon = True
+        t.start()
+        self._restart_poll()
+
     def _restart_poll(self):
         """Volta a processar a fila de resultados depois de uma acao na splash ja concluida."""
         def pump():
@@ -403,7 +468,10 @@ class StartupSplash(object):
             except queue_mod.Empty:
                 pass
             result = overall(dict((k, self.states.get(k)) for k, _ in CHECKS))
-            busy = any(self.states.get(k) in (RUNNING, PENDING) for k, _ in CHECKS)
+            busy = any(self.states.get(k) in (RUNNING, PENDING) for k, _ in CHECKS) or getattr(self, '_doctor_busy', False)
+            if not busy and getattr(self, '_summary_locked', False):
+                self._recenter()
+                return
             if not busy:
                 self.lbl_summary.config(text={OK: u"Tudo pronto!", WARN: u"Pronto, com avisos (veja acima).",
                                               FAIL: u"Há problemas: algumas fontes não vão funcionar."}[result],
@@ -613,3 +681,14 @@ class GeodesTutorialDialog(object):
                    command=lambda: webbrowser.open(spot.GEODES_PORTAL)).pack(side=tk.LEFT)
         ttk.Button(bar, text=u"Fechar", command=self.top.destroy).pack(side=tk.RIGHT)
         center_on(self.top, parent)
+
+
+def _open_file(path):
+    try:
+        os.startfile(path)
+    except Exception:
+        try:
+            import subprocess
+            subprocess.Popen(["notepad.exe", path])
+        except Exception:
+            pass

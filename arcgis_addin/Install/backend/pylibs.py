@@ -71,8 +71,16 @@ def activate(force=False):
     return d
 
 
-def load_manifest(path=MANIFEST):
-    with io.open(path, 'r', encoding='utf-8') as f:
+def manifest_path(version_info=None):
+    """Manifesto da versao do Python: pylibs_manifest_py39.json (QGIS 3.26 e anteriores) ou o
+    pylibs_manifest.json padrao (CPython 3.10 a 3.14)."""
+    v = version_info or sys.version_info
+    own = os.path.join(HERE, 'pylibs_manifest_py%d%d.json' % (v[0], v[1]))
+    return own if os.path.exists(own) else MANIFEST
+
+
+def load_manifest(path=None, version_info=None):
+    with io.open(path or manifest_path(version_info), 'r', encoding='utf-8') as f:
         return json.load(f)
 
 
@@ -108,8 +116,8 @@ def select_files(manifest, version_info=None):
         elif not pkg.get('optional'):
             missing.append(pkg['name'])
     if missing:
-        raise PylibsError(u"Sem roda compatível com o Python %d.%d para: %s. Use um Python 3.10 a 3.14 de 64 bits "
-                          u"(ex.: o do QGIS 3.34+)." % (vi[0], vi[1], ', '.join(missing)))
+        raise PylibsError(u"Sem roda compatível com o Python %d.%d para: %s. Versões suportadas: Python 3.8 a 3.14 "
+                          u"de 64 bits (QGIS 3.16 ou mais novo)." % (vi[0], vi[1], ', '.join(missing)))
     return chosen
 
 
@@ -156,7 +164,7 @@ def _download(url, dest, sha256, opener=None, retries=3):
 
 def status(manifest=None, version_info=None):
     """{'installed', 'current', 'dir', 'manifest_id', ...} sem importar nada."""
-    manifest = manifest or load_manifest()
+    manifest = manifest or load_manifest(version_info=version_info)
     d = target_dir(version_info)
     info = {'dir': d, 'installed': False, 'current': False, 'manifest_id': manifest_id(manifest),
             'earthengine_api': manifest.get('earthengine_api')}
@@ -174,7 +182,7 @@ def status(manifest=None, version_info=None):
 
 def install(manifest=None, opener=None, force=False, version_info=None):
     """Baixa, confere e extrai as rodas para target_dir(). Idempotente (pula se ja estiver atual)."""
-    manifest = manifest or load_manifest()
+    manifest = manifest or load_manifest(version_info=version_info)
     st = status(manifest, version_info)
     if st['current'] and not force:
         _log(u"Bibliotecas do Earth Engine já instaladas (%s)." % st['dir'])

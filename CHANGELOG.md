@@ -4,6 +4,36 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.4.1-nightly.20260930] - 2026-09-30 (experimental)
+
+> Primeira versão **experimental (nightly)**. Publicada como *pre-release*: o canal estável do
+> atualizador continua na v2.4.0. Para testar: *Assistente de Atualização › Canal: Experimental*.
+
+### ✨ Adicionado
+- **Canais de atualização estável × experimental:** seletor *Canal* no Assistente de Atualização (salvo nas
+  Configurações). O experimental recebe as Releases nightly (`X.Y.Z-nightly.AAAAMMDD`, publicadas como
+  pre-release); o estável nunca as instala. Quem está numa nightly e escolhe *Estável* recebe a oferta de
+  voltar para a última estável (com backup). O aviso de nova versão na abertura segue o canal escolhido.
+- **Sinalizador de versão experimental:** selo laranja **EXPERIMENTAL** na barra do topo, `[EXPERIMENTAL]` no
+  título da janela e na tela de abertura.
+- Ordenação de versões com sufixo (2.4.0 < 2.4.1-nightly.20260930 < 2.4.1) no atualizador e na checagem de
+  downgrade do fluxo ZIP. O workflow de Release marca como pre-release as tags com sufixo.
+- **Diagnóstico com correção automática** (`backend/doctor.py`): o `install.bat` enumera os problemas da
+  máquina (Python e bits, GDAL/numpy/Pillow, internet e certificados por serviço, componentes do Earth
+  Engine, login e projeto do GEE com teste real, venv antigo, espaço em disco, tamanho do caminho do
+  pacote), **corrige o que é seguro** (instala os componentes do Earth Engine; tira de uso um venv
+  quebrado) e diz "o que fazer" no resto. Relatório em `%LOCALAPPDATA%\ArcMagery\diagnostico.txt`.
+  A tela de abertura ganhou o botão **Diagnosticar e corrigir** quando há problemas.
+- **Earth Engine no QGIS antigo:** manifestos próprios para Python 3.9 (QGIS 3.2x; earthengine-api
+  1.6.15) e 3.8 (earthengine-api 1.1.5). Antes só havia rodas para Python 3.10 a 3.14.
+
+### 🛡️ Corrigido
+- QGIS 3.26 (Python 3.9): "Sem roda compatível ... cffi" e `DLL load failed while importing _ssl` no
+  `install.bat` (as verificações rodavam sem as DLLs do QGIS e acusavam GDAL ausente sem estar).
+- Tela de abertura com altura fixa: textos longos empurravam os botões (inclusive "Instalar componentes do
+  Earth Engine") para fora da janela. Agora a janela cresce com o conteúdo e os botões ficam numa linha própria.
+- A linha do login do GEE repetia a mensagem longa dos componentes ausentes; agora só aponta para ela.
+
 ## [2.4.0] - 2026-09-30
 
 ### ✨ Adicionado

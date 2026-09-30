@@ -52,6 +52,11 @@ GITHUB_REPO_URL = "https://github.com/Yiuky/arcgis-google-earth-engine-explorer"
 GITHUB_ZIP_URL = "https://github.com/Yiuky/arcgis-google-earth-engine-explorer/archive/refs/heads/main.zip"
 # Canal oficial: GitHub Releases com arquivo de hashes publicado junto do pacote.
 GITHUB_API_LATEST_RELEASE = "https://api.github.com/repos/Yiuky/arcgis-google-earth-engine-explorer/releases/latest"
+# Lista de Releases (inclui pre-releases/nightly; /latest so devolve a ultima ESTAVEL)
+GITHUB_API_RELEASES = "https://api.github.com/repos/Yiuky/arcgis-google-earth-engine-explorer/releases?per_page=40"
+# Canais de atualizacao: estavel (Releases normais) e experimental (pre-releases "-nightly.AAAAMMDD")
+CHANNEL_STABLE, CHANNEL_NIGHTLY = "stable", "nightly"
+CHANNEL_LABELS = {CHANNEL_STABLE: u"Estável", CHANNEL_NIGHTLY: u"Experimental (nightly)"}
 RELEASE_CHECKSUM_ASSET = "SHA256SUMS.txt"
 UPDATER_USER_AGENT = "ArcMagery-Updater/2.3"
 GITHUB_HOST = "github.com"
@@ -311,15 +316,42 @@ def calculate_file_sha256(filepath):
     return sha.hexdigest()
 
 def parse_version(text):
-    """'v1.10' / '1.10.0' -> (1, 10, 0). Retorna None se nao for uma versao numerica."""
+    """'v1.10' / '1.10.0' / '2.4.1-nightly.20260930' -> (1, 10, 0) / ... / (2, 4, 1): so o nucleo
+    numerico. Retorna None se nao for uma versao numerica. Para ORDENAR use version_key()."""
     try:
-        parts = str(text).strip().lstrip("vV").split(".")
+        core = str(text).strip().lstrip("vV").split("+")[0].split("-")[0]
+        parts = core.split(".")
         nums = [int(p) for p in parts if p != ""]
         while len(nums) < 3:
             nums.append(0)
         return tuple(nums[:3])
     except Exception:
         return None
+
+
+def is_prerelease(text):
+    """'2.4.1-nightly.20260930' -> True (versao experimental); '2.4.0' -> False."""
+    return "-" in str(text or "").strip().lstrip("vV").split("+")[0]
+
+
+def version_key(text):
+    """Chave de ordenacao semver: 2.4.0 < 2.4.1-nightly.20260930 < 2.4.1-nightly.20261001 < 2.4.1.
+    Retorna None se a versao nao for reconhecida."""
+    core = parse_version(text)
+    if core is None:
+        return None
+    s = str(text).strip().lstrip("vV").split("+")[0]
+    if "-" not in s:
+        return core + (1, ())
+    ident = []
+    for part in s.split("-", 1)[1].replace("-", ".").split("."):
+        ident.append((1, int(part), u"") if part.isdigit() else (0, 0, part))
+    return core + (0, tuple(ident))
+
+
+def default_channel(current_version):
+    """Quem ja esta numa versao experimental continua no canal experimental."""
+    return CHANNEL_NIGHTLY if is_prerelease(current_version) else CHANNEL_STABLE
 
 
 def _http_get(url, timeout=30, accept=None):
@@ -370,6 +402,10 @@ def fetch_latest_release(api_url=GITHUB_API_LATEST_RELEASE):
             user_message=u"Não foi possível consultar a versão publicada no GitHub.",
             remediation=[u"Verifique a conexão/proxy.", u"Tente a atualização via arquivo ZIP."],
             technical_details=traceback.format_exc())
+    return _release_info(data)
+
+
+def _release_info(data):
     assets = data.get("assets") or []
     zips = [a for a in assets if a.get("name", "").lower().endswith(".zip")]
     sums = [a for a in assets if a.get("name") == RELEASE_CHECKSUM_ASSET]
@@ -377,10 +413,54 @@ def fetch_latest_release(api_url=GITHUB_API_LATEST_RELEASE):
     return {
         "version": tag.lstrip("vV"),
         "tag": tag,
+        "prerelease": bool(data.get("prerelease")) or is_prerelease(tag),
         "zip_name": zips[0]["name"] if zips else None,
         "zip_url": zips[0].get("browser_download_url") if zips else None,
         "sums_url": sums[0].get("browser_download_url") if sums else None,
     }
+
+
+def fetch_newest_release(api_url=GITHUB_API_RELEASES):
+    """Canal experimental: a Release mais nova da lista (estavel OU nightly), so as publicadas com
+    pacote e SHA256SUMS. Retorna None se nao houver."""
+    import json
+    try:
+        data = json.loads(_http_get(api_url, timeout=20, accept="application/vnd.github+json").decode("utf-8"))
+    except Exception as e:
+        if getattr(e, "code", None) == 404:
+            return None
+        raise NetworkError(
+            u"Falha ao consultar as Releases do GitHub: %s" % e,
+            title=u"Falha ao Consultar Releases",
+            user_message=u"Não foi possível consultar as versões publicadas no GitHub.",
+            remediation=[u"Verifique a conexão/proxy.", u"Tente a atualização via arquivo ZIP."],
+            technical_details=traceback.format_exc())
+    best = None
+    for item in data or []:
+        if item.get("draft"):
+            continue
+        info = _release_info(item)
+        if not (info["zip_url"] and info["sums_url"]) or version_key(info["version"]) is None:
+            continue
+        if best is None or version_key(info["version"]) > version_key(best["version"]):
+            best = info
+    return best
+
+
+def fetch_release_for_channel(channel=CHANNEL_STABLE):
+    return fetch_newest_release() if channel == CHANNEL_NIGHTLY else fetch_latest_release()
+
+
+def check_for_update(current_version, channel=CHANNEL_STABLE):
+    """(ha_atualizacao, release) para o aviso de inicializacao. Silencioso: nunca levanta."""
+    try:
+        rel = fetch_release_for_channel(channel)
+    except Exception:
+        return False, None
+    if not rel:
+        return False, None
+    new_k, cur_k = version_key(rel["version"]), version_key(current_version)
+    return bool(new_k and cur_k and new_k > cur_k), rel
 
 
 def verify_file_sha256(path, expected_hex):
@@ -912,7 +992,7 @@ def download_github_archive(target_path, progress_callback=None, url=None):
 # MOTOR DE BACKUP E SNAPSHOT DE SEGURANÇA
 # ==============================================================================
 
-def create_snapshot_backup(current_version="2.4.0", backups_root=None, custom_sys_dirs=None):
+def create_snapshot_backup(current_version="2.4.1-nightly.20260930", backups_root=None, custom_sys_dirs=None):
     """
     Cria um backup completo e atômico do estado operacional atual do plugin.
     Copia o .esriaddin instalado e todo o AssemblyCache para uma pasta versionada:
@@ -1377,7 +1457,7 @@ exit /b 1
 # FLUXO ORQUESTRADO COMPLETO (ORCHESTRATOR)
 # ==============================================================================
 
-def execute_zip_update_flow(zip_path, current_version="2.4.0", progress_callback=None,
+def execute_zip_update_flow(zip_path, current_version="2.4.1-nightly.20260930", progress_callback=None,
                             expected_sha256=None, allow_downgrade=False):
     """
     Fluxo de atualização passo a passo via arquivo ZIP:
@@ -1397,8 +1477,8 @@ def execute_zip_update_flow(zip_path, current_version="2.4.0", progress_callback
     target_dirs = find_system_directories()
     zip_meta = validate_zip_archive(zip_path, target_dirs=target_dirs)
 
-    new_v = parse_version(zip_meta.get("proposed_version"))
-    cur_v = parse_version(current_version)
+    new_v = version_key(zip_meta.get("proposed_version"))
+    cur_v = version_key(current_version)
     if new_v and cur_v and new_v < cur_v and not allow_downgrade:
         raise ConfirmationRequired(
             u"Pacote v%s é anterior à versão instalada v%s." % (zip_meta.get("proposed_version"), current_version),
@@ -1426,7 +1506,7 @@ def execute_zip_update_flow(zip_path, current_version="2.4.0", progress_callback
     generate_and_launch_detached_runner(staging_info, backup_meta)
     return True
 
-def execute_git_update_flow(repo_path, remote_branch="main", current_version="2.4.0", progress_callback=None):
+def execute_git_update_flow(repo_path, remote_branch="main", current_version="2.4.1-nightly.20260930", progress_callback=None):
     """
     Fluxo de atualização passo a passo via repositório Git local:
     Fase 1: Pre-flight checks Git (conectividade, working tree limpa, divergência).
@@ -1500,8 +1580,9 @@ def execute_git_update_flow(repo_path, remote_branch="main", current_version="2.
     generate_and_launch_detached_runner(staging_info, backup_meta)
     return True
 
-def execute_online_github_update_flow(current_version="2.4.0", progress_callback=None,
-                                      allow_unverified_main=False, allow_downgrade=False):
+def execute_online_github_update_flow(current_version="2.4.1-nightly.20260930", progress_callback=None,
+                                      allow_unverified_main=False, allow_downgrade=False,
+                                      channel=CHANNEL_STABLE):
     """
     Fluxo de atualização inteligente online:
     1. Se o sistema estiver rodando de um clone Git com .git:
@@ -1514,8 +1595,8 @@ def execute_online_github_update_flow(current_version="2.4.0", progress_callback
     sys_dirs = find_system_directories()
     dev_repo = sys_dirs.get("dev_repo")
 
-    # Verifica se dev_repo tem .git
-    if dev_repo and os.path.exists(os.path.join(dev_repo, ".git")):
+    # Verifica se dev_repo tem .git (so no canal estavel: o experimental usa sempre a Release nightly)
+    if dev_repo and os.path.exists(os.path.join(dev_repo, ".git")) and channel == CHANNEL_STABLE:
         log_info(u"Repositório Git ativo detectado em %s. Usando canal Git." % dev_repo)
         try:
             return execute_git_update_flow(
@@ -1533,11 +1614,20 @@ def execute_online_github_update_flow(current_version="2.4.0", progress_callback
     # Canal ZIP Online: Release publicada + SHA256SUMS (verificado) ou, com confirmação
     # explícita do usuário, o branch main sem verificação de integridade.
     if progress_callback:
-        progress_callback(u"1/4 Consultando a última Release publicada...")
-    release = fetch_latest_release()
+        progress_callback(u"1/4 Consultando a última versão %s publicada..." % CHANNEL_LABELS.get(channel, u"").lower())
+    release = fetch_release_for_channel(channel)
     zip_url, expected_sha = None, None
     if release and release.get("zip_url") and release.get("sums_url"):
-        new_v, cur_v = parse_version(release["version"]), parse_version(current_version)
+        new_v, cur_v = version_key(release["version"]), version_key(current_version)
+        if (new_v and cur_v and new_v < cur_v and not allow_downgrade and channel == CHANNEL_STABLE
+                and is_prerelease(current_version)):
+            raise ConfirmationRequired(
+                u"Canal estável: v%s instalada é experimental; estável publicada v%s." % (current_version, release["version"]),
+                flag="allow_downgrade",
+                title=u"Voltar para a Versão Estável",
+                user_message=u"Você está usando a versão EXPERIMENTAL v%s.\n\nA última versão ESTÁVEL publicada é a "
+                             u"v%s. Deseja instalá-la no lugar da experimental?\n\n(A versão atual é salva antes e "
+                             u"pode ser restaurada pelo botão de rollback.)" % (current_version, release["version"]))
         if new_v and cur_v and new_v <= cur_v and not allow_downgrade:
             raise UpdaterError(
                 u"Versão publicada v%s não é mais nova que a instalada v%s." % (release["version"], current_version),
@@ -1647,7 +1737,7 @@ def find_previous_version_backup(backups_root=None):
     return backups[0] if backups else None
 
 
-def execute_rollback_to_previous_flow(current_version="2.4.0", progress_callback=None, backup=None):
+def execute_rollback_to_previous_flow(current_version="2.4.1-nightly.20260930", progress_callback=None, backup=None):
     """Reinstala o snapshot da versao anterior pelo mesmo executor desacoplado da atualizacao:
     snapshot da versao ATUAL primeiro (se a restauracao falhar, o executor volta a ela), copia do
     backup escolhido para um staging descartavel e nada e copiado para o repositorio de desenvolvimento."""

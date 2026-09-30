@@ -55,6 +55,7 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
 | `backend/stac_core.py` | 3 + GDAL | STAC do INPE e recorte `/vsicurl/` na grade nativa |
 | `backend/esri_core.py` | 3 | Data de captura (metadados públicos da World Imagery) e histórico Wayback (`tilemap`: `select` aponta para a versão MAIS ANTIGA de onde vem o tile) |
 | `backend/pylibs.py` | 3 | earthengine-api **sem pip**: baixa as rodas fixadas em `pylibs_manifest.json` (urllib + certificados do Windows, SHA-256) para `%LOCALAPPDATA%\ArcMagery\pylibs\py3XY`; `activate()` (chamado no início do `run_gee.py`) só entra se o Python não tiver `ee` próprio. Regenere o manifesto com `tools/build_pylibs_manifest.py` |
+| `backend/doctor.py` | 3 | Diagnóstico do ambiente com correção automática (comando `doctor`; `run_gee.py doctor --text` no `install.bat`, botão da splash). Cada checagem: `ok`/`warn`/`fail`/`fixed` + "o que fazer". Manifestos por Python: `pylibs_manifest.json` (3.10–3.14), `_py39`, `_py38` |
 | `backend/ee_auth.py` | 3 | Autenticação interativa do GEE (console) com qualquer Python 3 apto, via `pylibs` |
 | `backend/spot_core.py` | 3 + GDAL + numpy | SPOT 1-5 via STAC do GEODES: busca (filtrar coleções por `query.dataset`; a data de aquisição é `start_datetime`), download com `X-API-Key` + MD5 + cache, georreferência pelo `Simplified_Location_Model` do L1A e **alinhamento à Esri** por correlação de fase |
 | `backend/gehist_core.py` | 3 | Google Earth histórico por data (catálogo *Time Machine*, protocolo Keyhole: dbRoot + quadtree protobuf + XOR), porta do `C:\DOWNLOADER_EARTH\historical_engine.py`. **A grade é geográfica EPSG:4326, não Web Mercator** (`tilemath.keyhole_*`) |
@@ -132,6 +133,12 @@ set ARCMAGERY_GEE_PROJECT=<id>  :: + teste real no Earth Engine (requer autentic
    `SHA256SUMS.txt` e as notas da versão no CHANGELOG. Sem a Release, o atualizador dos usuários pede
    confirmação para instalar do `main` sem verificação.
 4. Localmente, `python build_release.py` gera os mesmos artefatos em `dist/`, para conferência.
+5. **Versão experimental (nightly):** use `X.Y.Z-nightly.AAAAMMDD` (ex.: `2.4.1-nightly.20260930`) nos mesmos
+   lugares do passo 1, com o selo do README em laranja (`E67E22`; o shields.io escreve `-` como `--`) e o
+   título do CHANGELOG `## [X.Y.Z-nightly.AAAAMMDD] - data (experimental)`. A tag com sufixo vira *pre-release*
+   no workflow: o canal estável (`releases/latest`) nunca a instala; o canal experimental (lista de Releases)
+   pega a mais nova entre estáveis e nightlies. Compare versões sempre com `gee_updater.version_key`, nunca
+   com `parse_version` (que descarta o sufixo).
 
 ## 7. Integração contínua
 

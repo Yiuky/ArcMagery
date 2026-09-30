@@ -52,9 +52,10 @@ class MetadataTest(unittest.TestCase):
             self.assertEqual(v, self.version)
         self.assertNotIn('v1.12', gui)
         readme = io.open(os.path.join(_paths.REPO, 'README.md'), encoding='utf-8').read()
-        badge = re.search(u'Versão-v([0-9.]+)-', readme)
+        badge = re.search(u'Versão-v(.+?)-[0-9A-Fa-f]{6}\\.svg', readme)
         self.assertTrue(badge, u"selo de versao nao encontrado no README")
-        self.assertEqual(badge.group(1), self.version, u"selo de versao do README desatualizado")
+        # shields.io escreve "-" como "--" (2.4.1-nightly.X -> 2.4.1--nightly.X)
+        self.assertEqual(badge.group(1).replace(u'--', u'-'), self.version, u"selo de versao do README desatualizado")
 
     def test_old_product_name_not_visible(self):
         for fname in ('gee_gui.py', 'arcmagery_sources_gui.py'):

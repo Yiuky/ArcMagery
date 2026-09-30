@@ -1,0 +1,319 @@
+{
+ "earthengine_api": "1.6.15",
+ "requirement": "earthengine-api",
+ "python": "3.9",
+ "packages": [
+  {
+   "name": "certifi",
+   "version": "2026.7.22",
+   "files": [
+    {
+     "filename": "certifi-2026.7.22-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/0b/a7/71ac2cff56fec219ed242bb11b8efb69fcc4bec75db06fb7bfe35de520e6/certifi-2026.7.22-py3-none-any.whl",
+     "sha256": "62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775",
+     "size": 136983,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "cffi",
+   "version": "2.0.0",
+   "files": [
+    {
+     "filename": "cffi-2.0.0-cp39-cp39-win_amd64.whl",
+     "url": "https://files.pythonhosted.org/packages/54/8f/a1e836f82d8e32a97e6b29cc8f641779181ac7363734f12df27db803ebda/cffi-2.0.0-cp39-cp39-win_amd64.whl",
+     "sha256": "b882b3df248017dba09d6b16defe9b5c407fe32fc7c65a9c69798e6175601be9",
+     "size": 182794,
+     "python": "cp39"
+    }
+   ]
+  },
+  {
+   "name": "charset-normalizer",
+   "version": "3.5.2",
+   "files": [
+    {
+     "filename": "charset_normalizer-3.5.2-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/fc/ad/d07d7862a62ffa6d79d68074d14823243dd235a77c45262acbf6adeb28bf/charset_normalizer-3.5.2-py3-none-any.whl",
+     "sha256": "b6b751274acb69d77b3323d6b7dbaa3c7fdfc1eb829b7eb61d262f32e1af9685",
+     "size": 68872,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "cryptography",
+   "version": "43.0.3",
+   "files": [
+    {
+     "filename": "cryptography-43.0.3-cp37-abi3-win_amd64.whl",
+     "url": "https://files.pythonhosted.org/packages/eb/b1/0ebff61a004f7f89e7b65ca95f2f2375679d43d0290672f7713ee3162aff/cryptography-43.0.3-cp37-abi3-win_amd64.whl",
+     "sha256": "f46304d6f0c6ab8e52770addfa2fc41e6629495548862279641972b6215451cd",
+     "size": 3068039,
+     "python": "abi3:3.7"
+    }
+   ]
+  },
+  {
+   "name": "earthengine-api",
+   "version": "1.6.15",
+   "files": [
+    {
+     "filename": "earthengine_api-1.6.15-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/29/b6/fb711227132ecaf3bb80a8f36693dbeb987bf2690edf1e8bd99e1da1a65a/earthengine_api-1.6.15-py3-none-any.whl",
+     "sha256": "ce1b0e0cad967b88564daa84c9b5c6dfc4eeac78ed457024ef30ba3b86bcd328",
+     "size": 468759,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "google-api-core",
+   "version": "2.30.3",
+   "files": [
+    {
+     "filename": "google_api_core-2.30.3-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/03/15/e56f351cf6ef1cfea58e6ac226a7318ed1deb2218c4b3cc9bd9e4b786c5a/google_api_core-2.30.3-py3-none-any.whl",
+     "sha256": "a85761ba72c444dad5d611c2220633480b2b6be2521eca69cca2dbb3ffd6bfe8",
+     "size": 173274,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "google-api-python-client",
+   "version": "2.198.0",
+   "files": [
+    {
+     "filename": "google_api_python_client-2.198.0-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/d5/92/0fc9e7a09eb240c31b879bd8d2e43f81ed1f86c4798b79ead4a083921ab3/google_api_python_client-2.198.0-py3-none-any.whl",
+     "sha256": "fabac935474e817da5e662ff61bf7139439d6f92b32d332a7318a2d45931e03e",
+     "size": 15644203,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "google-auth",
+   "version": "2.50.0",
+   "files": [
+    {
+     "filename": "google_auth-2.50.0-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/37/cf/4880c2137c14280b2f59975cdf12cc442bc0ae1f9ea473a26eaa0c146786/google_auth-2.50.0-py3-none-any.whl",
+     "sha256": "04382175e28b94f49694977f0a792688b59a668def1499e9d8de996dc9ce5b15",
+     "size": 246495,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "google-auth-httplib2",
+   "version": "0.3.1",
+   "files": [
+    {
+     "filename": "google_auth_httplib2-0.3.1-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/97/e9/93afb14d23a949acaa3f4e7cc51a0024671174e116e35f42850764b99634/google_auth_httplib2-0.3.1-py3-none-any.whl",
+     "sha256": "682356a90ef4ba3d06548c37e9112eea6fc00395a11b0303a644c1a86abc275c",
+     "size": 9534,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "google-cloud-core",
+   "version": "2.5.1",
+   "files": [
+    {
+     "filename": "google_cloud_core-2.5.1-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/73/d9/5bb050cb32826466aa9b25f79e2ca2879fe66cb76782d4ed798dd7506151/google_cloud_core-2.5.1-py3-none-any.whl",
+     "sha256": "ea62cdf502c20e3e14be8a32c05ed02113d7bef454e40ff3fab6fe1ec9f1f4e7",
+     "size": 29452,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "google-cloud-storage",
+   "version": "3.9.0",
+   "files": [
+    {
+     "filename": "google_cloud_storage-3.9.0-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/46/0b/816a6ae3c9fd096937d2e5f9670558908811d57d59ddf69dd4b83b326fd1/google_cloud_storage-3.9.0-py3-none-any.whl",
+     "sha256": "2dce75a9e8b3387078cbbdad44757d410ecdb916101f8ba308abf202b6968066",
+     "size": 321324,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "google-resumable-media",
+   "version": "2.8.2",
+   "files": [
+    {
+     "filename": "google_resumable_media-2.8.2-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/5e/f8/50bfaf4658431ff9de45c5c3935af7ab01157a4903c603cd0eee6e78e087/google_resumable_media-2.8.2-py3-none-any.whl",
+     "sha256": "82b6d8ccd11765268cdd2a2123f417ec806b8eef3000a9a38dfe3033da5fb220",
+     "size": 81511,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "googleapis-common-protos",
+   "version": "1.75.0",
+   "files": [
+    {
+     "filename": "googleapis_common_protos-1.75.0-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/e7/c8/e2645aa8ed02fd4c7a2f59d68783b65b1f3cbdfe39a6308e156509d1fee8/googleapis_common_protos-1.75.0-py3-none-any.whl",
+     "sha256": "961ed60399c457ceb0ee8f285a84c870aabc9c6a832b9d37bb281b5bebde43ed",
+     "size": 300631,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "httplib2",
+   "version": "0.32.0",
+   "files": [
+    {
+     "filename": "httplib2-0.32.0-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/33/a0/550eec327e5f5c7b732531c489f5307efec41f047b0d703bd4ca1e5ad2db/httplib2-0.32.0-py3-none-any.whl",
+     "sha256": "dc6705cacdf3fb0a2aba7629fa33c90fd93e30035db0c157325826be177e4816",
+     "size": 93148,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "idna",
+   "version": "3.20",
+   "files": [
+    {
+     "filename": "idna-3.20-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/58/a2/bb081bab032533a855d44de1d56f8e8426114ff1ba5d1f07a438a0a654f8/idna-3.20-py3-none-any.whl",
+     "sha256": "ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c",
+     "size": 69583,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "proto-plus",
+   "version": "1.27.2",
+   "files": [
+    {
+     "filename": "proto_plus-1.27.2-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/84/f3/1fba73eeffafc998a25d59703b63f8be4fe8a5cb12eaff7386a0ba0f7125/proto_plus-1.27.2-py3-none-any.whl",
+     "sha256": "6432f75893d3b9e70b9c412f1d2f03f65b11fb164b793d14ae2ca01821d22718",
+     "size": 50450,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "protobuf",
+   "version": "6.33.6",
+   "files": [
+    {
+     "filename": "protobuf-6.33.6-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/c4/72/02445137af02769918a93807b2b7890047c32bfb9f90371cbc12688819eb/protobuf-6.33.6-py3-none-any.whl",
+     "sha256": "77179e006c476e69bf8e8ce866640091ec42e1beb80b213c3900006ecfba6901",
+     "size": 170656,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "pyasn1",
+   "version": "0.6.4",
+   "files": [
+    {
+     "filename": "pyasn1-0.6.4-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/9a/3b/6163796d69c3977d1e4287bea4a6979161cbbdd170ebb430511e8e1999ce/pyasn1-0.6.4-py3-none-any.whl",
+     "sha256": "deda9277cfd454080ec40b207fb6df82206a3a2688735233cdcd8d3d565f088b",
+     "size": 84410,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "pyasn1-modules",
+   "version": "0.4.2",
+   "files": [
+    {
+     "filename": "pyasn1_modules-0.4.2-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/47/8d/d529b5d697919ba8c11ad626e835d4039be708a35b0d22de83a269a6682c/pyasn1_modules-0.4.2-py3-none-any.whl",
+     "sha256": "29253a9207ce32b64c3ac6600edc75368f98473906e8fd1043bd6b5b1de2c14a",
+     "size": 181259,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "pycparser",
+   "version": "2.23",
+   "files": [
+    {
+     "filename": "pycparser-2.23-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/a0/e3/59cd50310fc9b59512193629e1984c1f95e5c8ae6e5d8c69532ccc65a7fe/pycparser-2.23-py3-none-any.whl",
+     "sha256": "e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934",
+     "size": 118140,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "pyparsing",
+   "version": "3.3.3",
+   "files": [
+    {
+     "filename": "pyparsing-3.3.3-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/38/bb/d215ee7c73b61497b28a5503f9f53523f294fcc936762b7caf90e0c1c2b5/pyparsing-3.3.3-py3-none-any.whl",
+     "sha256": "ece8c00a69cf01b45d0b1dedabb469c90d8caf996d4fda40f147627a122849a4",
+     "size": 126420,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "requests",
+   "version": "2.32.5",
+   "files": [
+    {
+     "filename": "requests-2.32.5-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/1e/db/4254e3eabe8020b458f1a747140d32277ec7a271daf1d235b70dc0b4e6e3/requests-2.32.5-py3-none-any.whl",
+     "sha256": "2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6",
+     "size": 64738,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "uritemplate",
+   "version": "4.2.0",
+   "files": [
+    {
+     "filename": "uritemplate-4.2.0-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/a9/99/3ae339466c9183ea5b8ae87b34c0b897eda475d2aec2307cae60e5cd4f29/uritemplate-4.2.0-py3-none-any.whl",
+     "sha256": "962201ba1c4edcab02e60f9a0d3821e82dfc5d2d6662a21abd533879bdb8a686",
+     "size": 11488,
+     "python": "any"
+    }
+   ]
+  },
+  {
+   "name": "urllib3",
+   "version": "2.6.3",
+   "files": [
+    {
+     "filename": "urllib3-2.6.3-py3-none-any.whl",
+     "url": "https://files.pythonhosted.org/packages/39/08/aaaad47bc4e9dc8c725e68f9d04865dbcb2052843ff09c97b08904852d84/urllib3-2.6.3-py3-none-any.whl",
+     "sha256": "bf272323e553dfb2e87d9bfd225ca7b0f467b919d7bbd355436d3fd37cb0acd4",
+     "size": 131584,
+     "python": "any"
+    }
+   ]
+  }
+ ]
+}

@@ -579,7 +579,7 @@ class GEEAboutDialog(object):
         info_frame.pack(fill=tk.X, pady=(0, 10))
 
         info_text = (
-            u"• Versão: v2.4.0 (ArcMagery: GEE, CBERS/INPE, SPOT 1-5 (CNES), Google Earth / XYZ e Esri Wayback)\n"
+            u"• Versão: v2.4.1-nightly.20260930 (ArcMagery: GEE, CBERS/INPE, SPOT 1-5 (CNES), Google Earth / XYZ e Esri Wayback)\n"
             u"• Organização: Coordenadoria de Geoprocessamento e Monitoramento Ambiental\n"
             u"  Secretaria de Estado de Meio Ambiente de Mato Grosso (CGMA / SEMA-MT)\n"
             u"• Desenvolvedor: Joberth Firmino Gambati\n"
@@ -716,7 +716,7 @@ class GEEUpdaterDialog(object):
         self.parent = parent
         self.top = tk.Toplevel(parent.root if hasattr(parent, 'root') else parent)
         self.top.title(u"Atualização Segura - ArcMagery")
-        self.top.geometry("560x520")
+        self.top.geometry("560x590")
         self.top.resizable(False, False)
         setup_window_icon(self.top)
         self.top.transient(parent.root if hasattr(parent, 'root') else parent)
@@ -755,6 +755,20 @@ class GEEUpdaterDialog(object):
             box_git,
             text=u"Verifica conexão, valida alterações e atualiza os arquivos mantendo backup prévio."
         ).pack(anchor=tk.W, pady=(0, 6))
+
+        # Canal: estavel (Releases normais) ou experimental (pre-releases nightly)
+        import gee_updater as _gu
+        row_ch = ttk.Frame(box_git)
+        row_ch.pack(anchor=tk.W, pady=(0, 6))
+        ttk.Label(row_ch, text=u"Canal:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
+        saved = gee_bridge.load_plugin_settings().get('update_channel') or _gu.default_channel(CURRENT_VERSION)
+        self.var_channel = tk.StringVar(value=saved)
+        for value in (_gu.CHANNEL_STABLE, _gu.CHANNEL_NIGHTLY):
+            ttk.Radiobutton(row_ch, text=_gu.CHANNEL_LABELS[value] + (u" (recomendado)" if value == _gu.CHANNEL_STABLE else u""),
+                            variable=self.var_channel, value=value, command=self._on_channel_changed).pack(side=tk.LEFT, padx=(0, 10))
+        self.lbl_channel_hint = ttk.Label(box_git, text=u"", font=("Segoe UI", 8), foreground="#555", wraplength=500)
+        self.lbl_channel_hint.pack(anchor=tk.W, pady=(0, 6))
+        self._on_channel_changed(save=False)
 
         self.btn_git_update = ttk.Button(box_git, text=u"⬇ Iniciar Atualização Online", command=self._do_github_update)
         self.btn_git_update.pack(anchor=tk.W)
@@ -808,6 +822,25 @@ class GEEUpdaterDialog(object):
 
         btn_close = ttk.Button(bot_frame, text=u"Fechar", command=self.top.destroy)
         btn_close.pack(side=tk.RIGHT)
+
+    def _on_channel_changed(self, save=True):
+        import gee_updater as _gu
+        ch = self.var_channel.get()
+        self.lbl_channel_hint.config(text=(
+            u"Experimental: recebe as versões nightly (novidades e correções antes da estável; podem ter falhas). "
+            u"Para voltar, escolha Estável e clique em Iniciar Atualização Online."
+            if ch == _gu.CHANNEL_NIGHTLY else
+            u"Estável: só versões publicadas como estáveis." + (
+                u" Você está numa versão experimental: a atualização oferece voltar para a última estável."
+                if is_experimental() else u"")))
+        if save:
+            try:
+                settings = dict(gee_bridge.load_plugin_settings(), update_channel=ch)
+                gee_bridge.save_plugin_settings(settings)
+                if hasattr(self.parent, 'settings'):
+                    self.parent.settings['update_channel'] = ch
+            except Exception:
+                pass
 
     def _open_log_file(self):
         try:
@@ -993,6 +1026,7 @@ class GEEUpdaterDialog(object):
                 gee_updater.execute_online_github_update_flow(
                     current_version=CURRENT_VERSION,
                     progress_callback=on_progress,
+                    channel=self.var_channel.get(),
                     **flags
                 )
 
@@ -1030,9 +1064,24 @@ class GEEUpdaterDialog(object):
         threading.Thread(target=worker).start()
 
 
-CURRENT_VERSION = "2.4.0"
+CURRENT_VERSION = "2.4.1-nightly.20260930"
 APP_NAME = u"ArcMagery"
-APP_WINDOW_TITLE = u"ArcMagery (ArcGIS 10.8)  |  v" + CURRENT_VERSION
+
+
+def is_experimental(version=None):
+    """Versao experimental (nightly): '2.4.1-nightly.20260930'. Estavel: '2.4.0'."""
+    return "-" in str(version or CURRENT_VERSION).lstrip("vV")
+
+
+def version_badge(version=None):
+    """(texto, cor) do selo de versao da barra do topo: laranja + EXPERIMENTAL nas nightlies."""
+    v = version or CURRENT_VERSION
+    if is_experimental(v):
+        return u" v%s \u00b7 EXPERIMENTAL " % v, "#ca6f1e"
+    return u" v%s " % v, "#1b4f72"
+
+
+APP_WINDOW_TITLE = u"ArcMagery (ArcGIS 10.8)  |  v" + CURRENT_VERSION + (u"  [EXPERIMENTAL]" if is_experimental() else u"")
 
 SENSOR_METADATA = {
     'S2': {
@@ -1616,31 +1665,17 @@ class GEEPluginWindow(object):
                 except Exception:
                     pass
 
-        # 2. Checagem de versão no config.xml remoto caso commit não tenha apontado ou não use git
+        # 2. Releases publicadas no canal escolhido (estável ou experimental/nightly)
         if not has_update:
             try:
-                raw_url = "https://raw.githubusercontent.com/Yiuky/arcgis-google-earth-engine-explorer/main/arcgis_addin/config.xml?t=%d" % int(time.time())
-                hdrs = {'User-Agent': 'ArcMagery-UpdateCheck', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache'}
-                if sys.version_info[0] < 3:
-                    import urllib2
-                    req = urllib2.Request(raw_url, headers=hdrs)
-                    res = urllib2.urlopen(req, timeout=5)
-                    xml_content = res.read()
-                else:
-                    import urllib.request
-                    req = urllib.request.Request(raw_url, headers=hdrs)
-                    res = urllib.request.urlopen(req, timeout=5)
-                    xml_content = res.read().decode('utf-8')
-
-                import re
-                m = re.search(r'<Version>(.*?)</Version>', xml_content)
-                if m:
-                    remote_ver = m.group(1).strip()
-                    def ver_tuple(v):
-                        return [int(x) for x in re.findall(r'\d+', v)]
-                    if ver_tuple(remote_ver) > ver_tuple(CURRENT_VERSION):
-                        has_update = True
-                        update_info = u"Nova versão v%s disponível (versão atual: v%s)" % (remote_ver, CURRENT_VERSION)
+                import gee_updater
+                channel = (getattr(self, 'settings', None) or {}).get('update_channel') or \
+                    gee_updater.default_channel(CURRENT_VERSION)
+                found, rel = gee_updater.check_for_update(CURRENT_VERSION, channel)
+                if found:
+                    has_update = True
+                    update_info = u"Nova versão %s v%s disponível (versão atual: v%s)" % (
+                        u"experimental" if rel.get("prerelease") else u"estável", rel["version"], CURRENT_VERSION)
             except Exception:
                 pass
 
@@ -1726,11 +1761,12 @@ class GEEPluginWindow(object):
             self.lbl_top_ico.pack(side=tk.LEFT, padx=(0, 6))
 
         # Badge de Versao bem visivel
+        badge_text, badge_color = version_badge()
         self.lbl_v_badge = tk.Label(
             self.top_frame,
-            text=u" v%s " % CURRENT_VERSION,
+            text=badge_text,
             font=("Segoe UI", 9, "bold"),
-            bg="#1b4f72",
+            bg=badge_color,
             fg="#ffffff",
             relief=tk.RIDGE,
             bd=1,

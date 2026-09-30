@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Gera arcgis_addin/Install/backend/pylibs_manifest.json (ferramenta do mantenedor, precisa de pip).
+"""Gera os manifestos de backend/pylibs (ferramenta do mantenedor, precisa de pip).
 
 Resolve earthengine-api e dependencias com `pip download`, e para cada pacote escolhe no PyPI as rodas
 que funcionam sem compilador: pura (py3-none-any) > ABI estavel (abi3, win_amd64) > uma por versao do
-CPython (cp310..cp314, win_amd64). Grava URL, tamanho e SHA-256 de cada arquivo.
+CPython (win_amd64). Grava URL, tamanho e SHA-256 de cada arquivo.
 
 Uso:  <python3 com pip> tools/build_pylibs_manifest.py [earthengine-api==X.Y.Z]
+          -> pylibs_manifest.json (CPython 3.10 a 3.14)
+      <python3 com pip> tools/build_pylibs_manifest.py --python 3.9
+          -> pylibs_manifest_py39.json, resolvido para aquela versao (QGIS antigos, ex.: 3.26 = Python 3.9)
 """
 import json
 import os
@@ -21,8 +24,6 @@ OUT = os.path.join(REPO, 'arcgis_addin', 'Install', 'backend', 'pylibs_manifest.
 CPYTHONS = ['cp310', 'cp311', 'cp312', 'cp313', 'cp314']
 # Sem uso pelo ArcMagery e so com rodas compiladas: a importacao do 'ee' funciona sem eles
 OPTIONAL = {'google-crc32c'}
-# Ja vem no Python do QGIS / nao precisam ir junto
-SKIP = set()
 
 
 def _ctx():
@@ -42,10 +43,12 @@ def norm(name):
     return re.sub(r'[-_.]+', '-', name).lower()
 
 
-def resolve(req):
+def resolve(req, python=None):
     tmp = tempfile.mkdtemp()
-    subprocess.check_call([sys.executable, '-m', 'pip', 'download', req, '-d', tmp, '-q',
-                           '--disable-pip-version-check'])
+    cmd = [sys.executable, '-m', 'pip', 'download', req, '-d', tmp, '-q', '--disable-pip-version-check']
+    if python:
+        cmd += ['--only-binary=:all:', '--platform', 'win_amd64', '--python-version', python, '--implementation', 'cp']
+    subprocess.check_call(cmd)
     pins = {}
     for f in os.listdir(tmp):
         m = re.match(r'^([A-Za-z0-9_.]+?)-(\d[^-]*)-', f) or re.match(r'^(.+)-(\d[^-]*)\.tar\.gz$', f)
@@ -54,7 +57,7 @@ def resolve(req):
     return pins
 
 
-def pick(name, version):
+def pick(name, version, cpythons):
     data = json.load(urllib.request.urlopen('https://pypi.org/pypi/%s/%s/json' % (name, version), context=_ctx()))
     wheels = [u for u in data['urls'] if u['packagetype'] == 'bdist_wheel']
 
@@ -72,7 +75,7 @@ def pick(name, version):
         u = sorted(abi3, key=low)[0]
         return [entry(u, 'abi3:3.%d' % low(u))]
     out = []
-    for cp in CPYTHONS:
+    for cp in cpythons:
         match = [u for u in wheels if '-%s-%s-win_amd64' % (cp, cp) in u['filename']]
         if match:
             out.append(entry(match[0], cp))
@@ -80,24 +83,31 @@ def pick(name, version):
 
 
 def main():
-    req = sys.argv[1] if len(sys.argv) > 1 else 'earthengine-api'
-    pins = resolve(req)
+    args = sys.argv[1:]
+    python = None
+    if '--python' in args:
+        i = args.index('--python')
+        python = args[i + 1]
+        del args[i:i + 2]
+    req = args[0] if args else 'earthengine-api'
+    pins = resolve(req, python)
+    cpythons = ['cp' + python.replace('.', '')] if python else CPYTHONS
+    out = OUT if not python else OUT.replace('.json', '_py%s.json' % python.replace('.', ''))
     packages = []
     for name, version in sorted(pins.items()):
-        if name in SKIP:
-            continue
-        files = pick(name, version)
-        if not files and name not in OPTIONAL:
-            sys.exit('Sem roda utilizavel para %s %s' % (name, version))
         if name in OPTIONAL:
             continue
+        files = pick(name, version, cpythons)
+        if not files:
+            sys.exit('Sem roda utilizavel para %s %s' % (name, version))
         packages.append({'name': name, 'version': version, 'files': files})
         print('%-28s %-10s %s' % (name, version, ', '.join(f['python'] for f in files)))
-    manifest = {'earthengine_api': pins.get('earthengine-api'), 'requirement': req, 'packages': packages}
-    with open(OUT, 'w', encoding='utf-8', newline='\n') as f:
+    manifest = {'earthengine_api': pins.get('earthengine-api'), 'requirement': req,
+                'python': python or '3.10-3.14', 'packages': packages}
+    with open(out, 'w', encoding='utf-8', newline='\n') as f:
         json.dump(manifest, f, indent=1, ensure_ascii=False)
         f.write('\n')
-    print('Gravado:', OUT)
+    print('Gravado:', out)
 
 
 if __name__ == '__main__':

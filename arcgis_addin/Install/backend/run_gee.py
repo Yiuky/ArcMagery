@@ -502,6 +502,23 @@ def _ee_version_subprocess():
         return None
 
 
+def src_doctor(p):
+    """Diagnostico com correcao automatica (install.bat e tela de abertura). Com text=True imprime o
+    relatorio legivel no stdout antes da linha JSON."""
+    import doctor
+    res = doctor.run(fix=_flag(p.get('fix', True)), test_gee=_flag(p.get('test_gee', True)),
+                     install_path=p.get('install_path'))
+    if _flag(p.get('text')):
+        sys.stdout.write(doctor.format_text(res) + os.linesep)
+        sys.stdout.flush()
+        res['_text_only'] = True
+    return res
+
+
+def _flag(value):
+    return value not in (False, 0, '0', 'false', 'False', 'nao', 'no', None, '')
+
+
 def src_pylibs_status(p):
     return dict(pylibs.status(), success=True, ee=pylibs.ee_version(), python=sys.executable)
 
@@ -579,6 +596,7 @@ SOURCE_COMMANDS = {
     'selfcheck': src_selfcheck,
     'pylibs_install': src_pylibs_install,
     'pylibs_status': src_pylibs_status,
+    'doctor': src_doctor,
 }
 
 
@@ -588,7 +606,8 @@ def run_source_command(name, params):
         result = SOURCE_COMMANDS[name](params)
     except Exception as e:
         result = {'success': False, 'message': str(e)}
-    sys.stdout.write(json.dumps(result) + "\n")
+    if not result.pop('_text_only', False):   # doctor --text (install.bat): so o relatorio legivel
+        sys.stdout.write(json.dumps(result) + "\n")
     sys.stdout.flush()
     sys.stderr.flush()
     # O GDAL/curl pode manter threads que travam o encerramento normal do interpretador
@@ -693,7 +712,17 @@ def main():
             break
 
     if not params_file and len(sys.argv) > 1 and sys.argv[1] in SOURCE_COMMANDS:
-        run_source_command(sys.argv[1], {})
+        # uso direto (install.bat): run_gee.py doctor --text --install-path=C:\pasta --no-test-gee
+        cli = {}
+        for a in sys.argv[2:]:
+            if a.startswith('--no-'):
+                cli[a[5:].replace('-', '_')] = False
+            elif a.startswith('--') and '=' in a:
+                k, v = a[2:].split('=', 1)
+                cli[k.replace('-', '_')] = v
+            elif a.startswith('--'):
+                cli[a[2:].replace('-', '_')] = True
+        run_source_command(sys.argv[1], cli)
         return
 
     if params_file and os.path.exists(params_file):

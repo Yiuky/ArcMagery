@@ -55,26 +55,29 @@ if not defined BASE_PY for %%P in ("%LOCALAPPDATA%\Programs\Python\Python312\pyt
     if not defined BASE_PY if exist "%%~P" set "BASE_PY=%%~P"
 )
 set "PY3=%BASE_PY%"
-if exist "%VENV_PY%" set "PY3=%VENV_PY%"
+:: venv antigo so e usado se ainda abrir (um venv quebrado e tirado de uso pelo diagnostico)
+if exist "%VENV_PY%" "%VENV_PY%" -c "import sys" >nul 2>nul && set "PY3=%VENV_PY%"
 if not defined PY3 (
-    echo [ERRO] Nenhum Python 3 encontrado ^(QGIS 3.x ou Python 3.10+^).
-    echo        Instale o QGIS 3.x ^(recomendado^) e execute este instalador novamente.
+    echo [ERRO] Nenhum Python 3 encontrado ^(QGIS 3.x^).
+    echo        Instale o QGIS 3.x ^(recomendado: 3.34 LTR ou mais novo^) e execute este instalador novamente.
     set "FAILED=1"
     goto :step3
 )
 echo [INFO] Python 3: %PY3%
 set "BACKEND=%SCRIPT_DIR%arcgis_addin\Install\backend"
-echo [INFO] Instalando os componentes do Earth Engine ^(sem pip; ~25 MB^)...
-"%PY3%" "%BACKEND%\run_gee.py" pylibs_install
-"%PY3%" -c "import sys; sys.path.insert(0, r'%BACKEND%'); import pylibs; pylibs.activate(); import ee; print('[OK] earthengine-api', ee.__version__)"
+set "PYTHONIOENCODING=utf-8"
+echo.
+echo [DIAGNOSTICO] Verificando o ambiente e corrigindo o que for possivel ^(~20 s^)...
+echo ----------------------------------------------------------------------
+"%PY3%" "%BACKEND%\run_gee.py" doctor --text "--install-path=%SCRIPT_DIR%"
 if errorlevel 1 (
-    echo [ERRO] earthengine-api indisponivel. Verifique a internet e rode o install.bat de novo
-    echo        ^(ou use o botao "Instalar componentes do Earth Engine" na tela de abertura^).
+    echo ----------------------------------------------------------------------
+    echo [ATENCAO] O diagnostico encontrou problemas ^(veja "o que fazer" acima^).
+    echo           O relatorio completo esta em %LOCALAPPDATA%\ArcMagery\diagnostico.txt
     set "FAILED=1"
+) else (
+    echo ----------------------------------------------------------------------
 )
-"%PY3%" -c "from osgeo import gdal; import numpy; print('[OK] GDAL', gdal.__version__, '- CBERS/INPE e SPOT habilitados')" 2>nul
-if errorlevel 1 echo [AVISO] GDAL/numpy indisponiveis neste Python: CBERS/INPE e SPOT exigem o QGIS 3.x instalado.
-
 :step3
 :: 3. Empacotar o Add-in (backend autocontido em arcgis_addin\Install\backend)
 echo.

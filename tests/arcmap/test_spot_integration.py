@@ -158,6 +158,12 @@ class StartupRulesTest(unittest.TestCase):
         self.assertIn(u'Instalar componentes', out['ee'][1])
         self.assertEqual(startup.evaluate_selfcheck(self.OK_RESP, True)['ee'], (startup.OK, u'earthengine-api 1.7.46'))
 
+    def test_gee_row_points_to_components_when_ee_is_missing(self):
+        state, text = startup.evaluate_gee({'success': False, 'ee_missing': True, 'message': u'x' * 400})
+        self.assertEqual(state, startup.WARN)
+        self.assertIn(u'linha acima', text)
+        self.assertLess(len(text), 80)
+
     def test_probe_activates_pylibs(self):
         code = gee_bridge.probe_code(['ee'])
         self.assertIn('pylibs.activate()', code)
@@ -267,6 +273,39 @@ print('BEFORE=%s,%s AFTER=%s,%s' % (before[0], before[1], splash.states.get('ee'
 '''
 
 
+DOCTOR_SCRIPT = r'''
+import sys, time
+sys.path.insert(0, sys.argv[1])
+import Tkinter as tk
+import arcmagery_startup as startup
+MISSING = {'success': True, 'python': '3.9', 'gdal': '3.5', 'numpy': '1.20', 'ee': None,
+           'net': {'geodes': {'ok': True}, 'inpe': {'ok': True}, 'esri': {'ok': True}}, 'geodes_key': None}
+ran = []
+def doctor():
+    ran.append(1)
+    return {'success': True, 'report': None, 'checks': [
+        {'id': 'ee', 'status': 'fixed', 'detail': u'earthengine-api 1.6.15'},
+        {'id': 'venv', 'status': 'fixed', 'detail': u'renomeado'}]}
+root = tk.Tk(); root.withdraw(); done = []
+splash = startup.StartupSplash(root, '9.9.9')
+splash.start(done.append, read_context=lambda: {'scale': 4000},
+             check_gee=lambda: {'success': False, 'ee_missing': True, 'message': u'ausentes ' * 40},
+             selfcheck=lambda key: MISSING, find_python=lambda: r'C:\qgis\python.exe', api_key='', doctor=doctor)
+deadline = time.time() + 15
+while any(splash.states.get(k) not in startup.DONE for k, _ in startup.CHECKS) and time.time() < deadline:
+    root.update(); time.sleep(0.02)
+for _ in range(10):
+    root.update(); time.sleep(0.02)
+visible = bool(splash.btn_doctor.winfo_ismapped() and splash.btn_ee.winfo_ismapped() and splash.btn_go.winfo_ismapped())
+fits = splash.top.winfo_height() >= splash.top.winfo_reqheight() - 2
+splash._run_doctor(opener=lambda p: None)
+while not getattr(splash, '_summary_locked', False) and time.time() < deadline:
+    root.update(); time.sleep(0.02)
+print('VISIBLE=%s FITS=%s RAN=%d EE=%s SUMMARY=%s' % (visible, fits, len(ran), splash.states.get('ee'),
+      u'2 corrigido' in splash.lbl_summary.cget('text')))
+'''
+
+
 class SplashWindowTest(unittest.TestCase):
     """Processo proprio: o loop de eventos da splash nao dispara 'after' de janelas de outros testes."""
 
@@ -279,6 +318,16 @@ class SplashWindowTest(unittest.TestCase):
         out, err = p.communicate()
         self.assertEqual(p.returncode, 0, err)
         self.assertIn('DONE=1 GEE=True GEODES=ok', out, u"a splash nao fechou sozinha com tudo OK: %r %r" % (out, err))
+
+    def test_buttons_fit_and_doctor_button_fixes(self):
+        import subprocess
+        env = dict(os.environ)
+        env.pop('PYTHONPATH', None)
+        p = subprocess.Popen([os.path.join(os.path.dirname(os.sys.executable), 'python.exe'), '-c', DOCTOR_SCRIPT,
+                              _paths.INSTALL], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+        out, err = p.communicate()
+        self.assertEqual(p.returncode, 0, err)
+        self.assertIn('VISIBLE=True FITS=True RAN=1 EE=ok SUMMARY=True', out, (out, err))
 
     def test_install_button_installs_and_rechecks_gee(self):
         import subprocess

@@ -492,6 +492,11 @@ O ArcMagery conta com uma arquitetura de atualização **transacional e à prova
    - Acesse **Configurações (⚙)** > clique em **`[ 🔄 Abrir Assistente de Atualização (GitHub / ZIP) ]`**.
    - Escolha **"Atualizar Diretamente via GitHub"**. O pacote vem da **última Release publicada** e só é instalado se o hash SHA-256 conferir com o `SHA256SUMS.txt` da Release. Se ainda não houver Release, o assistente pergunta se você aceita baixar a versão de desenvolvimento do branch `main` **sem verificação**. Downgrades também exigem confirmação.
    - Ou escolha **"Selecionar Arquivo ZIP e Atualizar"** para pacotes manuais offline.
+   - **Canal (Estável ou Experimental):** no Método 1, escolha *Estável (recomendado)* para receber só as
+     versões publicadas como estáveis, ou *Experimental (nightly)* para receber antes as novidades e
+     correções (podem ter falhas). A versão experimental aparece com o selo laranja **EXPERIMENTAL** na
+     barra do topo. Para voltar, escolha *Estável* e clique em *Iniciar Atualização Online*: o assistente
+     oferece instalar a última versão estável (a atual é salva antes).
    - **Voltar para a versão anterior (Método 3):** o botão **↩ Voltar para a Versão Anterior** reinstala o
      backup salvo antes da última atualização (o diálogo mostra qual versão e a data). A versão atual é
      salva antes, então o mesmo botão desfaz o rollback. A interface fecha para trocar os arquivos e uma
@@ -538,6 +543,15 @@ O ArcMagery conta com uma arquitetura de atualização **transacional e à prova
 * O ArcMagery exporta os certificados do Windows (incluindo a CA do proxy corporativo) para
   `%TEMP%\arcmagery_ca_bundle.pem` e os entrega ao GDAL. Se ainda falhar, defina a variável
   `CURL_CA_BUNDLE` apontando para o arquivo `.pem` fornecido pela equipe de TI.
+
+### 12. Diagnóstico automático (o que o `install.bat` verifica)
+* Na etapa **[DIAGNOSTICO]**, o instalador lista cada item como `[OK]`, `[CORRIGIDO]`, `[AVISO]` ou
+  `[PROBLEMA]`, com **"o que fazer"** logo abaixo. Ele corrige sozinho o que é seguro: instala os
+  componentes do Earth Engine e tira de uso um venv antigo quebrado (renomeado para `venv.quebrado_<data>`).
+* O relatório fica em `%LOCALAPPDATA%\ArcMagery\diagnostico.txt`. Envie esse arquivo ao suporte.
+* Dentro do ArcMagery, o botão **Diagnosticar e corrigir** da tela de abertura roda o mesmo diagnóstico.
+* Python suportado: 3.8 a 3.14 de 64 bits (QGIS 3.16 ou mais novo). No QGIS 3.26 (Python 3.9) o Earth
+  Engine usa o earthengine-api 1.6.15.
 
 ### 11. "Componentes do Google Earth Engine (earthengine-api) ausentes" / `No module named 'ee'`
 * O Python 3 do backend não tem o `earthengine-api` (o `pip` costuma falhar pela inspeção SSL da rede).
