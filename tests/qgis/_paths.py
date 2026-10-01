@@ -40,3 +40,18 @@ try:
     HAS_PYQGIS = True
 except ImportError:
     HAS_PYQGIS = False
+
+_qgs_app = None
+
+
+def ensure_qgis_app():
+    global _qgs_app
+    if HAS_PYQGIS and _qgs_app is None:
+        from qgis.core import QgsApplication
+        if QgsApplication.instance() is None:
+            _qgs_app = QgsApplication([], False)
+            _qgs_app.initQgis()
+        else:
+            _qgs_app = QgsApplication.instance()
+    return _qgs_app
+

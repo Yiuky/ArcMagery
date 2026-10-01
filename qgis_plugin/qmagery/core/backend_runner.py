@@ -81,6 +81,18 @@ def get_python_executable() -> str:
     return sys.executable
 
 
+def _get_subprocess_kwargs() -> Dict[str, Any]:
+    """Retorna flags para subprocess ocultando totalmente janelas de console no Windows."""
+    kwargs: Dict[str, Any] = {}
+    if sys.platform == 'win32':
+        kwargs['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = subprocess.SW_HIDE
+        kwargs['startupinfo'] = si
+    return kwargs
+
+
 class BackendError(RuntimeError):
     """Erro retornado pelo backend (success=false no JSON ou exit != 0)."""
     def __init__(self, message: str, diagnostics: Optional[Dict] = None):
@@ -101,12 +113,37 @@ class _BackendWorker(QObject):
         self.command = command
         self.params = params
         self._cancelled = False
+        self._proc: Optional[subprocess.Popen] = None
 
     def cancel(self):
+        """Cancela imediatamente o processo em execução."""
         self._cancelled = True
+        proc = self._proc
+        if proc and proc.poll() is None:
+            if sys.platform == 'win32':
+                try:
+                    subprocess.run(
+                        ['taskkill', '/F', '/T', '/PID', str(proc.pid)],
+                        capture_output=True,
+                        **_get_subprocess_kwargs()
+                    )
+                except Exception:
+                    pass
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            try:
+                proc.terminate()
+            except Exception:
+                pass
 
     def run(self):
         """Executa o backend e emite sinais de progresso/resultado."""
+        if self._cancelled:
+            self.error.emit('Operação cancelada.')
+            return
+
         fd, params_file = tempfile.mkstemp(suffix='.json', prefix='qmagery_params_')
         try:
             with os.fdopen(fd, 'w', encoding='utf-8') as f:
@@ -117,33 +154,51 @@ class _BackendWorker(QObject):
             env.pop('PYTHONPATH', None)
 
             py_exe = get_python_executable()
-            proc = subprocess.Popen(
+            self._proc = subprocess.Popen(
                 [py_exe, _RUN_GEE, self.command,
                  '--params-file=' + params_file],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=env,
+                **_get_subprocess_kwargs()
             )
+
+            if self._cancelled:
+                self.cancel()
+                self.error.emit('Operação cancelada.')
+                return
 
             # Lê stderr em thread separada para não bloquear stdout
             import threading
             stderr_lines = []
 
             def _read_stderr():
-                for raw in proc.stderr:
-                    line = raw.decode('utf-8', 'replace').rstrip()
-                    stderr_lines.append(line)
-                    self.progress.emit(line)
+                try:
+                    if self._proc and self._proc.stderr:
+                        for raw in self._proc.stderr:
+                            if self._cancelled:
+                                break
+                            line = raw.decode('utf-8', 'replace').rstrip()
+                            stderr_lines.append(line)
+                            self.progress.emit(line)
+                except Exception:
+                    pass
 
             t = threading.Thread(target=_read_stderr, daemon=True)
             t.start()
 
-            stdout_data = proc.stdout.read()
-            proc.wait()
-            t.join(timeout=5)
+            stdout_data = b''
+            try:
+                if self._proc and self._proc.stdout:
+                    stdout_data = self._proc.stdout.read()
+            except Exception:
+                pass
+
+            if self._proc:
+                self._proc.wait()
+            t.join(timeout=2)
 
             if self._cancelled:
-                proc.terminate()
                 self.error.emit('Operação cancelada.')
                 return
 
@@ -163,7 +218,8 @@ class _BackendWorker(QObject):
             self.finished.emit(result)
 
         except Exception as exc:
-            self.error.emit(str(exc))
+            if not self._cancelled:
+                self.error.emit(str(exc))
         finally:
             try:
                 os.remove(params_file)
@@ -273,6 +329,7 @@ class BackendRunner(QObject):
                 capture_output=True,
                 timeout=timeout,
                 env=env,
+                **_get_subprocess_kwargs()
             )
             lines = [
                 l for l in proc.stdout.decode('utf-8', 'replace').splitlines()

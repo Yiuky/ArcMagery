@@ -17,17 +17,7 @@ class TestGuiInstantiation(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if _paths.HAS_PYQGIS:
-            from qgis.core import QgsApplication
-            if QgsApplication.instance() is None:
-                cls._qgs = QgsApplication([], False)
-                cls._qgs.initQgis()
-
-    @classmethod
-    def tearDownClass(cls):
-        if cls._qgs:
-            cls._qgs.exitQgis()
-            cls._qgs = None
+        _paths.ensure_qgis_app()
 
     @unittest.skipUnless(_paths.HAS_PYQGIS, "Requer ambiente PyQGIS (QGIS desktop ou python-qgis)")
     def test_main_dialog_instantiation(self):
@@ -57,7 +47,7 @@ class TestGuiInstantiation(unittest.TestCase):
                 return MockCanvas()
 
         from qmagery.gui.main_dialog import MainDialog
-        dlg = MainDialog(iface=MockIface())
+        dlg = MainDialog(iface=MockIface(), auto_check=False)
 
         # Valida que todos os componentes idênticos ao ArcMagery foram criados
         self.assertIsNotNone(dlg._lbl_status)
@@ -77,6 +67,8 @@ class TestGuiInstantiation(unittest.TestCase):
             dlg._on_source_toggled(src, True)
             self.assertEqual(dlg._current_source, src)
             self.assertGreater(dlg._cbo_sensor.count(), 0)
+
+        dlg.close()
 
 if __name__ == '__main__':
     unittest.main()

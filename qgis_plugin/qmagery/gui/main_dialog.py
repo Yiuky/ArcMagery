@@ -74,7 +74,7 @@ def _get_icon_pixmap(name: str):
 class MainDialog(QDialog):
     """Janela principal do QMagery idêntica ao ArcMagery."""
 
-    def __init__(self, iface, parent=None):
+    def __init__(self, iface, parent=None, auto_check: bool = True):
         super().__init__(parent)
         self.iface = iface
         self.setWindowTitle("QMagery (QGIS 3.x) | v1.0.0")
@@ -94,7 +94,8 @@ class MainDialog(QDialog):
         self._load_saved_project()
         self._init_source_state()
         self._update_map_scale()
-        self.check_gee_connection()
+        if auto_check:
+            self.check_gee_connection()
 
     # -------------------------------------------------------------------------
     # Montagem da Interface
@@ -168,26 +169,31 @@ class MainDialog(QDialog):
         btn_proj = QPushButton("Configurar Projeto GEE")
         btn_proj.setStyleSheet(btn_style)
         btn_proj.clicked.connect(self._on_configure_project)
+        self._btn_proj = btn_proj
         layout.addWidget(btn_proj)
 
         btn_check = QPushButton("Verificar conexão")
         btn_check.setStyleSheet(btn_style)
         btn_check.clicked.connect(self.check_gee_connection)
+        self._btn_check = btn_check
         layout.addWidget(btn_check)
 
         btn_fit = QPushButton("Ajustar 1:500.000")
         btn_fit.setStyleSheet(btn_style)
         btn_fit.clicked.connect(self._on_fit_scale)
+        self._btn_fit = btn_fit
         layout.addWidget(btn_fit)
 
         btn_sett = QPushButton("⚙ Configurações")
         btn_sett.setStyleSheet(btn_style)
         btn_sett.clicked.connect(lambda: SettingsDialog(self).exec_())
+        self._btn_settings = btn_sett
         layout.addWidget(btn_sett)
 
         btn_about = QPushButton("ℹ Sobre")
         btn_about.setStyleSheet(btn_style)
         btn_about.clicked.connect(lambda: AboutDialog(self).exec_())
+        self._btn_about = btn_about
         layout.addWidget(btn_about)
 
         parent_layout.addWidget(bar)
@@ -236,6 +242,7 @@ class MainDialog(QDialog):
         btn_xyz = QPushButton("Google Earth / XYZ...")
         btn_xyz.setStyleSheet("background-color: #fdfefe; border: 1px solid #3498db; color: #1b4f72; font-weight: bold; padding: 4px 12px; border-radius: 3px;")
         btn_xyz.clicked.connect(lambda: ExtraSourcesDialog(self.iface, self).exec_())
+        self._btn_xyz = btn_xyz
         layout.addWidget(btn_xyz)
 
         parent_layout.addWidget(bar)
@@ -330,10 +337,12 @@ class MainDialog(QDialog):
 
         # Atalhos de data [30d] [60d] [90d]
         row_shortcuts = QHBoxLayout()
+        self._quick_date_buttons = {}
         for d in [30, 60, 90, 180]:
             btn = QPushButton(f"{d}d")
             btn.setMaximumWidth(60)
             btn.clicked.connect(lambda _, days=d: self._set_quick_dates(days))
+            self._quick_date_buttons[d] = btn
             row_shortcuts.addWidget(btn)
         row_shortcuts.addStretch()
         form.addLayout(row_shortcuts)
@@ -430,6 +439,7 @@ class MainDialog(QDialog):
 
         btn_ref_toc = QPushButton("Atualizar")
         btn_ref_toc.clicked.connect(self._refresh_toc_rasters)
+        self._btn_ref_toc = btn_ref_toc
         row_rep_cbo.addWidget(btn_ref_toc)
         rep_l.addLayout(row_rep_cbo)
 
@@ -635,11 +645,12 @@ class MainDialog(QDialog):
     def _update_map_scale(self):
         try:
             scale = self.iface.mapCanvas().scale()
+            scale_str = f"{scale:,.0f}".replace(",", ".")
             if scale <= MAX_ALLOWED_SCALE:
-                self._lbl_scale.setText(f"| Escala QGIS: 1:{scale:,.0f} (Válida <= 1:500k [OK])")
+                self._lbl_scale.setText(f"| Escala QGIS: 1:{scale_str} (Válida <= 1:500k [OK])")
                 self._lbl_scale.setStyleSheet("color: #145a32; font-size: 8.5pt; font-weight: bold;")
             else:
-                self._lbl_scale.setText(f"| Escala QGIS: 1:{scale:,.0f} (Aviso: aproxime para <= 1:500k)")
+                self._lbl_scale.setText(f"| Escala QGIS: 1:{scale_str} (Aviso: aproxime para <= 1:500k)")
                 self._lbl_scale.setStyleSheet("color: #c0392b; font-size: 8.5pt; font-weight: bold;")
         except Exception:
             pass
@@ -851,6 +862,11 @@ class MainDialog(QDialog):
     def _on_search_error(self, err: str):
         self._btn_search.setEnabled(True)
         self._btn_cancel.setEnabled(False)
+        self._pbar.setValue(0)
+        self._lbl_pct.setText("0%")
+        if "cancelad" in err.lower() or "interrompid" in err.lower():
+            self._lbl_progress.setText("Busca interrompida pelo usuário.")
+            return
         self._lbl_progress.setText(f"Erro: {err}")
         QMessageBox.critical(self, "Erro de Comunicação", err)
 
@@ -878,7 +894,8 @@ class MainDialog(QDialog):
         self._update_action_buttons()
 
     def _update_action_buttons(self):
-        count = len(self._table.selectedIndexes())
+        selected_rows = {idx.row() for idx in self._table.selectedIndexes()}
+        count = len(selected_rows)
         has_sel = (count > 0)
         self._btn_load.setEnabled(has_sel)
         self._btn_thumb.setEnabled(count == 1)
@@ -996,8 +1013,13 @@ class MainDialog(QDialog):
                 QMessageBox.critical(self, "Erro no QGIS", f"GeoTIFF baixado mas não pôde ser adicionado ao mapa:\n{e}")
 
     def _on_load_error(self, err: str):
-        self._btn_load.setEnabled(True)
+        self._update_action_buttons()
         self._btn_cancel.setEnabled(False)
+        self._pbar.setValue(0)
+        self._lbl_pct.setText("0%")
+        if "cancelad" in err.lower() or "interrompid" in err.lower():
+            self._lbl_progress.setText("Carregamento interrompido pelo usuário.")
+            return
         self._lbl_progress.setText(f"Erro: {err}")
         QMessageBox.critical(self, "Erro no Processamento", err)
 
@@ -1014,11 +1036,13 @@ class MainDialog(QDialog):
         item_id = item.get("id") or item.get("name")
 
         self._lbl_progress.setText("Gerando miniatura da cena...")
+        self._btn_cancel.setEnabled(True)
         out_png = os.path.join(tempfile.gettempdir(), f"thumb_{row}.png")
         bbox = self._get_current_bbox()
 
         self._runner = BackendRunner(self)
         self._runner.finished.connect(lambda res: self._show_thumb_dialog(res, out_png))
+        self._runner.error.connect(self._on_load_error)
 
         if self._current_source == 'gee':
             self._runner.run("thumb", {
@@ -1029,9 +1053,11 @@ class MainDialog(QDialog):
                 "out": out_png
             })
         else:
+            self._btn_cancel.setEnabled(False)
             QMessageBox.information(self, "Miniatura", "Geração de miniatura disponível para esta cena.")
 
     def _show_thumb_dialog(self, res: dict, out_png: str):
+        self._btn_cancel.setEnabled(False)
         if res.get("success") and os.path.isfile(out_png):
             dlg = QDialog(self)
             dlg.setWindowTitle("Pré-visualização da Cena")
@@ -1048,4 +1074,15 @@ class MainDialog(QDialog):
         if self._runner:
             self._runner.cancel()
         self._btn_cancel.setEnabled(False)
+        self._btn_search.setEnabled(True)
+        self._update_action_buttons()
+        self._pbar.setValue(0)
+        self._lbl_pct.setText("0%")
         self._lbl_progress.setText("Operação interrompida pelo usuário.")
+
+    def closeEvent(self, event):
+        if self._runner:
+            self._runner.cancel()
+        if self._check_runner:
+            self._check_runner.cancel()
+        super().closeEvent(event)
