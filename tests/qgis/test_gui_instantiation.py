@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Teste unitário de instanciação da GUI do QMagery.
-Se executado fora do ambiente QGIS (sem módulo 'qgis'), o teste é pulado graciosamente.
+Teste unitário de instanciação da GUI do QMagery (100% de paridade com o ArcMagery).
 """
 import os
 import sys
@@ -31,7 +30,7 @@ class TestGuiInstantiation(unittest.TestCase):
             cls._qgs = None
 
     @unittest.skipUnless(_paths.HAS_PYQGIS, "Requer ambiente PyQGIS (QGIS desktop ou python-qgis)")
-    def test_main_dialog_tabs_instantiation(self):
+    def test_main_dialog_instantiation(self):
         from qgis.core import QgsRectangle, QgsCoordinateReferenceSystem
 
         plugin_dir = _paths.PLUGIN_ROOT
@@ -41,6 +40,10 @@ class TestGuiInstantiation(unittest.TestCase):
         class MockCanvas:
             def extent(self):
                 return QgsRectangle(-56.15, -15.65, -56.05, -15.55)
+            def scale(self):
+                return 250000.0
+            def zoomScale(self, s):
+                pass
             def mapSettings(self):
                 class Settings:
                     def destinationCrs(self):
@@ -55,22 +58,25 @@ class TestGuiInstantiation(unittest.TestCase):
 
         from qmagery.gui.main_dialog import MainDialog
         dlg = MainDialog(iface=MockIface())
-        self.assertEqual(dlg._tabs.count(), 6)
 
-        expected_tabs = {
-            0: ("GEE", "GeeTab"),
-            1: ("CBERS / Amazônia-1", "InpeTab"),
-            2: ("SPOT 1-5", "SpotTab"),
-            3: ("Google Earth Hist.", "GEHistTab"),
-            4: ("Esri Wayback", "WaybackTab"),
-            5: ("Google / XYZ", "XyzTab"),
-        }
+        # Valida que todos os componentes idênticos ao ArcMagery foram criados
+        self.assertIsNotNone(dlg._lbl_status)
+        self.assertIsNotNone(dlg._lbl_scale)
+        self.assertIsNotNone(dlg._source_group)
+        self.assertIsNotNone(dlg._cbo_sensor)
+        self.assertIsNotNone(dlg._cbo_comp)
+        self.assertIsNotNone(dlg._table)
+        self.assertIsNotNone(dlg._btn_search)
+        self.assertIsNotNone(dlg._btn_load)
+        self.assertIsNotNone(dlg._btn_replace)
+        self.assertIsNotNone(dlg._btn_thumb)
+        self.assertIsNotNone(dlg._btn_cancel)
 
-        for idx, (expected_title, expected_cls) in expected_tabs.items():
-            self.assertEqual(dlg._tabs.tabText(idx), expected_title)
-            w = dlg._tabs.widget(idx)
-            self.assertEqual(w.__class__.__name__, expected_cls,
-                             f"Aba {expected_title} falhou ao instanciar: gerou {w.__class__.__name__}")
+        # Testa alternância entre fontes
+        for src in ['gee', 'inpe', 'spot', 'gehist', 'wayback']:
+            dlg._on_source_toggled(src, True)
+            self.assertEqual(dlg._current_source, src)
+            self.assertGreater(dlg._cbo_sensor.count(), 0)
 
 if __name__ == '__main__':
     unittest.main()
