@@ -327,6 +327,17 @@ class TestGuiButtonsFunctionality(unittest.TestCase):
             args, _ = mock_runner.run.call_args
             self.assertEqual(args[0], 'download')
 
+            # Testa atualização de status para Carregado
+            with tempfile.NamedTemporaryFile(suffix='.tif', delete=False) as tf:
+                tmp_tif = tf.name
+            try:
+                with patch('qmagery.gui.main_dialog.add_raster_layer'):
+                    self.dlg._on_load_finished({"success": True, "file": tmp_tif}, None, loaded_row=0)
+                    self.assertEqual(self.dlg._table.item(0, 4).text(), "✓ Carregado")
+            finally:
+                if os.path.exists(tmp_tif):
+                    os.remove(tmp_tif)
+
     def test_thumb_button_triggers_runner_and_ui_states(self):
         """Testa se o botão 'Miniatura' invoca o backend para gerar prévia."""
         from unittest.mock import patch, MagicMock

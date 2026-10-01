@@ -475,32 +475,10 @@ class MainDialog(QDialog):
 
         load_layout.addWidget(box_rep)
 
-        # Botões de Ação
+        # Botões de Ação (alinhados à direita)
         row_act = QHBoxLayout()
         row_act.setSpacing(10)
-        self._btn_load = QPushButton("⬇ Carregar no QGIS")
-        self._btn_load.setStyleSheet("""
-            QPushButton {
-                background-color: #1e8449;
-                color: #ffffff;
-                font-weight: bold;
-                font-size: 9.5pt;
-                padding: 7px 18px;
-                border-radius: 4px;
-                border: 1px solid #196f3d;
-            }
-            QPushButton:hover {
-                background-color: #27ae60;
-            }
-            QPushButton:disabled {
-                background-color: #d5dbdb;
-                color: #7f8c8d;
-                border: 1px solid #bdc3c7;
-            }
-        """)
-        self._btn_load.setEnabled(False)
-        self._btn_load.clicked.connect(self._on_load_clicked)
-        row_act.addWidget(self._btn_load)
+        row_act.addStretch()
 
         self._btn_thumb = QPushButton("🖼 Miniatura")
         self._btn_thumb.setStyleSheet("""
@@ -508,7 +486,7 @@ class MainDialog(QDialog):
                 background-color: #ffffff;
                 color: #2c3e50;
                 font-weight: bold;
-                padding: 7px 14px;
+                padding: 7px 16px;
                 border-radius: 4px;
                 border: 1px solid #bdc3c7;
             }
@@ -525,7 +503,30 @@ class MainDialog(QDialog):
         self._btn_thumb.clicked.connect(self._on_thumb_clicked)
         row_act.addWidget(self._btn_thumb)
 
-        row_act.addStretch()
+        self._btn_load = QPushButton("⬇ Carregar no QGIS")
+        self._btn_load.setStyleSheet("""
+            QPushButton {
+                background-color: #1e8449;
+                color: #ffffff;
+                font-weight: bold;
+                font-size: 9.5pt;
+                padding: 7px 20px;
+                border-radius: 4px;
+                border: 1px solid #196f3d;
+            }
+            QPushButton:hover {
+                background-color: #27ae60;
+            }
+            QPushButton:disabled {
+                background-color: #d5dbdb;
+                color: #7f8c8d;
+                border: 1px solid #bdc3c7;
+            }
+        """)
+        self._btn_load.setEnabled(False)
+        self._btn_load.clicked.connect(self._on_load_clicked)
+        row_act.addWidget(self._btn_load)
+
         load_layout.addLayout(row_act)
 
         layout.addWidget(gb_load)
@@ -536,7 +537,7 @@ class MainDialog(QDialog):
         bar.setStyleSheet("background-color: #eaeded; border-top: 1px solid #bdc3c7;")
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(10, 4, 10, 4)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
 
         self._lbl_progress = QLabel("Pronto. (QMagery v1.0.0)")
         self._lbl_progress.setStyleSheet("color: #2c3e50; font-size: 8.5pt;")
@@ -565,17 +566,33 @@ class MainDialog(QDialog):
         self._btn_cancel.clicked.connect(self._on_cancel_clicked)
         layout.addWidget(self._btn_cancel)
 
+        # Barra de progresso com porcentagem integrada
         self._pbar = QProgressBar()
         self._pbar.setRange(0, 100)
         self._pbar.setValue(0)
-        self._pbar.setFixedWidth(180)
+        self._pbar.setTextVisible(True)
+        self._pbar.setFormat("%p%")
+        self._pbar.setAlignment(Qt.AlignCenter)
+        self._pbar.setFixedWidth(200)
+        self._pbar.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #bdc3c7;
+                border-radius: 3px;
+                text-align: center;
+                background-color: #f8f9f9;
+                color: #2c3e50;
+                font-weight: bold;
+                font-size: 8pt;
+            }
+            QProgressBar::chunk {
+                background-color: #27ae60;
+                border-radius: 2px;
+            }
+        """)
         layout.addWidget(self._pbar)
 
-        self._lbl_pct = QLabel("0%")
-        self._lbl_pct.setFixedWidth(40)
-        self._lbl_pct.setAlignment(Qt.AlignCenter)
-        self._lbl_pct.setStyleSheet("font-weight: bold; color: #2c3e50;")
-        layout.addWidget(self._lbl_pct)
+        self._lbl_pct = QLabel("")
+        self._lbl_pct.setVisible(False)
 
         parent_layout.addWidget(bar)
 
@@ -1025,7 +1042,7 @@ class MainDialog(QDialog):
 
         self._runner = BackendRunner(self)
         self._runner.progress.connect(self._on_load_progress)
-        self._runner.finished.connect(lambda res: self._on_load_finished(res, group_name))
+        self._runner.finished.connect(lambda res, r=row: self._on_load_finished(res, group_name, r))
         self._runner.error.connect(self._on_load_error)
 
         if self._current_source == 'gee':
@@ -1094,7 +1111,7 @@ class MainDialog(QDialog):
             self._pbar.setValue(pct)
             self._lbl_pct.setText(f"{pct}%")
 
-    def _on_load_finished(self, res: dict, group_name: Optional[str]):
+    def _on_load_finished(self, res: dict, group_name: Optional[str], loaded_row: Optional[int] = None):
         self._btn_load.setEnabled(True)
         self._btn_cancel.setEnabled(False)
         self._pbar.setValue(100)
@@ -1103,6 +1120,11 @@ class MainDialog(QDialog):
         if not res.get("success"):
             err = res.get("message", "Falha no download.")
             self._lbl_progress.setText(f"Erro: {err[:60]}")
+            if loaded_row is not None and loaded_row < self._table.rowCount():
+                st_item = self._table.item(loaded_row, 4)
+                if st_item:
+                    st_item.setText("Erro")
+                    st_item.setForeground(QColor("#c0392b"))
             QMessageBox.critical(self, "Erro de Carga", err)
             return
 
@@ -1113,6 +1135,16 @@ class MainDialog(QDialog):
                 add_raster_layer(tif_path, layer_name, group_name=group_name)
                 self._lbl_progress.setText(f"Carregado com sucesso: {layer_name}")
                 self._refresh_toc_rasters()
+
+                # Atualiza a linha da tabela para 'Carregado'
+                if loaded_row is not None and loaded_row < self._table.rowCount():
+                    st_item = self._table.item(loaded_row, 4)
+                    if st_item:
+                        st_item.setText("✓ Carregado")
+                        st_item.setForeground(QColor("#1e8449"))
+                        font = st_item.font()
+                        font.setBold(True)
+                        st_item.setFont(font)
             except Exception as e:
                 QMessageBox.critical(self, "Erro no QGIS", f"GeoTIFF baixado mas não pôde ser adicionado ao mapa:\n{e}")
 
