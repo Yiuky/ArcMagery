@@ -27,8 +27,13 @@ from typing import Dict, Any, Optional, Callable
 from qgis.PyQt.QtCore import QObject, QThread, pyqtSignal
 
 
+# os.path.realpath resolve junctions e symlinks do Windows.
+# Sem isso, quando o plugin está instalado via junction no diretório de plugins do QGIS,
+# o __file__ aponta para o alvo da junction e o caminho relativo (..'s) fica errado.
+# Hierarquia: core/ → qmagery/ → qgis_plugin/ → ArcMagery/ → arcgis_addin/Install/backend/
+_THIS_FILE = os.path.realpath(__file__)
 _BACKEND_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), '..', '..', '..', '..',
+    os.path.join(os.path.dirname(_THIS_FILE), '..', '..', '..',
                  'arcgis_addin', 'Install', 'backend')
 )
 _RUN_GEE = os.path.join(_BACKEND_DIR, 'run_gee.py')

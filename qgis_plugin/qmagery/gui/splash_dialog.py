@@ -23,8 +23,9 @@ from qgis.PyQt.QtWidgets import (
 )
 
 
+_THIS_FILE = os.path.realpath(__file__)
 _BACKEND_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), '..', '..', '..', '..',
+    os.path.join(os.path.dirname(_THIS_FILE), '..', '..', '..',
                  'arcgis_addin', 'Install', 'backend')
 )
 _RUN_GEE = os.path.join(_BACKEND_DIR, 'run_gee.py')
