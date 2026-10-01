@@ -210,6 +210,35 @@ class DownloadTest(unittest.TestCase):
         with self.assertRaises(sc.SpotError):
             sc.download_zip(self.scene, None, self.tmp, opener=lambda r: self.fail('rede'))
 
+    def test_zip_name_from_catalog_is_sanitized(self):
+        """O titulo do asset STAC e dado externo: nunca pode escapar do cache_dir."""
+        self.assertEqual(sc.safe_zip_name('..\\..\\Windows\\evil.zip', 'X'), 'evil.zip')
+        self.assertEqual(sc.safe_zip_name('../../etc/passwd', 'X'), 'passwd.zip')
+        self.assertEqual(sc.safe_zip_name('C:/a b/c:d?.zip', 'X'), 'c_d_.zip')
+        self.assertEqual(sc.safe_zip_name(None, 'CENA_01'), 'CENA_01.zip')
+        self.assertEqual(sc.safe_zip_name('..', '../x'), 'x.zip')
+        evil = dict(self.scene, zip_name='..\\..\\fora.zip')
+        path = sc.download_zip(evil, 'CHAVE', self.tmp, opener=lambda r: FakeResponse(self.data))
+        self.assertEqual(os.path.dirname(os.path.abspath(path)), os.path.abspath(self.tmp))
+        self.assertEqual(os.path.basename(path), 'fora.zip')
+
+    def test_missing_md5_is_accepted_with_warning(self):
+        logs = []
+        orig = sc._log
+        sc._log = logs.append
+        try:
+            zpath = os.path.join(self.tmp, 'ok.zip')
+            with open(zpath, 'wb') as f:
+                f.write(self.data)
+            self.assertTrue(sc.md5_ok(zpath, None))
+            self.assertTrue(sc.md5_ok(zpath, 'files'))      # href sem MD5 no fim
+            self.assertEqual(len([m for m in logs if 'MD5' in m]), 2)
+            del logs[:]
+            self.assertTrue(sc.md5_ok(zpath, hashlib.md5(self.data).hexdigest()))
+            self.assertEqual(logs, [])
+        finally:
+            sc._log = orig
+
 
 @unittest.skipUnless(np is not None, "numpy indisponivel")
 class PhaseCorrelationTest(unittest.TestCase):
@@ -359,6 +388,35 @@ class GeoreferenceAndAlignTest(unittest.TestCase):
     def test_swir_needs_four_bands(self):
         with self.assertRaises(sc.SpotError):
             sc.georeference(self.zip, os.path.join(self.tmp, 'x.tif'), self.bbox, mode='swir', align=False)
+
+    def test_warp_failure_releases_handles_and_cleans_temp(self):
+        """Regressao: com falha no _warp final o VRT vivo mantinha o IMAGERY.TIF aberto e o
+        rmtree(ignore_errors) deixava 100-600 MB no %TEMP%; o .part.tif tambem ficava."""
+        made = []
+        orig_mkdtemp, orig_warp = sc.tempfile.mkdtemp, sc._warp
+
+        def mkdtemp(*a, **k):
+            d = orig_mkdtemp(*a, **k)
+            made.append(d)
+            return d
+
+        def broken_warp(src, dst, *a, **k):
+            with open(dst, 'wb') as f:
+                f.write(b'parcial')
+            raise RuntimeError("falha simulada no warp")
+
+        sc.tempfile.mkdtemp, sc._warp = mkdtemp, broken_warp
+        out = os.path.join(self.tmp, 'falha.tif')
+        try:
+            with self.assertRaises(RuntimeError):
+                sc.georeference(self.zip, out, self.bbox, mode='false', align=False)
+        finally:
+            sc.tempfile.mkdtemp, sc._warp = orig_mkdtemp, orig_warp
+        self.assertEqual(len(made), 1)
+        self.assertTrue(os.path.basename(made[0]).startswith('arcmagery_spot_'))
+        self.assertFalse(os.path.exists(made[0]), "pasta de trabalho ficou no %TEMP%")
+        self.assertFalse(os.path.exists(out + '.part.tif'))
+        self.assertFalse(os.path.exists(out))
 
 
 class CliRegistrationTest(unittest.TestCase):

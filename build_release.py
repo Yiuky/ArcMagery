@@ -19,6 +19,7 @@ import hashlib
 import os
 import subprocess
 import sys
+import time
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -49,8 +50,27 @@ def sha256_of(path):
     return h.hexdigest()
 
 
+def commit_time():
+    """Data do ultimo commit (UTC), usada em todas as entradas do ZIP: o mesmo commit gera o mesmo pacote."""
+    try:
+        ts = int(subprocess.check_output(['git', 'log', '-1', '--format=%ct'], cwd=ROOT).strip())
+    except Exception:
+        ts = 315532800  # 1980-01-01, menor data aceita pelo formato ZIP
+    return time.gmtime(max(ts, 315532800))[:6]
+
+
+def warn_if_dirty():
+    try:
+        dirty = subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=ROOT).strip()
+    except Exception:
+        return
+    if dirty:
+        print('AVISO: ha alteracoes nao commitadas; o pacote usa os arquivos do disco, nao o commit.')
+
+
 def build(dist_dir=None):
     version = read_version()
+    warn_if_dirty()
     dist_dir = dist_dir or os.path.join(ROOT, 'dist')
     if not os.path.isdir(dist_dir):
         os.makedirs(dist_dir)
@@ -58,14 +78,20 @@ def build(dist_dir=None):
     zip_path = os.path.join(dist_dir, name)
     prefix = 'ArcMagery-%s/' % version
     files = [f for f in tracked_files() if not f.startswith('dist/')]
+    stamp = commit_time()
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
         for rel in files:
             full = os.path.join(ROOT, rel)
             if os.path.isfile(full):
-                z.write(full, prefix + rel)
+                info = zipfile.ZipInfo(prefix + rel, date_time=stamp)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = 0o644 << 16
+                with open(full, 'rb') as src:
+                    z.writestr(info, src.read())
     digest = sha256_of(zip_path)
-    with open(os.path.join(dist_dir, 'SHA256SUMS.txt'), 'w') as f:
-        f.write('%s  %s\n' % (digest, name))
+    # binario + "\n": formato aceito pelo `sha256sum -c` em qualquer sistema (sem CRLF do Windows)
+    with open(os.path.join(dist_dir, 'SHA256SUMS.txt'), 'wb') as f:
+        f.write(('%s  %s\n' % (digest, name)).encode('ascii'))
     print('Pacote : %s (%d arquivos)' % (zip_path, len(files)))
     print('SHA-256: %s' % digest)
     return zip_path, digest

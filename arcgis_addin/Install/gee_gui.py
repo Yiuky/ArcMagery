@@ -15,6 +15,7 @@ Recursos:
 import os
 import sys
 import tempfile
+import subprocess
 import threading
 import datetime
 import webbrowser
@@ -92,6 +93,25 @@ import arcmagery_gehist as gehist
 import arcmagery_wayback as wayback
 import arcmagery_spot as spot
 import arcmagery_startup as startup
+
+
+def start_daemon(target, *args):
+    """Thread de trabalho em segundo plano. daemon=True: ao fechar a janela o processo termina na hora
+    (uma thread comum prendia o processo - e o mutex de instancia unica - ate o fim da tarefa)."""
+    t = threading.Thread(target=target, args=args)
+    t.daemon = True
+    t.start()
+    return t
+
+
+def _refresh_parent_settings(parent, new_settings):
+    """Atualiza o dicionario de configuracoes da janela principal NO LUGAR: outras janelas (Mosaicos
+    XYZ) guardam referencia a ele e passariam a ver uma copia velha se ele fosse substituido."""
+    current = getattr(parent, 'settings', None)
+    if isinstance(current, dict):
+        current.update(new_settings)
+    elif parent is not None and hasattr(parent, 'settings'):
+        parent.settings = dict(new_settings)
 
 
 def tile_source_of(sensor):
@@ -475,8 +495,7 @@ class GEESettingsDialog(object):
             }
             new_settings = dict(gee_bridge.load_plugin_settings(), **new_settings)
             gee_bridge.save_plugin_settings(new_settings)
-            if hasattr(self.parent, 'settings'):
-                self.parent.settings = new_settings
+            _refresh_parent_settings(self.parent, new_settings)
 
             rep = gee_bridge.apply_stretch(None, settings=new_settings)
             if rep.get('success'):
@@ -500,8 +519,7 @@ class GEESettingsDialog(object):
             }
             new_settings = dict(gee_bridge.load_plugin_settings(), **new_settings)
             if gee_bridge.save_plugin_settings(new_settings):
-                if hasattr(self.parent, 'settings'):
-                    self.parent.settings = new_settings
+                _refresh_parent_settings(self.parent, new_settings)
                 messagebox.showinfo(
                     u"Configurações Salvas",
                     u"As preferências de Stretch, Estatísticas, Multicore, Buffer e Visibilidade no TOC foram salvas com sucesso!",
@@ -514,13 +532,13 @@ class GEESettingsDialog(object):
             messagebox.showerror(u"Erro ao Salvar", u"Erro ao processar as configurações:\n" + unicode(e), parent=self.top)
 
 class GEEAboutDialog(object):
-    """Janela modal Sobre com informações institucionais, versão, links e dicas"""
+    """Janela modal Sobre com versão, autoria, requisitos, links e dicas"""
     def __init__(self, parent):
         self.parent = parent
         p_win = parent.root if hasattr(parent, 'root') else parent
         self.top = tk.Toplevel(p_win)
         self.top.title(u"Sobre - ArcMagery")
-        self.top.geometry("580x525")
+        self.top.geometry("580x480")
         self.top.resizable(False, False)
         setup_window_icon(self.top)
         self.top.transient(p_win)
@@ -558,17 +576,18 @@ class GEEAboutDialog(object):
 
         lbl_sub = tk.Label(
             title_box,
-            text=u"Google Earth Engine, Google Earth e CBERS/INPE no ArcGIS Desktop 10.8 (ArcMap)  |  v%s" % CURRENT_VERSION,
+            text=u"Imagens de satélite no ArcMap 10.8, direto no TOC e na resolução nativa",
             font=("Segoe UI", 9, "italic"),
-            fg="#566573"
+            fg="#566573", wraplength=390, justify=tk.LEFT
         )
         lbl_sub.pack(anchor=tk.W, pady=(0, 4))
 
         lbl_tag = tk.Label(
             title_box,
-            text=u"Sensoriamento Remoto & Observação da Terra com Qualidade Nativa 100%",
+            text=u"Google Earth Engine · CBERS/Amazônia-1 (INPE) · SPOT 1-5 (CNES) · "
+                 u"Google Earth histórico · Esri Wayback · XYZ",
             font=("Segoe UI", 8, "bold"),
-            fg="#1b4f72"
+            fg="#1b4f72", wraplength=390, justify=tk.LEFT
         )
         lbl_tag.pack(anchor=tk.W)
 
@@ -579,22 +598,22 @@ class GEEAboutDialog(object):
         info_frame.pack(fill=tk.X, pady=(0, 10))
 
         info_text = (
-            u"• Versão: v2.4.1 (ArcMagery: GEE, CBERS/INPE, SPOT 1-5 (CNES), Google Earth / XYZ e Esri Wayback)\n"
-            u"• Projeto pessoal e independente: não é produto oficial de nenhuma instituição\n"
+            u"• Versão: v%s%s\n"
             u"• Desenvolvedor: Joberth Firmino Gambati\n"
-            u"• Compatibilidade: ArcGIS Desktop 10.8 / 10.8.2 (ArcMap) & Python 3.9+\n"
-            u"• Licença: Código Aberto (MIT License)"
-        )
+            u"• Projeto pessoal e independente: não é produto oficial de nenhuma instituição\n"
+            u"• Requisitos: ArcGIS Desktop 10.8 / 10.8.2 (ArcMap) e QGIS com Python 3.8 a 3.14\n"
+            u"• Licença: código aberto (MIT)"
+        ) % (CURRENT_VERSION, u" (experimental)" if is_experimental() else u"")
         ttk.Label(info_frame, text=info_text, justify=tk.LEFT).pack(anchor=tk.W)
 
         tips_frame = ttk.LabelFrame(pad, text=u" Dicas Rápidas de Operação ", padding=10)
         tips_frame.pack(fill=tk.X, pady=(0, 12))
 
         tips_text = (
-            u"1. Resolução Nativa: Sentinel-2 (10m) e Landsat (30m) sem qualquer perda.\n"
-            u"2. Áreas Extensas (> 48 MB): Particionamento automático em quadrantes até 1:500.000 com resolução nativa estrita.\n"
-            u"3. Buffer de AOI: Ajuste em 'Configurações' a margem em metros ao redor do vetor.\n"
-            u"4. Simbologia e Bandas: Altere as bandas RGB no TOC diretamente com botão direito."
+            u"1. Resolução nativa: cada fonte é baixada na grade do próprio sensor, sem reamostragem.\n"
+            u"2. Áreas extensas: o download é dividido em partes automaticamente e retomado após falhas.\n"
+            u"3. Buffer da AOI: ajuste em 'Configurações' a margem, em metros, ao redor do vetor.\n"
+            u"4. Bandas e simbologia: clique com o botão direito na camada, no TOC."
         )
         ttk.Label(tips_frame, text=tips_text, justify=tk.LEFT).pack(anchor=tk.W)
 
@@ -742,17 +761,17 @@ class GEEUpdaterDialog(object):
 
         lbl_desc = ttk.Label(
             pad,
-            text=u"Sistema transacional com pré-validação, backup automático e proteção contra falhas."
+            text=u"Antes de qualquer mudança a versão atual é salva; se algo falhar, ela é restaurada."
         )
         lbl_desc.pack(anchor=tk.W, pady=(0, 10))
 
         # Método 1: GitHub Online
-        box_git = ttk.LabelFrame(pad, text=u" Método 1: Atualização Online (GitHub Oficial) ", padding=10)
+        box_git = ttk.LabelFrame(pad, text=u" Método 1: Atualização online (GitHub) ", padding=10)
         box_git.pack(fill=tk.X, pady=(0, 8))
 
         ttk.Label(
             box_git,
-            text=u"Verifica conexão, valida alterações e atualiza os arquivos mantendo backup prévio."
+            text=u"Baixa a versão mais recente do canal escolhido e confere o SHA-256 do pacote."
         ).pack(anchor=tk.W, pady=(0, 6))
 
         # Canal: estavel (Releases normais) ou experimental (pre-releases nightly)
@@ -773,12 +792,12 @@ class GEEUpdaterDialog(object):
         self.btn_git_update.pack(anchor=tk.W)
 
         # Método 2: Arquivo ZIP Local
-        box_zip = ttk.LabelFrame(pad, text=u" Método 2: Atualização Offline (Arquivo ZIP ou Add-In) ", padding=10)
+        box_zip = ttk.LabelFrame(pad, text=u" Método 2: Atualização offline (arquivo ZIP ou Add-In) ", padding=10)
         box_zip.pack(fill=tk.X, pady=(0, 8))
 
         ttk.Label(
             box_zip,
-            text=u"Instala nova versão via arquivo .zip ou .esriaddin com teste de integridade e Zip Slip."
+            text=u"Instala um pacote .zip ou .esriaddin baixado manualmente (o conteúdo é verificado antes)."
         ).pack(anchor=tk.W, pady=(0, 6))
 
         self.btn_zip_update = ttk.Button(box_zip, text=u"📂 Selecionar Arquivo ZIP e Atualizar", command=self._do_zip_update)
@@ -790,7 +809,7 @@ class GEEUpdaterDialog(object):
         self._rollback_target = None
         try:
             import gee_updater
-            self._rollback_target = gee_updater.find_previous_version_backup()
+            self._rollback_target = gee_updater.find_previous_version_backup(current_version=CURRENT_VERSION)
             rb_text = (u"Reinstala a versão salva antes da última atualização: %s."
                        % gee_updater.describe_backup(self._rollback_target)) if self._rollback_target else \
                 u"Nenhuma versão anterior salva neste computador (os backups são criados a cada atualização)."
@@ -895,6 +914,61 @@ class GEEUpdaterDialog(object):
         else:
             self._set_busy(False, u"Atualização cancelada pelo usuário.")
 
+    def _post(self, fn):
+        """Executa fn na thread do Tk. Workers nunca chamam self.top.after (Tkinter nao e thread-safe):
+        usa a fila da janela principal (post_to_gui); sem ela, o after e o ultimo recurso."""
+        poster = getattr(self.parent, 'post_to_gui', None)
+        if poster is not None:
+            poster(fn)
+        else:
+            self.top.after(0, fn)
+
+    def _progress_callback(self):
+        def on_progress(step_msg):
+            self._post(lambda: self.lbl_status.config(text=step_msg))
+        return on_progress
+
+    def _close_gui_for_update(self):
+        """Fecha a interface para o executor desanexado substituir os arquivos."""
+        try:
+            self.top.destroy()
+        except Exception:
+            pass
+        on_close = getattr(self.parent, 'on_close', None)
+        if on_close is not None:
+            on_close()     # cancela backends, salva o estado e encerra o processo
+            return
+        try:
+            if hasattr(self.parent, 'root'):
+                self.parent.root.destroy()
+        except Exception:
+            pass
+        sys.exit(0)
+
+    def _run_update_worker(self, flow, success_title, success_text, failure_status, retry_fn=None, flags=None):
+        """Roda `flow()` numa thread daemon; resultado e erros voltam pela fila da GUI."""
+        def worker():
+            try:
+                flow()
+            except Exception as ex:
+                import gee_updater as _gu
+                if retry_fn is not None and isinstance(ex, _gu.ConfirmationRequired):
+                    self._post(lambda: self._ask_confirmation_and_retry(ex, retry_fn, flags or {}))
+                    return
+
+                def show_err():
+                    self._set_busy(False, failure_status)
+                    GEEUpdaterErrorDialog(self.top, ex)
+                self._post(show_err)
+                return
+
+            def show_success_and_exit():
+                messagebox.showinfo(success_title, success_text, parent=self.top)
+                self._close_gui_for_update()
+            self._post(show_success_and_exit)
+
+        start_daemon(worker)
+
     def _do_zip_update(self, zip_path=None, **flags):
         if not zip_path:
             zip_path = filedialog.askopenfilename(
@@ -906,59 +980,22 @@ class GEEUpdaterDialog(object):
             return
 
         self._set_busy(True, u"Iniciando validação prévia do arquivo ZIP...")
+        on_progress = self._progress_callback()
 
-        def worker():
-            try:
-                import gee_updater
+        def flow():
+            import gee_updater
+            # Executa pre-flight checks, backup, staging e despacho desacoplado com rollback
+            gee_updater.execute_zip_update_flow(zip_path, current_version=CURRENT_VERSION,
+                                                progress_callback=on_progress, **flags)
 
-                def on_progress(step_msg):
-                    def update_ui():
-                        self.lbl_status.config(text=step_msg)
-                    self.top.after(0, update_ui)
-
-                # Executa pre-flight checks, backup, staging e despacho desacoplado com rollback
-                gee_updater.execute_zip_update_flow(
-                    zip_path,
-                    current_version=CURRENT_VERSION,
-                    progress_callback=on_progress,
-                    **flags
-                )
-
-                # Notifica o usuário e encerra o processo da interface
-                def show_success_and_exit():
-                    messagebox.showinfo(
-                        u"Validação Concluída com Sucesso",
-                        u"O pacote foi validado e o backup de segurança foi criado!\n\n"
-                        u"A interface gráfica será encerrada agora para que os arquivos sejam "
-                        u"atualizados sem conflitos de arquivo.\n\n"
-                        u"Uma notificação do Windows confirmará o término da instalação.",
-                        parent=self.top
-                    )
-                    try:
-                        self.top.destroy()
-                    except Exception:
-                        pass
-                    try:
-                        if hasattr(self.parent, 'root'):
-                            self.parent.root.destroy()
-                    except Exception:
-                        pass
-                    sys.exit(0)
-
-                self.top.after(0, show_success_and_exit)
-
-            except Exception as ex:
-                import gee_updater as _gu
-                if isinstance(ex, _gu.ConfirmationRequired):
-                    self.top.after(0, lambda: self._ask_confirmation_and_retry(
-                        ex, lambda **f: self._do_zip_update(zip_path=zip_path, **f), flags))
-                    return
-                def show_err():
-                    self._set_busy(False, u"Falha na validação da atualização.")
-                    GEEUpdaterErrorDialog(self.top, ex)
-                self.top.after(0, show_err)
-
-        threading.Thread(target=worker).start()
+        self._run_update_worker(
+            flow, u"Validação Concluída com Sucesso",
+            u"O pacote foi validado e o backup de segurança foi criado!\n\n"
+            u"A interface gráfica será encerrada agora para que os arquivos sejam "
+            u"atualizados sem conflitos de arquivo.\n\n"
+            u"Uma notificação do Windows confirmará o término da instalação.",
+            u"Falha na validação da atualização.",
+            retry_fn=lambda **f: self._do_zip_update(zip_path=zip_path, **f), flags=flags)
 
     def _do_rollback(self):
         """Reinstala o snapshot da versão anterior (mesmo executor com backup e rollback automático)."""
@@ -975,92 +1012,36 @@ class GEEUpdaterDialog(object):
                 parent=self.top, icon=messagebox.WARNING):
             return
         self._set_busy(True, u"Preparando o rollback para %s..." % label)
+        on_progress = self._progress_callback()
 
-        def worker():
-            try:
-                def on_progress(step_msg):
-                    self.top.after(0, lambda: self.lbl_status.config(text=step_msg))
+        def flow():
+            gee_updater.execute_rollback_to_previous_flow(
+                current_version=CURRENT_VERSION, progress_callback=on_progress, backup=target)
 
-                gee_updater.execute_rollback_to_previous_flow(
-                    current_version=CURRENT_VERSION, progress_callback=on_progress, backup=target)
-
-                def show_success_and_exit():
-                    messagebox.showinfo(
-                        u"Rollback Preparado",
-                        u"%s foi preparada e a versão atual foi salva.\n\n"
-                        u"A interface será fechada para aplicar o rollback. Uma mensagem do Windows "
-                        u"confirmará a conclusão; depois reabra o ArcMap." % label, parent=self.top)
-                    try:
-                        self.top.destroy()
-                    except Exception:
-                        pass
-                    try:
-                        if hasattr(self.parent, 'root'):
-                            self.parent.root.destroy()
-                    except Exception:
-                        pass
-                    sys.exit(0)
-
-                self.top.after(0, show_success_and_exit)
-            except Exception as ex:
-                def show_err():
-                    self._set_busy(False, u"Falha ao preparar o rollback.")
-                    GEEUpdaterErrorDialog(self.top, ex)
-                self.top.after(0, show_err)
-
-        threading.Thread(target=worker).start()
+        self._run_update_worker(
+            flow, u"Rollback Preparado",
+            u"%s foi preparada e a versão atual foi salva.\n\n"
+            u"A interface será fechada para aplicar o rollback. Uma mensagem do Windows "
+            u"confirmará a conclusão; depois reabra o ArcMap." % label,
+            u"Falha ao preparar o rollback.")
 
     def _do_github_update(self, **flags):
         self._set_busy(True, u"Conectando ao GitHub para verificar atualizações...")
+        on_progress = self._progress_callback()
+        channel = self.var_channel.get()      # variavel do Tk: lida aqui, na thread do Tk
 
-        def worker():
-            try:
-                import gee_updater
+        def flow():
+            import gee_updater
+            gee_updater.execute_online_github_update_flow(
+                current_version=CURRENT_VERSION, progress_callback=on_progress, channel=channel, **flags)
 
-                def on_progress(step_msg):
-                    def update_ui():
-                        self.lbl_status.config(text=step_msg)
-                    self.top.after(0, update_ui)
-
-                gee_updater.execute_online_github_update_flow(
-                    current_version=CURRENT_VERSION,
-                    progress_callback=on_progress,
-                    channel=self.var_channel.get(),
-                    **flags
-                )
-
-                def show_success_and_exit():
-                    messagebox.showinfo(
-                        u"Validação Concluída com Sucesso",
-                        u"A nova versão foi baixada, validada e o backup foi gerado com sucesso!\n\n"
-                        u"A interface será fechada para finalizar a aplicação das alterações.\n\n"
-                        u"Uma mensagem do sistema confirmará a conclusão em instantes.",
-                        parent=self.top
-                    )
-                    try:
-                        self.top.destroy()
-                    except Exception:
-                        pass
-                    try:
-                        if hasattr(self.parent, 'root'):
-                            self.parent.root.destroy()
-                    except Exception:
-                        pass
-                    sys.exit(0)
-
-                self.top.after(0, show_success_and_exit)
-
-            except Exception as ex:
-                import gee_updater as _gu
-                if isinstance(ex, _gu.ConfirmationRequired):
-                    self.top.after(0, lambda: self._ask_confirmation_and_retry(ex, self._do_github_update, flags))
-                    return
-                def show_err():
-                    self._set_busy(False, u"Falha na atualização pelo GitHub.")
-                    GEEUpdaterErrorDialog(self.top, ex)
-                self.top.after(0, show_err)
-
-        threading.Thread(target=worker).start()
+        self._run_update_worker(
+            flow, u"Validação Concluída com Sucesso",
+            u"A nova versão foi baixada, validada e o backup foi gerado com sucesso!\n\n"
+            u"A interface será fechada para finalizar a aplicação das alterações.\n\n"
+            u"Uma mensagem do sistema confirmará a conclusão em instantes.",
+            u"Falha na atualização pelo GitHub.",
+            retry_fn=self._do_github_update, flags=flags)
 
 
 CURRENT_VERSION = "2.4.1"
@@ -1292,9 +1273,14 @@ class GEEPluginWindow(object):
         self.root.after(100, self._deferred_init)
 
     def on_close(self):
-        """Encerra o processo da GUI de forma limpa"""
+        """Encerra o processo da GUI de forma limpa e IMEDIATA. As configuracoes ja sao salvas no momento
+        de cada alteracao; aqui: fecha a janela, interrompe os backends da janela principal e da janela
+        Mosaicos XYZ (sem deixar processos Python 3 orfaos) e termina o processo mesmo com tarefas em
+        andamento - antes o processo (e o mutex de instancia unica) seguia vivo ate a tarefa acabar e o
+        botao do ArcMap nao abria nada."""
         try:
             self._alive = False
+            self._cancel_requested = True
             hb_file = gee_bridge.HEARTBEAT_FILE
             if os.path.exists(hb_file):
                 try:
@@ -1304,7 +1290,24 @@ class GEEPluginWindow(object):
             self.root.destroy()
         except Exception:
             pass
-        sys.exit(0)
+        try:
+            groups = [gee_bridge.MAIN_GROUP]
+            try:
+                import arcmagery_sources_gui
+                groups.append(arcmagery_sources_gui.XYZ_BACKEND_GROUP)
+            except Exception:
+                groups.append('xyz')
+            gee_bridge.shutdown_backends(groups, timeout=6.0)
+        except Exception:
+            pass
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.flush()
+            except Exception:
+                pass
+        # os._exit: threads de trabalho (e o pool do concurrent.futures, que o atexit esperaria) nao
+        # seguram o processo
+        os._exit(0)
 
     def on_open_extra_sources(self):
         """Abre (ou traz para frente) a janela Google Earth / XYZ e CBERS / INPE."""
@@ -1684,7 +1687,8 @@ class GEEPluginWindow(object):
                     return
                 # Mostrar botão de atualização em destaque na barra de topo
                 if hasattr(self, 'btn_update_notify'):
-                    self.btn_update_notify.pack(side=tk.RIGHT, padx=6)
+                    # antes dos rótulos de status na ordem do pack: se faltar largura, o status encolhe, não o botão
+                    self.btn_update_notify.pack(side=tk.RIGHT, padx=6, before=self.lbl_status)
                 if hasattr(self, 'lbl_progress'):
                     self.lbl_progress.config(
                         text=u"🚀 Nova atualização disponível no GitHub! Clique no botão superior para atualizar."
@@ -1779,7 +1783,7 @@ class GEEPluginWindow(object):
 
         self.lbl_status = tk.Label(
             self.top_frame,
-            text=u"Verificando conexao com Google Earth Engine...",
+            text=u"Verificando conexão com o Google Earth Engine...",
             font=("Segoe UI", 9, "bold"),
             bg="#fcf3cf",
             fg="#7d6608"
@@ -1806,11 +1810,19 @@ class GEEPluginWindow(object):
         btn_fit_scale = ttk.Button(self.top_frame, text="Ajustar 1:500.000", command=self.on_fit_scale_clicked)
         btn_fit_scale.pack(side=tk.RIGHT, padx=4)
 
-        self.btn_check_auth = ttk.Button(self.top_frame, text="Verificar Conexao", command=self.async_check_gee)
+        self.btn_check_auth = ttk.Button(self.top_frame, text=u"Verificar conexão", command=self.async_check_gee)
         self.btn_check_auth.pack(side=tk.RIGHT, padx=4)
 
         self.btn_auth = ttk.Button(self.top_frame, text="Configurar Projeto GEE", command=self.on_configure_project)
         self.btn_auth.pack(side=tk.RIGHT, padx=4)
+
+        # Rótulos de status por último na ordem do pack: em janela estreita (ou com mensagem longa, como
+        # "Conectado... (Projeto: ...)") eles é que encolhem, e os botões continuam visíveis
+        self.lbl_status.pack_forget()
+        self.lbl_scale_info.pack_forget()
+        self.lbl_status.config(anchor=tk.W)  # cortado, mostra o começo da mensagem
+        self.lbl_status.pack(side=tk.LEFT, padx=2)
+        self.lbl_scale_info.pack(side=tk.LEFT, padx=10)
 
         # Botão/Badge de Notificação de Nova Atualização (exibido se houver update no GitHub)
         self.btn_update_notify = tk.Button(
@@ -1836,14 +1848,14 @@ class GEEPluginWindow(object):
                  bg="#eaf2f8", fg="#1b4f72").pack(side=tk.LEFT, padx=(0, 8))
         self.var_source = tk.StringVar(value="gee")
         # botao das fontes XYZ empacotado antes (a direita): nunca some quando os botoes de fonte nao cabem
-        self.btn_sources = ttk.Button(source_bar, text=u"Google Earth / Mosaicos XYZ...", style="Action.TButton",
+        self.btn_sources = ttk.Button(source_bar, text=u"Google Earth / XYZ...", style="Action.TButton",
                                       command=self.on_open_extra_sources)
         self.btn_sources.pack(side=tk.RIGHT, padx=(12, 2))
-        for value, text in (("gee", u"Google Earth Engine (Sentinel-2 / Landsat)"),
-                            ("inpe", u"CBERS / Amazônia-1 (INPE)"),
-                            ("gehist", u"Google Earth histórico (por data)"),
-                            ("wayback", u"Esri Wayback (por versão)"),
-                            ("spot", u"SPOT 1-5 (CNES)")):
+        for value, text in (("gee", u"Google Earth Engine"),
+                            ("inpe", u"CBERS / Amazônia-1"),
+                            ("spot", u"SPOT 1-5 (CNES)"),
+                            ("gehist", u"Google Earth histórico"),
+                            ("wayback", u"Esri Wayback")):
             tk.Radiobutton(source_bar, text=text, variable=self.var_source, value=value, indicatoron=0,
                            font=("Segoe UI", 9), padx=10, pady=2, selectcolor="#aed6f1", bg="#fdfefe",
                            command=self.on_source_changed).pack(side=tk.LEFT, padx=2)
@@ -1853,7 +1865,7 @@ class GEEPluginWindow(object):
         middle_paned.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
 
         # --- PAINEL ESQUERDO: PARAMETROS ---
-        left_frame = ttk.LabelFrame(middle_paned, text=u" 1. Parametros e Bandas ", padding=10)
+        left_frame = ttk.LabelFrame(middle_paned, text=u" 1. Parâmetros e bandas ", padding=10)
         middle_paned.add(left_frame, weight=1)
 
         # Satelite
@@ -1904,7 +1916,7 @@ class GEEPluginWindow(object):
         self.lbl_sensor_bands.pack(fill=tk.X, anchor=tk.W, pady=(2, 0))
 
         # Composicao de Bandas
-        ttk.Label(left_frame, text="Composicao / Multibanda:", font=("Segoe UI", 9, "bold")).grid(row=3, column=0, sticky=tk.W, pady=2)
+        ttk.Label(left_frame, text=u"Composição / multibanda:", font=("Segoe UI", 9, "bold")).grid(row=3, column=0, sticky=tk.W, pady=2)
         self.var_comp = tk.StringVar()
         self.cbo_comp = ttk.Combobox(left_frame, textvariable=self.var_comp, state="readonly", width=34)
         self.cbo_comp.bind("<<ComboboxSelected>>", self.on_composition_changed)
@@ -1923,7 +1935,7 @@ class GEEPluginWindow(object):
         self.var_load_mode = tk.StringVar(value="multiband")
         rb_multi = self.rb_multi = ttk.Radiobutton(
             mode_box,
-            text=u"Multibanda Bruta (Permite Trocar Bandas)",
+            text=u"Multibanda bruta (permite trocar as bandas)",
             variable=self.var_load_mode,
             value="multiband"
         )
@@ -1931,7 +1943,7 @@ class GEEPluginWindow(object):
 
         rb_rgb = self.rb_rgb = ttk.Radiobutton(
             mode_box,
-            text=u"RGB Rapido (Visualizacao Pronta 3 Bandas)",
+            text=u"RGB rápido (3 bandas prontas para visualizar)",
             variable=self.var_load_mode,
             value="rgb"
         )
@@ -1976,11 +1988,11 @@ class GEEPluginWindow(object):
         sep_loc.grid(row=12, column=0, columnspan=2, sticky=tk.EW, pady=6)
 
         # Filtro Espacial (Apenas Extensao da Tela e Camada Vetorial AOI para garantir 100% de qualidade nativa)
-        ttk.Label(left_frame, text=u"Filtro de Localizacao (Resolução Nativa 100%):", font=("Segoe UI", 9, "bold")).grid(row=13, column=0, columnspan=2, sticky=tk.W, pady=2)
+        ttk.Label(left_frame, text=u"Área de interesse (resolução nativa):", font=("Segoe UI", 9, "bold")).grid(row=13, column=0, columnspan=2, sticky=tk.W, pady=2)
 
         self.var_spatial_type = tk.StringVar(value="extent")
 
-        rb_ext = ttk.Radiobutton(left_frame, text=u"Extensao da Tela do ArcMap (<= 1:500k)", variable=self.var_spatial_type, value="extent")
+        rb_ext = ttk.Radiobutton(left_frame, text=u"Extensão da tela do ArcMap (<= 1:500k)", variable=self.var_spatial_type, value="extent")
         rb_ext.grid(row=14, column=0, columnspan=2, sticky=tk.W, pady=2)
 
         rb_lyr = ttk.Radiobutton(left_frame, text="Camada Vetorial (AOI):", variable=self.var_spatial_type, value="layer")
@@ -1998,7 +2010,7 @@ class GEEPluginWindow(object):
         middle_paned.add(right_frame, weight=3)
 
         # Tabela com Multi-seleção (selectmode extended)
-        table_frame = self.table_frame = ttk.LabelFrame(right_frame, text=u" 2. Imagens Disponiveis (Selecione uma ou varias com Ctrl / Shift) ", padding=6)
+        table_frame = self.table_frame = ttk.LabelFrame(right_frame, text=u" 2. Imagens disponíveis - selecione uma ou várias (Ctrl / Shift) ", padding=6)
         table_frame.pack(fill=tk.BOTH, expand=True, side=tk.TOP, pady=(0, 4))
 
         cols = ("date", "cloud", "tile", "name", "status", "zoom")
@@ -2106,7 +2118,7 @@ class GEEPluginWindow(object):
 
         self.lbl_progress = ttk.Label(
             status_bar_frame,
-            text=u"Pronto. (ArcMagery v%s - Google Earth Engine, Google Earth e CBERS/INPE)" % CURRENT_VERSION,
+            text=u"Pronto. (ArcMagery v%s)" % CURRENT_VERSION,
             anchor=tk.W
         )
         self.lbl_progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 6))
@@ -2278,7 +2290,7 @@ class GEEPluginWindow(object):
 
     # (rótulo do botão de busca, título da tabela, cabeçalhos nuvens/tile/nome) por fonte
     SOURCE_UI = {
-        'gee': (u"[ Buscar Imagens no GEE ]", u" 2. Imagens Disponiveis (Selecione uma ou varias com Ctrl / Shift) ",
+        'gee': (u"[ Buscar Imagens no GEE ]", u" 2. Imagens disponíveis - selecione uma ou várias (Ctrl / Shift) ",
                 u"Nuvens (%)", u"Tile / P-R", u"Nome da Cena"),
         'inpe': (u"[ Buscar Cenas no INPE ]", u" 2. Cenas CBERS / Amazônia-1 (STAC INPE) - selecione uma ou várias ",
                  u"Nuvens (%)", u"Órbita/Ponto · Cobertura", u"Nome da Cena"),
@@ -2498,10 +2510,14 @@ class GEEPluginWindow(object):
 
     def async_check_gee(self):
         def do_check():
-            resp = gee_bridge.check_gee()
+            try:
+                resp = gee_bridge.check_gee()
+            except Exception as e:
+                # qualquer falha vira status vermelho: a barra nunca fica em "Verificando..." para sempre
+                resp = {'success': False, 'message': u"Falha ao verificar o GEE: %s" % gee_bridge.err_text(e)}
             self.post_to_gui(lambda: self._apply_gee_status(resp))
 
-        threading.Thread(target=do_check).start()
+        start_daemon(do_check)
 
     def _apply_gee_status(self, resp):
         """Barra de topo verde/vermelha conforme o login do Earth Engine (thread do Tk)."""
@@ -2537,7 +2553,11 @@ class GEEPluginWindow(object):
             proj = proj.strip()
             self.lbl_status.config(text="Configurando projeto '%s'..." % proj)
             def do_auth():
-                resp = gee_bridge.authenticate_gee(project=proj)
+                try:
+                    resp = gee_bridge.authenticate_gee(project=proj)
+                except Exception as e:
+                    resp = {'success': False, 'message': u"Falha ao configurar o projeto: %s" % gee_bridge.err_text(e)}
+
                 def apply_auth():
                     if resp.get('success'):
                         messagebox.showinfo("Sucesso", resp.get('message'), parent=self.root)
@@ -2551,11 +2571,11 @@ class GEEPluginWindow(object):
                             ):
                                 gee_bridge.launch_auth_console(project=proj)
                         else:
-                            messagebox.showerror("Erro de Conexao", resp.get('message'), parent=self.root)
+                            messagebox.showerror(u"Erro de conexão", resp.get('message'), parent=self.root)
                         self.async_check_gee()
                 self.post_to_gui(apply_auth)
 
-            threading.Thread(target=do_auth).start()
+            start_daemon(do_auth)
         elif proj is not None and not proj.strip():
             gee_bridge.launch_auth_console()
 
@@ -2564,7 +2584,7 @@ class GEEPluginWindow(object):
         GEESettingsDialog(self)
 
     def on_open_about(self):
-        """Abre a janela modal Sobre com informacoes institucionais e dicas"""
+        """Abre a janela modal Sobre com versao, autoria, links e dicas"""
         GEEAboutDialog(self.root)
 
     def on_open_updater(self):
@@ -2649,12 +2669,13 @@ class GEEPluginWindow(object):
         self._cancel_requested = False
         self.set_progress(0, u"Iniciando busca no %s..." % src_name)
         self.update_action_buttons_state()
+        # widgets do Tk sao lidos aqui (thread do Tk), nunca dentro da thread de busca
+        lyr_name = self.cbo_layers.get() if st == "layer" else None
 
         def run_search_thread():
             try:
                 g_file = None
                 if st == "layer":
-                    lyr_name = self.cbo_layers.get()
                     if lyr_name and lyr_name != "Nenhuma camada encontrada":
                         buf = float(self.settings.get('aoi_buffer_meters', 0.0) if hasattr(self, 'settings') else 0.0)
                         self.post_to_gui(lambda: self.set_progress(0, "Exportando AOI da camada '%s' do ArcMap..." % lyr_name))
@@ -2753,7 +2774,7 @@ class GEEPluginWindow(object):
             finally:
                 self.post_to_gui(lambda: self._finish_search(current_token))
 
-        threading.Thread(target=run_search_thread).start()
+        start_daemon(run_search_thread)
 
     def _finish_search(self, token):
         """Fim de uma busca: so a busca ATUAL libera o botao e o estado 'em andamento' (uma busca
@@ -3302,9 +3323,10 @@ class GEEPluginWindow(object):
         comp = self.get_selected_composition_code()
         bbox = self.arcmap_context.get('bbox')
         short = ids[0].split('/')[-1]
-        out_png = os.path.join(tempfile.gettempdir(), u"arcmagery_thumb_%s.png" % short)
+        out_png = os.path.join(gee_bridge.temp_dir(), u"arcmagery_thumb_%s.png" % short)
         self.btn_thumb.config(state=tk.DISABLED)
         self.set_progress(None, u"Gerando miniatura de %s..." % short)
+        use_layer_aoi = self.var_spatial_type.get() == 'layer'   # variavel do Tk lida na thread do Tk
 
         def worker():
             try:
@@ -3313,7 +3335,7 @@ class GEEPluginWindow(object):
                 elif row.get('source') == 'SPOT':
                     resp = spot.thumbnail(row, out_png)
                 elif row.get('source') in ('GEHIST', 'WAYBACK'):
-                    aoi = getattr(self, '_last_search_geojson', None) if self.var_spatial_type.get() == 'layer' else None
+                    aoi = getattr(self, '_last_search_geojson', None) if use_layer_aoi else None
                     if not aoi and not bbox:
                         raise RuntimeError(u"Área da miniatura indisponível: atualize a extensão do ArcMap ou refaça a busca.")
                     mod = gehist if row.get('source') == 'GEHIST' else wayback
@@ -3326,7 +3348,7 @@ class GEEPluginWindow(object):
                 self.post_to_gui(lambda: self._show_thumbnail_window(short, gif))
                 self.post_to_gui(lambda: self.set_progress(None, u"Miniatura de %s pronta." % short))
             except Exception as e:
-                err = unicode(e) if not isinstance(e, unicode) else e
+                err = gee_bridge.err_text(e)
                 self.post_to_gui(lambda: messagebox.showerror(u"Miniatura", err, parent=self.root))
                 self.post_to_gui(lambda: self.set_progress(None, u"Falha na miniatura."))
             finally:
@@ -3385,7 +3407,7 @@ class GEEPluginWindow(object):
                 if getattr(self, '_cancel_requested', False):
                     return False, short_name, None
                 layer_title = "%s_%s" % (short_name, comp)
-                out_tif = os.path.join(tempfile.gettempdir(), "%s.tif" % layer_title)
+                out_tif = os.path.join(gee_bridge.temp_dir(), u"%s.tif" % layer_title)
                 self.set_row_status(short_name, u"Baixando...", tag="downloading")
 
                 resp = self._download_any(img_id, sensor, comp, out_tif, custom_bands, load_mode,
@@ -3447,7 +3469,7 @@ class GEEPluginWindow(object):
                     self.set_row_status(short_name, u"Cancelado", tag="error")
                     continue
                 layer_title = "%s_%s" % (short_name, comp)
-                out_tif = os.path.join(tempfile.gettempdir(), "%s.tif" % layer_title)
+                out_tif = os.path.join(gee_bridge.temp_dir(), u"%s.tif" % layer_title)
 
                 base_pct = int((float(idx) / total) * 90)
                 q_remaining = self.download_queue.qsize()

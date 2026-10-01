@@ -13,7 +13,8 @@ set "RC=0"
 
 set "PY3="
 if exist "%LOCALAPPDATA%\ArcMagery\venv\Scripts\python.exe" set "PY3=%LOCALAPPDATA%\ArcMagery\venv\Scripts\python.exe"
-if not defined PY3 for /d %%D in ("C:\Program Files\QGIS 3*") do for /d %%P in ("%%~D\apps\Python3*") do if exist "%%~P\python.exe" set "PY3=%%~P\python.exe"
+if not defined PY3 call "%~dp0tools\find_python3.bat"
+if not defined PY3 set "PY3=%PY3_FOUND%"
 set "PY2=C:\Python27\ArcGIS10.8\python.exe"
 
 echo === Suite backend (Python 3): %PY3%

@@ -49,8 +49,8 @@ XYZ_PROVIDERS = [
 TOS_TEXT = (u"ATENÇÃO - Termos de Uso\n\n"
             u"O download em massa de tiles do Google e do Bing fora das APIs oficiais viola os Termos "
             u"de Serviço desses provedores. Use apenas quando houver respaldo (licença/autorização) e "
-            u"cite a fonte. Para uso institucional, prefira a Esri World Imagery ou o CBERS (dados "
-            u"públicos do INPE).\n\nDeseja continuar com o download?")
+            u"cite a fonte. A Esri também tem termos próprios. Para dados abertos, prefira o CBERS "
+            u"(INPE), o SPOT (CNES, Etalab 2.0) ou o Earth Engine.\n\nDeseja continuar com o download?")
 
 
 # ------------------------------------------------------------------------ funcoes puras
@@ -448,6 +448,21 @@ class ExtraSourcesDialog(object):
         self.lbl_dates.config(text=txt)
 
     # ---------------------------------------------------------------------- XYZ
+    def _save_settings(self, changes):
+        """Grava so as chaves alteradas, mescladas sobre o arquivo ATUAL (load_plugin_settings): salvar
+        o dicionario inteiro guardado na abertura da janela sobrescrevia o que outras janelas salvaram."""
+        self.settings.update(changes)
+        try:
+            update = getattr(gee_bridge, 'update_plugin_settings', None)
+            if update is not None:
+                update(changes)
+            else:
+                merged = gee_bridge.load_plugin_settings()
+                merged.update(changes)
+                gee_bridge.save_plugin_settings(merged)
+        except Exception:
+            pass
+
     def on_xyz_download(self):
         if self.busy['xyz']:
             return
@@ -463,8 +478,7 @@ class ExtraSourcesDialog(object):
         if tos and not self.settings.get('arcmagery_tos_ack_' + key.split('-')[0]):
             if not messagebox.askyesno(u"Termos de Uso", TOS_TEXT, parent=self.top, icon=messagebox.WARNING):
                 return
-            self.settings['arcmagery_tos_ack_' + key.split('-')[0]] = True
-            gee_bridge.save_plugin_settings(self.settings)
+            self._save_settings({'arcmagery_tos_ack_' + key.split('-')[0]: True})
         try:
             out_dir = self._out_dir()
         except Exception as e:
@@ -478,10 +492,11 @@ class ExtraSourcesDialog(object):
             'wayback_release': release.get('release_num') if release else None,
             'footprints': bool(self.var_footprints.get()) and is_esri(key),
         }
-        self.settings['arcmagery_date_footprints'] = bool(self.var_footprints.get())
-        self.settings['arcmagery_xyz_crs'] = params['crs']
-        self.settings['arcmagery_output_dir'] = out_dir
-        self.settings['arcmagery_xyz_zoom'] = zoom
+        # preferencias da janela salvas ja no inicio do download (antes ficavam so na memoria)
+        self._save_settings({'arcmagery_date_footprints': bool(self.var_footprints.get()),
+                             'arcmagery_xyz_crs': params['crs'],
+                             'arcmagery_output_dir': out_dir,
+                             'arcmagery_xyz_zoom': zoom})
         self._set_busy('xyz', True)
         self._set_status('xyz', u"Obtendo a área de interesse...", 0)
         t = threading.Thread(target=self._xyz_worker, args=(params,))

@@ -1,18 +1,18 @@
 <ESRI.Configuration xmlns="http://schemas.esri.com/Desktop/AddIns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <Name>ArcMagery</Name>
   <AddInID>{ceae58c4-c44e-4edd-b8f4-1ba7d13b6b7d}</AddInID>
-  <Description>ArcMagery - Imagens de satelite no ArcMap 10.8: Google Earth Engine, Google Earth / mosaicos XYZ e CBERS / Amazonia-1 (STAC INPE).</Description>
+  <Description>ArcMagery - imagens de satelite no ArcMap 10.8: Google Earth Engine, Google Earth (atual e historico), Esri Wayback, CBERS/Amazonia-1 (INPE) e SPOT 1-5 (CNES).</Description>
   <Version>2.4.1</Version>
-  <Author>Joberth Gambati</Author>
+  <Author>Joberth Firmino Gambati</Author>
   <Company>Joberth Firmino Gambati</Company>
-  <Date>28/09/2026</Date>
+  <Date>09/30/2026</Date>
   <Targets>
     <Target name="Desktop" version="10.8" />
   </Targets>
   <AddIn language="PYTHON" library="gee_selector_addin.py" namespace="gee_selector_addin">
     <ArcMap>
       <Commands>
-        <Button id="gee_selector_addin.btn_open" class="OpenGEESelectorButton" caption="ArcMagery" category="ArcMagery" image="Images/icon.png" tip="Abre o ArcMagery" message="Abre o ArcMagery para carregar imagens do Google Earth Engine, Google Earth e CBERS/INPE" />
+        <Button id="gee_selector_addin.btn_open" class="OpenGEESelectorButton" caption="ArcMagery" category="ArcMagery" image="Images/icon.png" tip="Abre o ArcMagery" message="Abre o ArcMagery para carregar imagens de satelite (GEE, Google Earth, Esri Wayback, CBERS/INPE e SPOT/CNES)" />
       </Commands>
       <Extensions>
         <Extension id="gee_selector_addin.extension" class="GEEExtension" name="GEEExtension" description="ArcMagery Real-Time Extension" autoLoad="true" />

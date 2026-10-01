@@ -12,7 +12,7 @@ rodar os testes.
   real, de uma entrada no checklist manual (seção **V**).
 - Prioridade: **P0** (bloqueia uso/segurança) · **P1** (resultado errado ou travamento) ·
   **P2** (robustez e experiência) · **P3** (melhoria e refatoração).
-- Estado de referência: v2.3.1, branch `feature/arcmagery-2.0`, 2026-09-28.
+- Estado de referência: v2.4.1 + correções não lançadas (ver CHANGELOG), 2026-10-01.
 
 ---
 
@@ -23,7 +23,7 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 
 | ID | Verificar no ArcMap | Arquivos |
 |---|---|---|
-| V-01 | Barra **Fonte de imagens**: alternar GEE ↔ CBERS adapta a janela; o botão **Google Earth / Mosaicos XYZ...** abre uma única janela | `gee_gui.on_source_changed`, `on_open_extra_sources` |
+| V-01 | Barra **Fonte de imagens**: alternar GEE ↔ CBERS adapta a janela; o botão **Google Earth / XYZ...** abre uma única janela; na largura padrão (1100 px) todos os botões da barra e do cabeçalho aparecem | `gee_gui.on_source_changed`, `on_open_extra_sources` |
 | V-15 | Máquina **sem venv** (ex.: a do colega com `No module named 'ee'`): abrir o ArcMagery, clicar em **Instalar componentes do Earth Engine** na tela de abertura, autenticar e buscar Sentinel-2; rodar o `install.bat` numa máquina limpa com o QGIS | `backend/pylibs.py`, `arcmagery_startup.py`, `install.bat` |
 | V-14 | Fonte **SPOT 1-5 (CNES)** no ArcMap real: tela de abertura (tudo ✔ com ArcMap aberto); buscar uma área, Miniatura, carregar 2 cenas (fila) com a chave configurada; a camada cai sobre a Esri World Imagery (alinhada) em falsa cor; *Substituir no TOC*; sem chave, o carregamento oferece o tutorial | `arcmagery_spot.py`, `arcmagery_startup.py`, `backend/spot_core.py` |
 | V-13 | Janela principal, fontes **Google Earth histórico** e **Esri Wayback**: com *todos os zooms*, a tabela mostra a coluna Zoom e uma linha por data/versão e zoom; **Miniatura**; carregar 2 linhas (fila) numa área grande (ex.: 47.920 × 29.369 px no z18) sem o aviso "Tempo limite esgotado (120s)"; a imagem cai no lugar certo; Properties › Source mostra `ACQUISITION_DATE`; Configurações › Threads de download de tiles é respeitado | `arcmagery_gehist.py`, `arcmagery_wayback.py`, `gee_gui.py`, `gee_bridge._stats_and_pyramids` |
@@ -35,7 +35,9 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | V-04 | Dois ArcMaps abertos: cada interface conversa só com o seu ArcMap (arquivos `arcmagery_<PID>_*.json` em `%TEMP%`) | `gee_bridge.IPC_SESSION` |
 | V-05 | Clicar duas vezes no botão da barra traz a janela existente para frente, sem abrir uma segunda | `gee_gui.acquire_single_instance` |
 | V-06 | Validação de escala/AOI (diálogos de 1:500.000) funciona sem congelar e sem erro de Tcl | `gee_gui.validate_scale_and_get_bbox` |
-| V-07 | `install.bat` numa máquina limpa (sem venv): cria `%LOCALAPPDATA%\ArcMagery\venv`, `import ee` e GDAL passam | `install.bat` |
+| V-07 | `install.bat` numa máquina limpa (sem venv): acha o QGIS mais novo (`tools\find_python3.bat`), o diagnóstico instala os componentes e o Add-In aparece no ArcMap; com o ArcMap aberto, o instalador para | `install.bat` |
+| V-16 | Atualizador num perfil com acento e numa pasta Documentos no OneDrive: atualizar (Método 1) e voltar (Método 3) por dentro do ArcMap; só a interface do ArcMagery é encerrada (outro `pythonw` continua aberto) | `gee_updater.py`, `gee_gui.GEEUpdaterDialog` |
+| V-17 | Download SPOT longo (cena SPOT 5 + alinhamento) passa de 2 min sem "Tempo limite"; fechar a janela no meio e reabrir pelo botão do ArcMap | `gee_bridge.backend_timeout`, `gee_gui.on_close` |
 | V-08 | Atualizador: com a Release v2.3.2 publicada, a descoberta, o hash SHA-256 e a validação do pacote foram conferidos fora do ArcMap (2026-09-29); falta atualizar por dentro do ArcMap a partir de uma versão anterior | `gee_updater.py`, `gee_gui.GEEUpdaterDialog` |
 | V-09 | Download GEE em mosaico (≥2 cenas) com nuvens: a máscara remove nuvens e o ST_B10 não satura | `gee_core.mask_clouds_and_shadows`, `cast_mosaic_to_native_type` |
 
@@ -43,12 +45,7 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 
 ## P0 — Bloqueia uso ou segurança
 
-### U-02 · O script gerado pelo atualizador encerra TODOS os `pythonw.exe`
-- **Status:** ABERTO
-- **Onde:** `gee_updater.py`, no template do `.bat` desacoplado (`taskkill /f /im pythonw.exe`, perto da linha 1195).
-- **Problema:** mata outras ferramentas Python do usuário (scripts do QGIS, outras interfaces Tk). A espera também é por tempo fixo, sem aguardar o PID da interface.
-- **Correção sugerida:** passar o PID da interface ao `.bat` e esperar/encerrar só ele (`tasklist /FI "PID eq N"`), ou filtrar por linha de comando contendo `gee_gui.py`, como já faz o `deploy.ps1`.
-- **Aceite:** teste que gera o `.bat` (sem executá-lo) e confirma que não há `/im pythonw.exe`.
+Nenhum item aberto (o U-02 foi concluído; ver **Concluídos**).
 
 ---
 
@@ -57,24 +54,11 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 ### U-03 · Rollback do atualizador não garante o estado anterior
 - **Status:** ABERTO
 - **Onde:** `gee_updater.create_snapshot_backup`, template do `.bat` (ROLLBACK).
-- **Problemas:**
-  - falhas no backup viram apenas aviso;
+- **Problemas restantes** (backup incompleto agora interrompe a atualização e o rollback confere os
+  arquivos essenciais):
   - o rollback faz `xcopy` por cima, então arquivos novos da versão com falha permanecem;
-  - não há checagem de `errorlevel` no rollback;
   - o smoke test só confere se o arquivo existe.
 - **Correção sugerida:** trocar por renomeação (cache → `.old`, staging → cache; no rollback, desfazer), com manifest de hashes do backup e `python -c "import gee_gui"` como smoke test.
-
-### U-04 · `.bat` do atualizador com caminhos acentuados
-- **Status:** ABERTO
-- **Onde:** `gee_updater.generate_and_launch_detached_runner` (`chcp 65001` + arquivo gravado em ANSI/bytes).
-- **Cenário:** usuário `C:\Users\joão.silva`, onde todos os caminhos do `.bat` ficam inválidos.
-- **Correção sugerida:** gravar com `io.open(..., encoding='utf-8')` e caminhos unicode, ou substituir o `.bat` por um executor Python desacoplado.
-
-### G-01 · Janela do atualizador chama `self.top.after` de threads de trabalho
-- **Status:** ABERTO
-- **Onde:** `gee_gui.GEEUpdaterDialog._do_zip_update` / `_do_github_update`.
-- **Cenário:** o usuário fecha a janela durante a atualização. Ocorre `TclError` no meio do fluxo (depois do backup), e o erro não é mostrado.
-- **Correção sugerida:** usar `self.parent.post_to_gui(...)` (a fila da janela principal) e checar `winfo_exists()`.
 
 ### B-01 · Fórmula `CUSTOM_MATH` com intervalo crescente vira lista de bandas
 - **Status:** ABERTO (parcialmente tratado na v1.10)
@@ -114,10 +98,10 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | B-03 | Miniatura multibanda MSS (L1–L3) falha; a de L5/L7 sai em falsa cor | `gee_core.get_visualization_image` | Mapa RGB por sensor. VERIFICAR |
 | B-04 | `apply_sensor_scaling` aplica o fator de refletância a `ST_*`/QA em fórmulas | `gee_core` | Aplicar só a `SR_*`/`B*` |
 | B-05 | `has_credentials` exige o arquivo `credentials` e rejeita conta de serviço/ADC | `gee_core` | Tentar `ee.Initialize` antes de negar |
-| B-06 | `.pyt`: escala do usuário sobrescrita; cena mais recente escolhida sem considerar nuvem; falha de import vira `AttributeError` | `pyt/GEE_Tools.pyt` | Ver revisão v1.10 |
-| B-07 | Tiles temporários do GEE não são removidos em caso de falha; `tempfile.mktemp` | `gee_core.download_geotiff` | `try/finally` + `mkstemp` |
 | U-05 | O passo 7 do atualizador (sincronizar repositório de desenvolvimento) sobrescreve edições locais no canal ZIP | `gee_updater` (template) | Remover: o atualizador não deve mexer no repositório |
 | N-10 | Percent Clip: percentuais por camada não são expostos pelo ArcObjects 10.8 (vale o padrão do ArcMap). Avaliar se `IRasterDefaultsEnv7.MinPercent/MaxPercent` deve ser ajustado pelo plugin (altera um padrão global do usuário) | `arcmagery_symbology.py` | Decisão do mantenedor |
+| X-01 | Cache de tiles XYZ (`<saída>_tiles`) fica órfão quando o download falha: a janela XYZ dá nome com data/hora a cada download, então nunca retoma | `xyz_core.py`, `arcmagery_sources_gui.py` | Cache com chave estável (provedor, zoom, bbox) em `%LOCALAPPDATA%\ArcMagery\cache\xyz`, com expiração |
+| G-10 | Landsat 7 aparece como "Presente (Ativo)" no quadro do sensor, mas a missão terminou | `gee_gui` (metadados dos sensores) | Conferir a última data no acervo e mostrar o período fechado |
 | N-07 | Rede com inspeção SSL que não confia no bundle do Windows: não há opção de CA na interface | `stac_core.configure_gdal_http` | Campo "CA bundle (.pem)" nas Configurações → `GDAL_CURL_CA_BUNDLE` |
 
 ---
@@ -136,6 +120,8 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | R-01 | Centralizar versão e nome (hoje em `config.xml`, `gee_gui.CURRENT_VERSION` e padrões do atualizador; o teste `test_versions_are_consistent` garante que coincidem) | Ler de `config.xml` |
 | R-02 | Renomear o repositório GitHub para `arcmagery` (o GitHub redireciona o antigo) e atualizar as URLs em `gee_updater.py`, `gee_gui.py` e `README.md` | Fazer depois da U-01 |
 | R-03 | `gee_gui.py` tem 3.200 linhas: dividir `setup_ui` (~365 linhas) e unificar os caminhos multicore/sequencial de download | Refatoração sem mudar comportamento, protegida por testes |
+| R-05 | Proveniência da build: `actions/attest-build-provenance` e actions fixadas por SHA no `release.yml` | O `SHA256SUMS.txt` publicado na mesma Release não protege contra conta comprometida |
+| R-06 | Renomear `GEE_Image_Selector.esriaddin` para `ArcMagery.esriaddin` (mesmo `AddInID`) e migrar `%LOCALAPPDATA%\CGMA_ArcGEE` para `%LOCALAPPDATA%\ArcMagery`, lendo a pasta antiga | Exige migração no atualizador e no rollback; ver R-04 |
 | R-04 | Nomes internos legados (`gee_*`, tag `[ArcGEE]`, pastas `ArcGEE`/`CGMA_ArcGEE`) | Manter até haver migração de dados; a tag faz parte do protocolo de progresso |
 
 ---
@@ -144,6 +130,11 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 
 | ID | Versão | Descrição | Coberto por |
 |---|---|---|---|
+| U-02 | não lançado | `.bat` do atualizador encerrava todos os `pythonw.exe`; agora espera/encerra só o PID da interface | `tests/arcmap/test_robustness_fixes.py` (execução real desanexada) |
+| U-04 | não lançado | Atualizador e `.bat` com caminhos acentuados (unicode + `.bat` em ANSI/8.3, sem `chcp`) | `test_robustness_fixes.py` |
+| G-01 | não lançado | Atualizador usa a fila da GUI (`post_to_gui`) em vez de `top.after` nas threads | `test_robustness_fixes.py` |
+| B-06 | não lançado | Caixa de ferramentas `.pyt` quebrada removida | `tests/arcmap/test_compile_and_meta.py` |
+| B-07 | não lançado | Tiles temporários e parciais do GEE/SPOT/CBERS removidos em falha; varredura de pastas antigas | `tests/backend/test_hardening.py` |
 | C-01 | 2.0.0 | Máscara de nuvem dos mosaicos nunca aplicada (`getInfo` dentro de `map`) | `tests/backend/test_gee_core_mosaic.py` (+ teste ao vivo no EE) |
 | C-02 | 2.0.0 | `toInt16` truncava Landsat L2 (SR > 0,70 e ST_B10) | `test_gee_core_mosaic.py` |
 | C-03 | 2.0.0 | Worker morria sob `pythonw` (a detecção de stdout da v1.12 era ineficaz) | `tests/arcmap/test_gui_core.py::PythonwStdoutTest` |

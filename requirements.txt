@@ -2,9 +2,9 @@
 # O caminho padrao NAO usa pip: o Python do QGIS ja traz GDAL, numpy e Pillow, e o earthengine-api
 # e instalado por backend/pylibs.py (versoes fixas em backend/pylibs_manifest.json).
 #
-# O install.bat cria um venv proprio em %LOCALAPPDATA%\ArcMagery\venv (com --system-site-packages
-# sobre o Python do QGIS) e instala estes pacotes SEM --upgrade, para nao substituir o numpy
-# do qual o GDAL do QGIS depende.
+# Usado pelo CI (GitHub Actions) e por quem mantem um venv proprio. O install.bat NAO usa pip nem
+# cria venv (um venv antigo em %LOCALAPPDATA%\ArcMagery\venv continua sendo usado se funcionar).
+# Num venv sobre o Python do QGIS, instale SEM --upgrade, para nao substituir o numpy do GDAL.
 earthengine-api>=0.1.350
 Pillow>=9.0
 numpy>=1.21

@@ -16,8 +16,16 @@ if errorlevel 1 goto :no_git
 
 :: Pasta clonada com git: atualiza apenas por avanco rapido (nunca cria merge nem
 :: sobrescreve alteracoes locais) e reinstala.
+echo Esta pasta e um clone git: sera atualizada para o branch "main", a versao de
+echo desenvolvimento, que pode estar a frente da ultima versao estavel publicada.
+echo Para receber so versoes estaveis, use o Assistente de Atualizacao do plugin.
+echo.
+set /p GO="Continuar? (S/N): "
+if /i not "%GO%"=="S" exit /b 0
+echo.
 echo [1/2] Atualizando pelo git (somente avanco rapido)...
-git diff --quiet
+:: HEAD: considera tambem alteracoes ja adicionadas ao indice (staged)
+git diff --quiet HEAD
 if errorlevel 1 (
     echo [ERRO] Ha alteracoes locais nao salvas nesta pasta. Salve ^(commit^) ou descarte-as e tente novamente.
     pause
@@ -39,8 +47,8 @@ exit /b %errorlevel%
 :: (SHA-256), pelo assistente do plugin ou baixando o pacote novo.
 echo Esta pasta nao e um clone git. Para atualizar com verificacao de integridade:
 echo.
-echo   1. No ArcMap: ArcMagery ^> Configuracoes ^> Assistente de Atualizacao ^> GitHub
-echo      ^(baixa a ultima Release e confere o hash SHA-256 antes de instalar^); ou
+echo   1. No ArcMap: ArcMagery ^> Configuracoes ^> Assistente de Atualizacao ^> Metodo 1
+echo      ^(baixa a ultima Release do canal escolhido e confere o SHA-256 antes de instalar^); ou
 echo   2. Baixe a ultima Release, extraia em uma pasta nova e execute o install.bat.
 echo.
 set /p OPEN="Abrir a pagina de Releases no navegador? (S/N): "

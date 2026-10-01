@@ -37,9 +37,12 @@ class _LazyGeeCore(object):
             try:
                 import gee_core as _gc
             except ImportError as e:
-                if getattr(e, 'name', None) == 'ee' or "'ee'" in str(e):
-                    raise EarthEngineMissing(EE_MISSING_MESSAGE % sys.executable)
-                raise
+                # Qualquer ImportError na cadeia do gee_core (ee, google.auth, requests, cryptography...)
+                # significa componentes do Earth Engine ausentes/incompletos neste Python
+                msg = EE_MISSING_MESSAGE % sys.executable
+                if not (getattr(e, 'name', None) == 'ee' or "'ee'" in str(e)):
+                    msg += u"\nDetalhe: %s" % e
+                raise EarthEngineMissing(msg)
             _LazyGeeCore._mod = _gc
         return getattr(_LazyGeeCore._mod, name)
 
@@ -433,8 +436,14 @@ def src_stac_search(p):
         p.get('collections') or p.get('collection'), _resolve_bbox(p),
         start_date=p.get('start_date'), end_date=p.get('end_date'),
         max_cloud=p.get('max_cloud'), max_items=int(p.get('max_items', 100)),
-        min_coverage=float(p['min_coverage']) if p.get('min_coverage') not in (None, '') else 0.5)
+        min_coverage=_min_coverage(p))
     return {'success': True, 'items': items, 'count': len(items)}
+
+
+def _min_coverage(p, default=0.5):
+    """Cobertura minima (%): ausente/vazia -> padrao; um 0 explicito desliga o filtro."""
+    v = p.get('min_coverage')
+    return float(v) if v not in (None, '') else default
 
 
 def src_stac_thumb(p):
@@ -460,7 +469,7 @@ def src_spot_search(p):
     scenes = spot_core.search(_resolve_bbox(p), start_date=p.get('start_date'), end_date=p.get('end_date'),
                               max_cloud=p.get('max_cloud'), satellites=_spot_satellites(p.get('satellites')),
                               kind=p.get('kind'), max_items=int(p.get('max_items', 500)),
-                              min_coverage=float(p.get('min_coverage') or 0.5))
+                              min_coverage=_min_coverage(p))
     for s in scenes:
         s.pop('footprint', None)
         s.pop('zip_url', None)
@@ -749,6 +758,23 @@ def main():
         _dispatch(parser, args)
     except EarthEngineMissing as e:
         print(json.dumps({'success': False, 'message': str(e), 'ee_missing': True}))
+    except Exception as e:
+        fail_json(e)
+
+
+def fail_json(exc, code=1):
+    """Erro inesperado: traceback no stderr e, como ULTIMA linha do stdout, o JSON de falha que a
+    ponte Py2 espera (sem isso a GUI so via 'resposta invalida do backend'). Sai com codigo != 0."""
+    import traceback
+    try:
+        traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
+        sys.stderr.flush()
+    except Exception:
+        pass
+    sys.stdout.write(json.dumps({'success': False, 'message': u"Erro inesperado no backend: %s: %s"
+                                 % (type(exc).__name__, exc)}) + "\n")
+    sys.stdout.flush()
+    sys.exit(code)
 
 
 def _dispatch(parser, args):
@@ -768,4 +794,7 @@ def _dispatch(parser, args):
         parser.print_help()
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as _e:   # ex.: --params-file ilegivel; o JSON continua sendo a ultima linha
+        fail_json(_e)

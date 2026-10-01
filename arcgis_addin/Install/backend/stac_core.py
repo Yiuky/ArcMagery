@@ -442,37 +442,7 @@ def thumbnail(collection_id, item_id, out_png=None, href=None):
 
 
 # ---------------------------------------------------------------------------------- download
-def windows_ca_bundle(path=None):
-    """Exporta os certificados raiz/intermediarios do Windows para um PEM.
-
-    O curl embutido no GDAL nao usa o repositorio do Windows; sem isso as leituras /vsicurl/
-    falham ("HTTP response code 0") quando o Python nao e o do QGIS ou quando a rede usa
-    proxy com inspecao SSL (a CA corporativa fica apenas no repositorio do Windows).
-    """
-    if not hasattr(ssl, 'enum_certificates'):
-        return None
-    path = path or os.path.join(tempfile.gettempdir(), 'arcmagery_ca_bundle.pem')
-    try:
-        if os.path.exists(path) and time.time() - os.path.getmtime(path) < 86400:
-            return path
-        pems, seen = [], set()
-        for store in ('ROOT', 'CA'):
-            for cert, enc, trust in ssl.enum_certificates(store):
-                if enc != 'x509_asn' or cert in seen:
-                    continue
-                if trust is not True and '1.3.6.1.5.5.7.3.1' not in (trust or ()):
-                    continue  # apenas certificados confiaveis para autenticacao de servidor
-                seen.add(cert)
-                pems.append(ssl.DER_cert_to_PEM_cert(cert))
-        if not pems:
-            return None
-        tmp = path + '.%d.tmp' % os.getpid()
-        with open(tmp, 'w') as f:
-            f.write(''.join(pems))
-        os.replace(tmp, path)
-        return path
-    except Exception:
-        return None
+from sysenv import windows_ca_bundle  # noqa: E402  (PEM do repositorio do Windows; compartilhado com o GEE)
 
 
 def configure_gdal_http():
@@ -501,6 +471,26 @@ def _vsi(href):
     return href  # caminho local (testes)
 
 
+def transform_bounds(ct, minx, miny, maxx, maxy, densify=21):
+    """ct.TransformBounds (GDAL >= 3.4) com alternativa para GDAL antigo: densifica as 4 bordas
+    (densify pontos intermediarios em cada) com TransformPoints e pega o min/max."""
+    if hasattr(ct, 'TransformBounds'):
+        return tuple(ct.TransformBounds(minx, miny, maxx, maxy, densify))
+    n = int(densify) + 1   # segmentos por borda
+    pts = []
+    for i in range(n + 1):
+        t = i / float(n)
+        x = minx + (maxx - minx) * t
+        y = miny + (maxy - miny) * t
+        pts.extend([(x, miny), (x, maxy), (minx, y), (maxx, y)])
+    res = ct.TransformPoints(pts)
+    xs = [p[0] for p in res if p[0] is not None and math.isfinite(p[0])]
+    ys = [p[1] for p in res if p[1] is not None and math.isfinite(p[1])]
+    if not xs or not ys:
+        raise StacError(u"Não foi possível transformar a área de interesse para a projeção da cena.")
+    return min(xs), min(ys), max(xs), max(ys)
+
+
 def bbox_to_srcwin(ds, bbox_wgs84):
     """Converte o BBOX WGS84 em janela de pixels inteiros (xoff, yoff, xsize, ysize) do raster.
     Levanta StacError se nao houver intersecao."""
@@ -515,7 +505,7 @@ def bbox_to_srcwin(ds, bbox_wgs84):
         s.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
     ct = osr.CoordinateTransformation(src, dst)
     x0, y0, x1, y1 = [float(v) for v in bbox_wgs84]
-    minx, miny, maxx, maxy = ct.TransformBounds(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1), 21)
+    minx, miny, maxx, maxy = transform_bounds(ct, min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1), 21)
     px0 = int(math.floor((minx - gt[0]) / gt[1]))
     px1 = int(math.ceil((maxx - gt[0]) / gt[1]))
     py0 = int(math.floor((maxy - gt[3]) / gt[5]))
@@ -525,6 +515,24 @@ def bbox_to_srcwin(ds, bbox_wgs84):
     if px1 <= px0 or py1 <= py0:
         raise StacError(u"A cena não cobre a área de interesse.")
     return px0, py0, px1 - px0, py1 - py0
+
+
+def source_nodata(ds):
+    """NoData declarado na 1a banda da origem (ex.: -9999 nos cubos do BDC); 0 se nao houver."""
+    try:
+        nd = ds.GetRasterBand(1).GetNoDataValue()
+    except Exception:
+        nd = None
+    return 0 if nd is None else nd
+
+
+def _remove_quiet(path):
+    for p in (path, path + '.aux.xml'):
+        try:
+            if os.path.exists(p):
+                os.remove(p)
+        except OSError:
+            pass
 
 
 def _has_valid_pixels(band):
@@ -590,25 +598,29 @@ def download(collection_id, item_id, bbox, out_tif=None, mode='rgb', item=None,
             return 1
 
         tmp = out_tif + '.part.tif'
-        gdal.Translate(tmp, vrt, srcWin=[xoff, yoff, xsize, ysize], noData=0,
-                       creationOptions=['TILED=YES', 'COMPRESS=DEFLATE', 'PREDICTOR=2', 'BIGTIFF=IF_SAFER'],
-                       callback=_cb)
-        out = gdal.Open(tmp, gdal.GA_Update)
-        if len(assets_order) == out.RasterCount:
-            for i, a in enumerate(assets_order):
-                out.GetRasterBand(i + 1).SetDescription(a)
-        else:   # asset unico multibanda
-            for i in range(out.RasterCount):
-                out.GetRasterBand(i + 1).SetDescription(u"%s_%s" % (assets_order[0], u"RGB"[i] if i < 3 else i + 1))
-        if not _has_valid_pixels(out.GetRasterBand(1)):
-            out = None
-            os.remove(tmp)
-            raise StacError(u"A área de interesse cai fora da parte imageada da cena %s (recorte 100%% NoData). "
-                            u"Escolha uma cena com maior cobertura." % item_id)
-        valid_pct = valid_pixel_pct(out.GetRasterBand(1))
-        gt, w, h = out.GetGeoTransform(), out.RasterXSize, out.RasterYSize
-        epsg = osr.SpatialReference(wkt=out.GetProjection()).GetAuthorityCode(None)
         out = None
+        try:
+            gdal.Translate(tmp, vrt, srcWin=[xoff, yoff, xsize, ysize], noData=source_nodata(vrt),
+                           creationOptions=['TILED=YES', 'COMPRESS=DEFLATE', 'PREDICTOR=2', 'BIGTIFF=IF_SAFER'],
+                           callback=_cb)
+            out = gdal.Open(tmp, gdal.GA_Update)
+            if len(assets_order) == out.RasterCount:
+                for i, a in enumerate(assets_order):
+                    out.GetRasterBand(i + 1).SetDescription(a)
+            else:   # asset unico multibanda
+                for i in range(out.RasterCount):
+                    out.GetRasterBand(i + 1).SetDescription(u"%s_%s" % (assets_order[0], u"RGB"[i] if i < 3 else i + 1))
+            if not _has_valid_pixels(out.GetRasterBand(1)):
+                raise StacError(u"A área de interesse cai fora da parte imageada da cena %s (recorte 100%% NoData). "
+                                u"Escolha uma cena com maior cobertura." % item_id)
+            valid_pct = valid_pixel_pct(out.GetRasterBand(1))
+            gt, w, h = out.GetGeoTransform(), out.RasterXSize, out.RasterYSize
+            epsg = osr.SpatialReference(wkt=out.GetProjection()).GetAuthorityCode(None)
+            out = None
+        except BaseException:
+            out = None   # fecha o handle antes de apagar o parcial (Windows bloqueia arquivo aberto)
+            _remove_quiet(tmp)
+            raise
         if os.path.exists(out_tif):
             os.remove(out_tif)
         for ext in ('.ovr', '.aux.xml'):   # piramides/estatisticas de um recorte anterior com o mesmo nome

@@ -4,10 +4,13 @@ Leia antes de alterar o ArcMagery. O trabalho pendente está no [BACKLOG.md](BAC
 
 ## 1. O que é
 
-Add-In Python do **ArcMap 10.8/10.8.2** para baixar imagens de satélite do **Google Earth
-Engine**, de **mosaicos XYZ (Google Earth, Esri, Bing)** e do **CBERS/Amazônia-1 (STAC do INPE)**
-e carregá-las no TOC. Nome do produto: **ArcMagery**. Os nomes internos `gee_*` são legados e
-**devem ser mantidos** (ver R-04).
+Add-In Python do **ArcMap 10.8.x** para baixar imagens de satélite do **Google Earth Engine**, do
+**CBERS/Amazônia-1 (STAC do INPE)**, do **SPOT 1-5 (CNES/GEODES)**, do **Google Earth histórico**, do
+**Esri Wayback** e de **mosaicos XYZ (Google Earth, Esri, Bing)** e carregá-las no TOC. Nome do produto:
+**ArcMagery**, projeto pessoal e independente (não cite instituições como autoras ou donas). Os nomes
+internos `gee_*`, `ArcGEE`, `GEE_Image_Selector.esriaddin` e a pasta `%LOCALAPPDATA%\CGMA_ArcGEE` são
+legados e **devem ser mantidos** (ver R-04): mudá-los quebra a atualização e o rollback das instalações
+existentes.
 
 ## 2. Arquitetura: três processos, dois Pythons
 
@@ -18,7 +21,7 @@ ArcMap.exe (Python 2.7 32-bit, arcpy)          <- gee_selector_addin.py + gee_br
 pythonw.exe do ArcGIS (Python 2.7, Tkinter)    <- gee_gui.py (+ arcmagery_inpe.py, arcmagery_gehist.py) + arcmagery_sources_gui.py
    | subprocess: backend/run_gee.py <comando> --params-file=<json UTF-8>
    v
-Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core.py | stac_core.py
+Python 3 do QGIS + %LOCALAPPDATA%\ArcMagery\pylibs\py3XY  <- backend/gee_core.py | stac_core.py | spot_core.py | xyz_core.py | ...
 ```
 
 - **Nunca** rode `mainloop()` nem chamadas demoradas dentro do ArcMap. O ArcMap só processa
@@ -40,7 +43,7 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
 | `arcgis_addin/Install/gee_selector_addin.py` | 2.7 | Botão/extensão do ArcMap |
 | `arcgis_addin/Install/gee_bridge.py` | 2.7 (também importável em 3) | IPC, arcpy/TOC, simbologia, chamada ao backend, seleção do Python 3 |
 | `arcgis_addin/Install/gee_gui.py` | 2.7 | Janela principal (GEE), configurações, atualizador. (fim de linha LF, como os demais) |
-| `arcgis_addin/Install/arcmagery_sources_gui.py` | 2.7 | Janela Google Earth / Mosaicos XYZ |
+| `arcgis_addin/Install/arcmagery_sources_gui.py` | 2.7 | Janela Google Earth / XYZ (botão *Google Earth / XYZ...*) |
 | `arcgis_addin/Install/arcmagery_gehist.py` | 2.7 | Google Earth histórico na janela principal: zooms como "sensores" `GEH:<zoom>`, cada data como uma linha da tabela; busca/download/miniatura via backend; limite de tiles igual ao do `gehist_core` |
 | `arcgis_addin/Install/arcmagery_wayback.py` | 2.7 | Esri Wayback na janela principal: zooms como "sensores" `EWB:<zoom>` / `EWB:ALL`, cada versão como uma linha; usa `esri_versions`, `xyz_download` e `wayback_thumb`. Mesma interface do `arcmagery_gehist` (a janela usa `gee_gui.tile_source_of`) |
 | `arcgis_addin/Install/arcmagery_tilesource.py` | 2.7 | Funções comuns das fontes de tiles com data (`arcmagery_gehist`, `arcmagery_wayback`): área/AOI, progresso, período, estimativa e limite |
@@ -58,10 +61,9 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
 | `backend/doctor.py` | 3 | Diagnóstico do ambiente com correção automática (comando `doctor`; `run_gee.py doctor --text` no `install.bat`, botão da splash). Cada checagem: `ok`/`warn`/`fail`/`fixed` + "o que fazer". Manifestos por Python: `pylibs_manifest.json` (3.10–3.14), `_py39`, `_py38` |
 | `backend/ee_auth.py` | 3 | Autenticação interativa do GEE (console) com qualquer Python 3 apto, via `pylibs` |
 | `backend/spot_core.py` | 3 + GDAL + numpy | SPOT 1-5 via STAC do GEODES: busca (filtrar coleções por `query.dataset`; a data de aquisição é `start_datetime`), download com `X-API-Key` + MD5 + cache, georreferência pelo `Simplified_Location_Model` do L1A e **alinhamento à Esri** por correlação de fase |
-| `backend/gehist_core.py` | 3 | Google Earth histórico por data (catálogo *Time Machine*, protocolo Keyhole: dbRoot + quadtree protobuf + XOR), porta do `C:\DOWNLOADER_EARTH\historical_engine.py`. **A grade é geográfica EPSG:4326, não Web Mercator** (`tilemath.keyhole_*`) |
+| `backend/gehist_core.py` | 3 | Google Earth histórico por data (catálogo *Time Machine*, protocolo Keyhole: dbRoot + quadtree protobuf + XOR), porta de um projeto pessoal anterior (DOWNLOADER_EARTH). **A grade é geográfica EPSG:4326, não Web Mercator** (`tilemath.keyhole_*`) |
 | `backend/parallel.py` | 3 | `imap_bounded` (no máximo `workers × 4` tiles em andamento: memória constante), threads de rede padrão (48, teto 64) e núcleos do GDAL (CPU − 2, teto 16). Todo download de tiles passa por aqui |
 | `backend/qgis_env.py` | 3 | Registra `<QGIS>\\bin` como diretório de DLLs antes do import do GDAL (o `sitecustomize` do QGIS pula isso se `OSGEO4W_ROOT` já existir) |
-| `pyt/GEE_Tools.pyt` | 2.7 | Caixa de ferramentas do ArcToolbox |
 | `tests/backend/`, `tests/arcmap/` | 3 / 2.7 | Suítes automatizadas |
 
 ## 4. Regras de código
@@ -107,9 +109,9 @@ Python 3 (venv %LOCALAPPDATA%\ArcMagery\venv)  <- backend/gee_core.py | xyz_core
 ## 5. Ambiente e testes
 
 ```bat
-install.bat                     :: cria %LOCALAPPDATA%\ArcMagery\venv (sobre o Python do QGIS) e instala o Add-In
+install.bat                     :: acha o Python do QGIS (tools\find_python3.bat), roda o diagnostico e instala o Add-In
 run_tests.bat                   :: suite backend (Python 3) + suite ArcMap/GUI (Python 2.7)
-set ARCMAGERY_LIVE=1            :: + testes com internet (INPE, Esri, Google)
+set ARCMAGERY_LIVE=1            :: + testes com internet (INPE, Esri, Google, GEODES)
 set ARCMAGERY_GEE_PROJECT=<id>  :: + teste real no Earth Engine (requer autenticar_gee.bat)
 ```
 
@@ -133,8 +135,9 @@ set ARCMAGERY_GEE_PROJECT=<id>  :: + teste real no Earth Engine (requer autentic
    `SHA256SUMS.txt` e as notas da versão no CHANGELOG. Sem a Release, o atualizador dos usuários pede
    confirmação para instalar do `main` sem verificação.
 4. Localmente, `python build_release.py` gera os mesmos artefatos em `dist/`, para conferência.
-5. **Versão experimental (nightly):** use `X.Y.Z-nightly.AAAAMMDD` (ex.: `2.4.1-nightly.20260930`) nos mesmos
-   lugares do passo 1, com o selo do README em laranja (`E67E22`; o shields.io escreve `-` como `--`) e o
+5. **Versão experimental (nightly):** use `X.Y.Z-nightly.AAAAMMDD`, em que **X.Y.Z é a PRÓXIMA versão**
+   (depois da 2.4.1: `2.4.2-nightly.AAAAMMDD`; `2.4.1-nightly.*` ordena antes de `2.4.1` e nunca seria
+   oferecida a quem já está nela), nos mesmos lugares do passo 1, com o selo do README em laranja (`E67E22`; o shields.io escreve `-` como `--`) e o
    título do CHANGELOG `## [X.Y.Z-nightly.AAAAMMDD] - data (experimental)`. A tag com sufixo vira *pre-release*
    no workflow: o canal estável (`releases/latest`) nunca a instala; o canal experimental (lista de Releases)
    pega a mais nova entre estáveis e nightlies. Compare versões sempre com `gee_updater.version_key`, nunca
@@ -146,4 +149,8 @@ set ARCMAGERY_GEE_PROJECT=<id>  :: + teste real no Earth Engine (requer autentic
   de versão a cada push ou PR. Testes que exigem GDAL/QGIS, internet ou ArcGIS são pulados ali.
 - Um teste novo que dependa de GDAL deve usar `@unittest.skipUnless(_paths.HAS_GDAL, ...)`; um que
   dependa de internet, `_paths.LIVE`.
-- Ferramentas de desenvolvimento ficam em `tools/` (ex.: `tools/build_icons.py`) e não entram no Add-In.
+- O workflow `release.yml` roda a suíte do backend no commit da tag antes de publicar. O `build_release.py`
+  é reprodutível (data das entradas do ZIP = data do último commit): o mesmo commit gera o mesmo SHA-256.
+- Ferramentas de desenvolvimento ficam em `tools/` (`build_icons.py`, `build_logo.py`,
+  `build_pylibs_manifest.py`) e não entram no Add-In. `tools/find_python3.bat` é usado pelos `.bat` da raiz
+  e segue a mesma regra de `gee_bridge.python3_candidates` (QGIS mais novo primeiro).

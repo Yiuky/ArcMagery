@@ -91,6 +91,40 @@ class StacPureTest(unittest.TestCase):
         self.assertEqual(stac_core.aoi_coverage_pct(multi, box), 50.0)
         self.assertIsNone(stac_core.aoi_coverage_pct(None, box))
 
+    def test_transform_bounds_fallback_without_gdal_34(self):
+        """GDAL < 3.4 nao tem TransformBounds: densificar as 4 bordas e pegar o min/max."""
+        class OldCT(object):     # sem TransformBounds; borda curva (o maximo fica no MEIO da borda)
+            def __init__(self):
+                self.calls = 0
+
+            def TransformPoints(self, pts):
+                self.calls += 1
+                return [(x * 2.0, y + x * (1.0 - x), 0.0) for x, y in pts]
+
+        ct = OldCT()
+        minx, miny, maxx, maxy = stac_core.transform_bounds(ct, 0.0, 0.0, 1.0, 1.0, 21)
+        self.assertEqual(ct.calls, 1)
+        self.assertAlmostEqual(minx, 0.0)
+        self.assertAlmostEqual(maxx, 2.0)
+        self.assertAlmostEqual(miny, 0.0)
+        self.assertAlmostEqual(maxy, 1.25)   # so as quinas dariam 1.0
+
+        class NewCT(object):
+            def TransformBounds(self, *a):
+                self.args = a
+                return [1, 2, 3, 4]
+
+        ct2 = NewCT()
+        self.assertEqual(stac_core.transform_bounds(ct2, 0, 0, 1, 1, 21), (1, 2, 3, 4))
+        self.assertEqual(ct2.args, (0, 0, 1, 1, 21))
+
+        class BrokenCT(object):
+            def TransformPoints(self, pts):
+                return [(float('inf'), float('nan'), 0.0) for _ in pts]
+
+        with self.assertRaises(stac_core.StacError):
+            stac_core.transform_bounds(BrokenCT(), 0, 0, 1, 1)
+
     @unittest.skipUnless(sys.platform == 'win32', "somente Windows")
     def test_windows_ca_bundle(self):
         path = stac_core.windows_ca_bundle(os.path.join(tempfile.gettempdir(), 'arcmagery_test_ca.pem'))
@@ -300,6 +334,56 @@ class StacDownloadTest(unittest.TestCase):
         with self.assertRaises(stac_core.StacError):
             stac_core.download('CB4A-WPM-L4-DN-1', 'SINT', AOI, os.path.join(self.tmp, 'l.tif'), mode='rgb',
                                item=self._item(self.hrefs), max_pixels=1000)
+
+    def test_source_nodata_is_preserved(self):
+        """Regressao: noData=0 fixo sobrescrevia o NoData da origem (-9999 nos cubos BDC / SR Int16):
+        os pixels -9999 viravam 'validos' e os 0 reais viravam NoData."""
+        from osgeo import gdal, osr
+        import numpy as np
+        path = os.path.join(self.tmp, 'ND9999.tif')
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(32721)
+        ds = gdal.GetDriverByName('GTiff').Create(path, 2000, 2000, 1, gdal.GDT_Int16)
+        ds.SetGeoTransform(self.gt)
+        ds.SetProjection(srs.ExportToWkt())
+        arr = np.zeros((2000, 2000), dtype=np.int16)      # 0 = valor real (ex.: NDVI 0)
+        arr[:, (np.arange(2000) // 50) % 2 == 0] = -9999   # faixas de 50 px sem dado (~metade)
+        ds.GetRasterBand(1).WriteArray(arr)
+        ds.GetRasterBand(1).SetNoDataValue(-9999)
+        ds = None
+        out = os.path.join(self.tmp, 'nd.tif')
+        res = stac_core.download('CB4A-WPM-L4-DN-1', 'SINT', AOI, out, mode='pan', item=self._item({'BAND0': path}))
+        ds = gdal.Open(out)
+        self.assertEqual(ds.GetRasterBand(1).GetNoDataValue(), -9999)
+        ds = None
+        self.assertGreater(res['valid_pct'], 0.0)     # os zeros reais contam como imagem
+        self.assertLess(res['valid_pct'], 100.0)      # o -9999 nao
+
+    def test_source_without_nodata_falls_back_to_zero(self):
+        from osgeo import gdal
+        out = os.path.join(self.tmp, 'nd0.tif')
+        stac_core.download('CB4A-WPM-L4-DN-1', 'SINT', AOI, out, mode='pan', item=self._item(self.hrefs))
+        ds = gdal.Open(out)
+        self.assertEqual(ds.GetRasterBand(1).GetNoDataValue(), 0)
+        ds = None
+
+    def test_translate_failure_removes_partial(self):
+        out = os.path.join(self.tmp, 'falha.tif')
+        orig = stac_core.gdal.Translate
+
+        def broken(dst, src, **kw):
+            with open(dst, 'wb') as f:       # parcial gravado antes da falha (ex.: rede caiu no meio)
+                f.write(b'II*\x00parcial')
+            raise RuntimeError("falha simulada no Translate")
+
+        stac_core.gdal.Translate = broken
+        try:
+            with self.assertRaises(RuntimeError):
+                stac_core.download('CB4A-WPM-L4-DN-1', 'SINT', AOI, out, mode='pan', item=self._item(self.hrefs))
+        finally:
+            stac_core.gdal.Translate = orig
+        self.assertFalse(os.path.exists(out + '.part.tif'))
+        self.assertFalse(os.path.exists(out))
 
 
 @unittest.skipUnless(_paths.LIVE and _paths.HAS_GDAL, "defina ARCMAGERY_LIVE=1 (requer GDAL e internet)")

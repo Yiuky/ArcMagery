@@ -194,7 +194,8 @@ def fetch_tile(url, retries=4, timeout=30.0, headers=None, _sleep=time.sleep, on
             last_err = e
             retry_after = e.headers.get('Retry-After') if e.headers else None
             if retry_after and str(retry_after).isdigit():
-                _sleep(min(60, int(retry_after)))
+                if attempt < retries:   # na ultima tentativa nao ha por que esperar
+                    _sleep(min(60, int(retry_after)))
                 continue
         except ssl.SSLError as e:
             # certificado invalido nao se resolve com retentativa

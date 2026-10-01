@@ -100,11 +100,12 @@ class OpenGEESelectorButton(object):
                 gee_bridge.process_pending_arcmap_commands()
 
             # 3. Atualizar contexto da tela periodicamente (a cada 0.6s) para manter escala da GUI atualizada
+            #    (so com a GUI aberta: sem ela, nada le o contexto e o ArcMap nao gasta tempo exportando)
             import time
             now = time.time()
             if now - self._last_ctx_time > 0.6:
                 self._last_ctx_time = now
-                gee_bridge.export_arcmap_context()
+                gee_bridge.export_arcmap_context_if_gui_alive()
         except Exception:
             pass
 
@@ -132,7 +133,7 @@ class GEEExtension(object):
         try:
             import gee_bridge
             gee_bridge.start_arcmap_ipc_timer(250)
-            gee_bridge.export_arcmap_context()
+            gee_bridge.export_arcmap_context_if_gui_alive()
             if os.path.exists(gee_bridge.CMD_FILE):
                 gee_bridge.process_pending_arcmap_commands()
         except Exception:
@@ -143,7 +144,7 @@ class GEEExtension(object):
         try:
             import gee_bridge
             gee_bridge.start_arcmap_ipc_timer(250)
-            gee_bridge.export_arcmap_context()
+            gee_bridge.export_arcmap_context_if_gui_alive()
             if os.path.exists(gee_bridge.CMD_FILE):
                 gee_bridge.process_pending_arcmap_commands()
         except Exception:
@@ -153,7 +154,7 @@ class GEEExtension(object):
         try:
             import gee_bridge
             gee_bridge.start_arcmap_ipc_timer(250)
-            gee_bridge.export_arcmap_context()
+            gee_bridge.export_arcmap_context_if_gui_alive()
         except Exception:
             pass
 

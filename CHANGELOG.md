@@ -4,6 +4,62 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### 🛡️ Corrigido
+- **Atualizador:**
+  - funciona com perfil ou `%TEMP%` com acento (ex.: `C:\Users\joão`): caminhos em unicode e `.bat` gravado
+    na codificação do Windows, sem depender do `chcp`;
+  - o `.bat` não encerra mais todos os `pythonw.exe` do computador, só a interface do ArcMagery (U-02);
+  - caminhos com `&` e mensagens finais com acento legíveis;
+  - "Voltar para a versão anterior" ignora backups da própria versão instalada, e um backup incompleto
+    interrompe a atualização antes de mexer em qualquer arquivo;
+  - pasta Documentos redirecionada para o OneDrive é respeitada.
+- **Interface:**
+  - na largura padrão, o botão **SPOT 1-5 (CNES)** e o **Configurar Projeto GEE** ficavam fora da tela;
+    rótulos da barra de fontes encurtados e cabeçalho reorganizado;
+  - fechar a janela durante uma operação não impede mais que ela reabra (threads e processos do backend
+    encerrados junto);
+  - a barra de status não fica mais presa em "Verificando..." quando o Python 3 falha ao iniciar;
+  - configurações da janela XYZ não sobrescrevem mais as alteradas em Configurações;
+  - acentuação dos rótulos da janela principal e textos sem exageros ("100%").
+- **Ponte com o ArcMap:** erros do arcpy em português não deixam mais a carga esperando até o tempo
+  limite; comandos curtos não ficam presos atrás de uma carga longa ("ArcMap ocupado").
+- **Prazos do backend:** o download SPOT era encerrado após 120 s; agora o prazo conta inatividade (cada
+  linha de progresso renova a contagem), com limites próprios para SPOT e para a instalação de componentes.
+- **Backend:**
+  - Earth Engine atrás de proxy com inspeção SSL: os certificados do Windows passam a valer também para a
+    biblioteca do Google;
+  - CBERS: o NoData original da cena (ex.: −9999 nos cubos NDVI/EVI) é mantido, em vez de ser trocado por 0;
+  - CBERS em QGIS com GDAL anterior ao 3.4;
+  - arquivos temporários e parciais (SPOT, quadrantes do GEE, `.part`) são apagados quando o download falha,
+    e pastas temporárias antigas são limpas;
+  - busca SPOT com cobertura mínima 0; nome de arquivo do GEODES saneado;
+  - todo comando termina com uma linha JSON, mesmo em erro inesperado.
+- **Extensão do ArcMap:** sem a interface aberta, o Add-In não exporta mais o contexto do mapa a cada
+  0,6 s nem grava uma linha de log por ciclo.
+- **Instaladores:**
+  - `install.bat` encontra o QGIS mais novo (inclusive QGIS 4, `Program Files (x86)` e a variável
+    `GEE_PYTHON3`), a mesma escolha da interface (`tools\find_python3.bat`);
+  - corrigido o argumento `--install-path` que chegava ao diagnóstico com uma aspa no fim;
+  - para se o ArcMap estiver aberto ou se o ArcGIS não estiver instalado; confere os erros de cópia;
+  - `desinstalar.bat` oferece remover também os dados do plugin;
+  - `atualizar.bat` avisa que traz a versão de desenvolvimento.
+- **Release:** pacote reprodutível (mesmo commit, mesmo SHA-256), `SHA256SUMS.txt` sem CRLF e testes rodando
+  antes da publicação.
+
+### 🗑️ Removido
+- Caixa de ferramentas `GEE_Tools.pyt`: estava quebrada (a ferramenta 1 chamava uma função inexistente e
+  a 2, copiada para `Documentos\ArcGIS`, não encontrava a ponte). O `install.bat` apaga a cópia antiga.
+
+### 📝 Documentação
+- Manual reescrito: seções do Google Earth histórico e do Esri Wayback, tabela de satélites conferida com o
+  código, recorte pela AOI descrito como ele é (retângulo envolvente), dados guardados no computador,
+  endereços de rede, limitações conhecidas e capturas de tela atuais.
+- Novos `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff` e modelos de issue
+  revisados.
+- Logotipo sem texto, janela "Sobre" com versão automática e requisitos corretos (Python 3.8 a 3.14).
+
 ## [2.4.1] - 2026-09-30
 
 > Versão estável com o mesmo conteúdo da prévia experimental `v2.4.1-nightly.20260930`. É por ela que

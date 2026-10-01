@@ -53,6 +53,83 @@ def err_text(e):
                 parts.append(unicode(repr(a)))
     return u" ".join(parts) or unicode(repr(e))
 
+
+def fs_text(path):
+    """Caminho como unicode. No Python 2 os.environ, tempfile e __file__ devolvem bytes no codepage
+    ANSI: juntar esses bytes com texto unicode quebrava com perfis acentuados (C:\\Users\\joão)."""
+    if sys.version_info[0] < 3 and isinstance(path, bytes):
+        enc = sys.getfilesystemencoding() or 'mbcs'
+        try:
+            return path.decode(enc)
+        except UnicodeError:
+            return path.decode(enc, 'replace')
+    return path
+
+
+def temp_dir():
+    """tempfile.gettempdir() sempre em unicode."""
+    return fs_text(tempfile.gettempdir())
+
+
+def _short_path_name(path):
+    try:
+        import ctypes
+        buf = ctypes.create_unicode_buffer(1024)
+        n = ctypes.windll.kernel32.GetShortPathNameW(fs_text(path), buf, 1024)
+        if 0 < n <= 1024 and buf.value:
+            return buf.value
+    except Exception:
+        pass
+    return None
+
+
+def cmdline_safe_path(path):
+    """Caminho para a linha de comando de um subprocess. Python 2 usa CreateProcessA: o caminho tem de
+    ir em bytes do codepage ANSI. Ordem: ASCII puro; nome 8.3 ASCII; bytes ANSI (o Python 3 filho recebe
+    o caminho certo pela linha de comando larga). None se nada disso representa o caminho (caracteres
+    fora do ANSI com nomes 8.3 desativados)."""
+    if path is None:
+        return None
+    if sys.version_info[0] >= 3:
+        return path
+    u = fs_text(path)
+    try:
+        return u.encode('ascii')
+    except UnicodeError:
+        pass
+    short = _short_path_name(u)
+    if short:
+        try:
+            return short.encode('ascii')
+        except UnicodeError:
+            pass
+    try:
+        encoded = u.encode('mbcs')
+        if encoded.decode('mbcs') == u:
+            return encoded
+    except (UnicodeError, LookupError):
+        pass
+    return None
+
+
+def _ascii_params_path(src_path):
+    """Plano C do arquivo de parametros: move-o para uma pasta so ASCII (ProgramData/Publico).
+    Usado apenas quando a pasta temporaria do usuario nao pode ir na linha de comando."""
+    import shutil
+    for base in (os.environ.get('ProgramData') or r"C:\ProgramData", os.environ.get('PUBLIC') or r"C:\Users\Public"):
+        d = os.path.join(fs_text(base), u"ArcMagery", u"tmp")
+        try:
+            d.encode('ascii')
+            if not os.path.isdir(d):
+                os.makedirs(d)
+            dst = os.path.join(d, u"gee_params_%s.json" % uuid.uuid4().hex)
+            shutil.move(fs_text(src_path), dst)
+            return dst
+        except Exception:
+            continue
+    return None
+
+
 class SafeStream(object):
     def __init__(self, log_path=None):
         self.log_path = log_path
@@ -202,18 +279,34 @@ def find_python3_gdal():
             return c
     return find_python3()
 
+def qgis_python_sort_key(path):
+    """Chave 'mais novo primeiro' para Pythons do QGIS/OSGeo4W: versao natural do QGIS tirada da pasta
+    ('QGIS 3.44.10' > 'QGIS 3.40.5' > 'QGIS 3.28') e, no mesmo QGIS, a do Python ('Python312' > 'Python39').
+    Use com reverse=True. OSGeo4W (sem versao do QGIS no caminho) vem depois dos QGIS versionados."""
+    import re
+    p = path.replace('/', '\\')
+    m = re.search(r'\\QGIS[ _-]?(\d+(?:\.\d+)*)[^\\]*\\', p, re.IGNORECASE)
+    qgis = tuple(int(n) for n in m.group(1).split('.')) if m else ()
+    m = re.search(r'\\Python(\d+)\\', p, re.IGNORECASE)
+    digits = m.group(1) if m else ''
+    py = (int(digits[0]), int(digits[1:] or 0)) if digits else ()   # Python39 -> (3, 9) < Python312 -> (3, 12)
+    return (qgis, py)
+
+
 def python3_candidates():
-    """Interpretadores Python 3 existentes, em ordem de preferencia (sem o alias da MS Store)."""
+    """Interpretadores Python 3 existentes, em ordem de preferencia (sem o alias da MS Store).
+    QGIS/OSGeo4W: do MAIS NOVO para o mais antigo (o glob devolve em ordem alfabetica, que escolheria
+    o QGIS mais antigo); a mesma regra e usada pelos .bat (install/autenticar/run_tests)."""
     import glob
     candidates = [
         os.environ.get("GEE_PYTHON3", ""),
         os.path.join(os.environ.get("LOCALAPPDATA", ""), r"ArcMagery\venv\Scripts\python.exe"),
         os.path.join(os.environ.get("LOCALAPPDATA", ""), r"ArcGEE\venv\Scripts\python.exe"),
-        r"C:\CGMA_GEE_PLUGIN\venv\Scripts\python.exe",
     ]
-    candidates += glob.glob(r"C:\Program Files\QGIS *\apps\Python3*\python.exe")
-    candidates += glob.glob(r"C:\Program Files (x86)\QGIS *\apps\Python3*\python.exe")
-    candidates += glob.glob(r"C:\OSGeo4W*\apps\Python3*\python.exe")
+    qgis = glob.glob(r"C:\Program Files\QGIS *\apps\Python3*\python.exe")
+    qgis += glob.glob(r"C:\Program Files (x86)\QGIS *\apps\Python3*\python.exe")
+    candidates += sorted(qgis, key=qgis_python_sort_key, reverse=True)
+    candidates += sorted(glob.glob(r"C:\OSGeo4W*\apps\Python3*\python.exe"), key=qgis_python_sort_key, reverse=True)
     candidates += glob.glob(r"C:\Python3*\python.exe")
     candidates += glob.glob(os.path.expanduser(r"~\AppData\Local\Programs\Python\Python3*\python.exe"))
     existing = []
@@ -483,6 +576,25 @@ def cancel_backend_commands(group=MAIN_GROUP):
     return len(items)
 
 
+def shutdown_backends(groups, timeout=6.0):
+    """Encerramento da GUI: interrompe os backends dos grupos dados e ESPERA (ate `timeout` s no total)
+    os taskkill terminarem, para nao deixar processos Python 3 orfaos quando o processo sair com
+    os._exit. Retorna quantos processos foram interrompidos."""
+    with _ACTIVE_LOCK:
+        items = [(proc, st) for proc, st in _ACTIVE_BACKENDS.items() if st.get('group') in groups]
+    threads = []
+    for proc, state in items:
+        state['cancelled'] = True
+        t = threading.Thread(target=kill_process_tree, args=(proc,))
+        t.daemon = True
+        t.start()
+        threads.append(t)
+    deadline = time.time() + timeout
+    for t in threads:
+        t.join(max(0.0, deadline - time.time()))
+    return len(items)
+
+
 def active_backend_count(group=MAIN_GROUP):
     with _ACTIVE_LOCK:
         return len([1 for st in _ACTIVE_BACKENDS.values() if st.get('group') == group])
@@ -501,11 +613,35 @@ def parse_backend_output(out):
     return None
 
 
+# Prazo (s) de cada comando do backend SEM progresso (cada linha [ArcGEE] reinicia a contagem)
+BACKEND_TIMEOUTS = {
+    'check': 30, 'auth': 30, 'compositions': 30,
+    'search': 90,                       # busca no catalogo GEE
+    'thumb': 60,                        # miniaturas do GEE
+    'download': 600,                    # download e processamento de grandes rasters
+    'stac_download': 1800,              # recortes CBERS grandes
+    'xyz_download': 4 * 3600,           # ate 100 mil tiles (~30 tiles/s em rede corporativa: ~1 h)
+    'gehist_download': 4 * 3600,
+    'gehist_dates': 1800,               # varredura do catalogo historico (1 consulta por tile)
+    'esri_versions': 600,               # varios zooms do Wayback (cada um ~15-20 s)
+    'spot_download': 3600,              # cena SPOT + alinhamento a Esri World Imagery
+    'spot_search': 180, 'spot_thumb': 120, 'spot_check_key': 60,
+    'pylibs_install': 900,              # ~22 MB de bibliotecas (earthengine-api e dependencias)
+    'gehist_thumb': 120, 'wayback_thumb': 120, 'stac_search': 120, 'stac_thumb': 120,
+    'sources_info': 120, 'xyz_estimate': 120, 'esri_dates': 120,
+}
+DEFAULT_BACKEND_TIMEOUT = 120
+
+
+def backend_timeout(subcmd):
+    return BACKEND_TIMEOUTS.get(subcmd, DEFAULT_BACKEND_TIMEOUT)
+
+
 def run_backend_cmd(subcmd, args_dict, on_progress=None, python_exe=None, group=MAIN_GROUP):
     py3 = python_exe or find_python3()
     script = get_backend_script()
     if not os.path.exists(script):
-        return {'success': False, 'message': u"Script backend nao encontrado: " + unicode(script)}
+        return {'success': False, 'message': u"Script backend nao encontrado: " + fs_text(script)}
 
     # Passagem de parametros via arquivo JSON UTF-8 com caminho 8.3 puro ASCII
     # para imunidade absoluta contra erros de encoding e caminhos com acentos (ex: C:\Users\José)
@@ -524,17 +660,19 @@ def run_backend_cmd(subcmd, args_dict, on_progress=None, python_exe=None, group=
                 json_str = unicode(json_str, 'utf-8', 'replace')
             f_json.write(json_str)
 
-        safe_json_path = temp_json_path
-        if os.name == 'nt':
-            try:
-                import ctypes
-                buf = ctypes.create_unicode_buffer(500)
-                if ctypes.windll.kernel32.GetShortPathNameW(unicode(temp_json_path), buf, 500) > 0:
-                    safe_json_path = str(buf.value)
-            except Exception:
-                safe_json_path = temp_json_path.encode('ascii', 'ignore') if isinstance(temp_json_path, unicode) else temp_json_path
+        safe_json_path = cmdline_safe_path(temp_json_path)
+        if safe_json_path is None:
+            # Caminho com caracteres fora do codepage ANSI e sem nome 8.3: o Popen do Python 2
+            # (CreateProcessA) nao consegue passa-lo. Move o arquivo para uma pasta so ASCII.
+            moved = _ascii_params_path(temp_json_path)
+            if moved is None:
+                return {'success': False, 'message': u"Não foi possível criar um arquivo de parâmetros com "
+                                                      u"caminho compatível (pasta temporária: %s)." % fs_text(temp_json_path)}
+            temp_json_path = moved
+            safe_json_path = cmdline_safe_path(moved)
 
-        cmd = [str(py3), str(script), str(subcmd), "--params-file=" + str(safe_json_path)]
+        cmd = [cmdline_safe_path(py3) or str(py3), cmdline_safe_path(script) or str(script), str(subcmd),
+               "--params-file=" + safe_json_path]
 
         # Sanitizar variaveis de ambiente para isolar Python 3 do ambiente Python 2 do ArcMap
         clean_env = dict(os.environ)
@@ -560,6 +698,7 @@ def run_backend_cmd(subcmd, args_dict, on_progress=None, python_exe=None, group=
 
         out_chunks = []
         err_chunks = []
+        activity = {'t': time.time()}   # ultima linha de progresso (prazo de inatividade)
 
         def _stream_out():
             try:
@@ -579,8 +718,10 @@ def run_backend_cmd(subcmd, args_dict, on_progress=None, python_exe=None, group=
                     err_chunks.append(raw_line)
                     try:
                         s = raw_line.decode('utf-8', 'ignore') if hasattr(raw_line, 'decode') else raw_line
-                        if '[ArcGEE]' in s and on_progress:
-                            on_progress(s.strip())
+                        if '[ArcGEE]' in s:
+                            activity['t'] = time.time()
+                            if on_progress:
+                                on_progress(s.strip())
                     except Exception:
                         pass
             except Exception:
@@ -599,34 +740,14 @@ def run_backend_cmd(subcmd, args_dict, on_progress=None, python_exe=None, group=
         t_err.daemon = True
         t_err.start()
 
-        # Timeout adaptativo por operacao para evitar travamentos silenciosos
-        if subcmd == 'download':
-            timeout_seconds = 600  # 10 minutos para download e processamento de grandes rasters
-        elif subcmd in ('check', 'auth', 'compositions'):
-            timeout_seconds = 30   # 30 segundos para checagens basicas
-        elif subcmd == 'search':
-            timeout_seconds = 90   # 90 segundos para busca no catalogo GEE
-        elif subcmd == 'thumb':
-            timeout_seconds = 60   # 60 segundos para miniaturas
-        elif subcmd == 'stac_download':
-            timeout_seconds = 1800  # 30 minutos: recortes CBERS grandes
-        elif subcmd in ('xyz_download', 'gehist_download'):
-            timeout_seconds = 4 * 3600  # ate 100 mil tiles (~30 tiles/s em rede corporativa: ~1 h)
-        elif subcmd == 'gehist_dates':
-            timeout_seconds = 1800  # varredura do catalogo historico (1 consulta por tile)
-        elif subcmd in ('gehist_thumb', 'wayback_thumb'):
-            timeout_seconds = 120
-        elif subcmd == 'esri_versions':
-            timeout_seconds = 600   # varios zooms do Wayback (cada um ~15-20 s)
-        elif subcmd in ('stac_search', 'stac_thumb', 'sources_info', 'xyz_estimate', 'esri_dates'):
-            timeout_seconds = 120
-        else:
-            timeout_seconds = 120
+        # Timeout adaptativo por operacao para evitar travamentos silenciosos. E um prazo de INATIVIDADE:
+        # cada linha de progresso ([ArcGEE] no stderr) reinicia a contagem (downloads longos que avancam
+        # nao sao mortos; um backend parado sem progresso e).
+        timeout_seconds = backend_timeout(subcmd)
 
         state = {'cancelled': False, 'group': group}
         with _ACTIVE_LOCK:
             _ACTIVE_BACKENDS[proc] = state
-        start_time = time.time()
         timed_out = False
         result_seen = None
         seen_lines = 0
@@ -647,7 +768,7 @@ def run_backend_cmd(subcmd, args_dict, on_progress=None, python_exe=None, group=
                     _log_debug(u"run_backend_cmd(%s): resultado recebido, processo nao encerrou; finalizando." % subcmd)
                     kill_process_tree(proc)
                     break
-                if time.time() - start_time > timeout_seconds:
+                if time.time() - activity['t'] > timeout_seconds:
                     timed_out = True
                     kill_process_tree(proc)
                     break
@@ -665,10 +786,11 @@ def run_backend_cmd(subcmd, args_dict, on_progress=None, python_exe=None, group=
             return {'success': False, 'cancelled': True, 'message': CANCELLED_MESSAGE}
 
         if timed_out:
-            return {'success': False, 'message': u"Tempo limite excedido na operacao '%s' (%d s)." % (subcmd, timeout_seconds)}
+            return {'success': False, 'message': u"Tempo limite excedido na operacao '%s' (%d s sem progresso)."
+                                                  % (subcmd, timeout_seconds)}
 
         if proc.returncode not in (0, None) and not out.strip():
-            err_msg = err if isinstance(err, unicode) else unicode(str(err), errors='ignore') if hasattr(str, 'decode') else str(err)
+            err_msg = err if isinstance(err, unicode) else err.decode('utf-8', 'replace')
             return {'success': False, 'message': u"Erro executando backend (codigo %d): %s" % (proc.returncode, err_msg)}
 
         # Filtrar saida para encontrar a linha JSON valida (procura de tras para frente)
@@ -681,7 +803,7 @@ def run_backend_cmd(subcmd, args_dict, on_progress=None, python_exe=None, group=
 
         return data
     except Exception as e:
-        return {'success': False, 'message': u"Excecao na execucao do backend: " + unicode(e)}
+        return {'success': False, 'message': u"Excecao na execucao do backend: " + err_text(e)}
     finally:
         try:
             if os.path.exists(temp_json_path):
@@ -1319,14 +1441,22 @@ def load_plugin_settings():
     return defaults
 
 def save_plugin_settings(settings):
-    """Salva as configuracoes do plugin no arquivo persistente"""
+    """Salva as configuracoes do plugin no arquivo persistente de forma ATOMICA (temporario + rename):
+    um leitor concorrente (outra janela, o ArcMap) nunca ve o arquivo pela metade.
+    Quem altera so algumas chaves deve usar update_plugin_settings (mescla sobre o arquivo atual)."""
     try:
-        with open(SETTINGS_FILE, "w") as f:
-            json.dump(settings, f, indent=2)
-        return True
+        return safe_write_json(SETTINGS_FILE, settings, indent=2)
     except Exception as e:
-        print("Erro salvando configuracoes:", e)
+        print("Erro salvando configuracoes:", err_text(e))
         return False
+
+
+def update_plugin_settings(changes):
+    """Mescla `changes` sobre as configuracoes ATUAIS do disco e salva. Evita que uma janela com uma
+    copia antiga do dicionario sobrescreva o que outra salvou. Retorna o dicionario salvo (ou None)."""
+    merged = load_plugin_settings()
+    merged.update(changes or {})
+    return merged if save_plugin_settings(merged) else None
 
 def is_math_expr(text):
     """
@@ -1939,7 +2069,7 @@ def force_single_layer_rgb(
                     except Exception: pass
 
                 arcpy.MakeRasterLayer_management(tif_path, readd_tmp_name)
-                cache_dir = os.path.join(tempfile.gettempdir(), 'arcgee_lyr_cache')
+                cache_dir = os.path.join(temp_dir(), u'arcgee_lyr_cache')
                 if not os.path.exists(cache_dir):
                     try: os.makedirs(cache_dir)
                     except Exception: pass
@@ -2197,7 +2327,7 @@ def load_into_toc(tif_path, layer_name=None, group_name=None, zoom=False, comp_c
             band_count = getattr(desc, 'bandCount', 1)
 
             # 3. Criar camada com MakeRasterLayer_management para garantir RGB Composite NATIVO como padrao!
-            cache_dir = os.path.join(tempfile.gettempdir(), 'arcgee_lyr_cache')
+            cache_dir = os.path.join(temp_dir(), u'arcgee_lyr_cache')
             if not os.path.exists(cache_dir):
                 try: os.makedirs(cache_dir)
                 except Exception: pass
@@ -2337,7 +2467,7 @@ def replace_in_toc(tif_path, target_long_name, new_layer_name=None, comp_code=No
             band_count = getattr(desc, 'bandCount', 1)
 
             # 3. Criar camada com MakeRasterLayer_management para garantir RGB Composite NATIVO
-            cache_dir = os.path.join(tempfile.gettempdir(), 'arcgee_lyr_cache')
+            cache_dir = os.path.join(temp_dir(), u'arcgee_lyr_cache')
             if not os.path.exists(cache_dir):
                 try: os.makedirs(cache_dir)
                 except Exception: pass
@@ -2437,7 +2567,7 @@ def change_layer_composition(target_layer_name, composition_code, sensor):
                         except Exception: pass
 
                     arcpy.MakeRasterLayer_management(data_source, temp_lyr_name)
-                    tmp_lyr_file = os.path.join(tempfile.gettempdir(), temp_lyr_name + ".lyr")
+                    tmp_lyr_file = os.path.join(temp_dir(), temp_lyr_name + u".lyr")
                     if os.path.exists(tmp_lyr_file):
                         try: os.remove(tmp_lyr_file)
                         except Exception: pass
@@ -2539,7 +2669,7 @@ def apply_stretch_to_toc_layer(target_layer_name=None, settings=None):
                             updated_count += 1
                             continue
 
-                    tmp_lyr = os.path.join(tempfile.gettempdir(), "gee_stretch_" + str(abs(hash(lyr.longName)))[:6] + ".lyr")
+                    tmp_lyr = os.path.join(temp_dir(), u"gee_stretch_" + str(abs(hash(lyr.longName)))[:6] + ".lyr")
                     if os.path.exists(tmp_lyr):
                         try: os.remove(tmp_lyr)
                         except Exception: pass
@@ -2580,7 +2710,7 @@ def _ipc_session_id():
     return sid if sid.isdigit() else str(os.getpid())
 
 IPC_SESSION = _ipc_session_id()
-_IPC_DIR = tempfile.gettempdir()
+_IPC_DIR = temp_dir()   # unicode: caminhos em bytes ANSI nao serializam em JSON (perfil acentuado)
 CONTEXT_FILE = os.path.join(_IPC_DIR, "arcmagery_%s_context.json" % IPC_SESSION)
 CMD_FILE = os.path.join(_IPC_DIR, "arcmagery_%s_cmd.json" % IPC_SESSION)
 REPLY_FILE = os.path.join(_IPC_DIR, "arcmagery_%s_reply.json" % IPC_SESSION)
@@ -2611,24 +2741,30 @@ def _atomic_replace(src, dst):
         import ctypes
         MOVEFILE_REPLACE_EXISTING = 0x1
         MOVEFILE_WRITE_THROUGH = 0x8
-        to_text = unicode if sys.version_info[0] == 2 else str  # noqa: F821
-        if not ctypes.windll.kernel32.MoveFileExW(to_text(src), to_text(dst),
+        # fs_text: caminhos em bytes ANSI (perfil acentuado) quebravam no unicode() implicito
+        if not ctypes.windll.kernel32.MoveFileExW(fs_text(src), fs_text(dst),
                                                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH):
             raise OSError("MoveFileExW falhou (%d)" % ctypes.windll.kernel32.GetLastError())
     else:
         os.rename(src, dst)
 
-def safe_write_json(filepath, data):
+def safe_write_json(filepath, data, indent=None):
     """Escreve JSON de forma atomica (arquivo temporario + rename) com novas tentativas
-    em caso de conflito de acesso no Windows."""
-    tmp_path = "%s.%d.tmp" % (filepath, os.getpid())
+    em caso de conflito de acesso no Windows. Erro de SERIALIZACAO nao se resolve tentando de novo:
+    devolve False na hora (e registra no log)."""
+    try:
+        payload = json.dumps(data, indent=indent)
+    except Exception as e:
+        _log_debug(u"safe_write_json: dados nao serializaveis para %s: %s" % (fs_text(filepath), err_text(e)))
+        return False
+    tmp_path = "%s.%d.%d.tmp" % (filepath, os.getpid(), threading.current_thread().ident or 0)
     for attempt in range(8):
         try:
             with open(tmp_path, "w") as f:
-                json.dump(data, f)
+                f.write(payload)
             _atomic_replace(tmp_path, filepath)
             return True
-        except Exception:
+        except (IOError, OSError):
             time.sleep(0.05)
     try:
         if os.path.exists(tmp_path):
@@ -2636,6 +2772,23 @@ def safe_write_json(filepath, data):
     except Exception:
         pass
     return False
+
+def _reply_text(value):
+    """Texto serializavel para a resposta IPC (bytes do arcpy em UTF-8 ou no codepage ANSI)."""
+    if value is None:
+        return u""
+    if isinstance(value, bytes):
+        try:
+            return value.decode('utf-8')
+        except UnicodeError:
+            return value.decode('mbcs' if os.name == 'nt' else 'latin-1', 'replace')
+    if isinstance(value, unicode):
+        return value
+    try:
+        return unicode(value)
+    except Exception:
+        return unicode(repr(value))
+
 
 def safe_read_json(filepath):
     """Le JSON com tentativas seguras caso o arquivo esteja sendo gravado"""
@@ -2648,6 +2801,26 @@ def safe_read_json(filepath):
         except Exception:
             time.sleep(0.05)
     return None
+
+GUI_HEARTBEAT_MAX_AGE = 6.0
+_last_ctx_summary = None
+
+
+def gui_is_alive(max_age=GUI_HEARTBEAT_MAX_AGE):
+    """True se a GUI desta sessao deu sinal de vida (heartbeat) nos ultimos `max_age` segundos."""
+    try:
+        return (time.time() - os.path.getmtime(HEARTBEAT_FILE)) < max_age
+    except OSError:
+        return False
+
+
+def export_arcmap_context_if_gui_alive():
+    """Ganchos frequentes do ArcMap (onUpdate, activeViewChanged, contentsChanged): so exportam o
+    contexto (MapDocument, ListLayers, JSON) enquanto a GUI esta aberta, como o timer ja fazia."""
+    if gui_is_alive():
+        return export_arcmap_context()
+    return None
+
 
 def export_arcmap_context():
     """Exporta o contexto atual do ArcMap para arquivo JSON compartilhado"""
@@ -2711,9 +2884,13 @@ def export_arcmap_context():
             'time': time.time()
         }
         safe_write_json(CONTEXT_FILE, ctx)
-        _log_debug("export_arcmap_context: scale=%s, bbox=%s, rasters=%d, vectors=%d, targets=%d" % (
-            str(scale), str(bbox), len(r_layers), len(v_layers), len(toc_targets)
-        ))
+        # Uma linha de log so quando o contexto MUDA (antes era uma por tick, a sessao inteira)
+        global _last_ctx_summary
+        summary = "scale=%s, bbox=%s, rasters=%d, vectors=%d, targets=%d" % (
+            str(scale), str(bbox), len(r_layers), len(v_layers), len(toc_targets))
+        if summary != _last_ctx_summary:
+            _last_ctx_summary = summary
+            _log_debug("export_arcmap_context: " + summary)
         return ctx
     except Exception as e:
         _log_debug("Erro exportando contexto ArcMap: " + err_text(e))
@@ -2802,13 +2979,10 @@ def start_arcmap_ipc_timer(interval_ms=250):
                 now = time.time()
                 if now - _last_timer_ctx_time > 0.6:
                     _last_timer_ctx_time = now
-                    hb_file = HEARTBEAT_FILE
-                    if os.path.exists(hb_file):
-                        try:
-                            if (now - os.path.getmtime(hb_file)) < 6.0:
-                                export_arcmap_context()
-                        except Exception:
-                            pass
+                    try:
+                        export_arcmap_context_if_gui_alive()
+                    except Exception:
+                        pass
             except Exception:
                 pass
         _timer_proc_ref = TIMERPROC(on_timer)
@@ -2904,7 +3078,7 @@ def process_pending_arcmap_commands():
                 ok, msg = set_arcmap_scale(cmd['scale'])
                 resp = {'reply_to': cmd_id, 'success': ok, 'message': msg}
             elif action == 'export_aoi':
-                tmp_geo = os.path.join(tempfile.gettempdir(), "arcgis_gee_aoi.geojson")
+                tmp_geo = os.path.join(temp_dir(), u"arcgis_gee_aoi.geojson")
                 buf = cmd.get('buffer_meters')
                 geo_file = export_layer_to_geojson(cmd['layer_name'], tmp_geo, buffer_meters=buf)
                 resp = {'reply_to': cmd_id, 'success': bool(geo_file), 'file': geo_file}
@@ -2929,10 +3103,17 @@ def process_pending_arcmap_commands():
                 resp = {'reply_to': cmd_id, 'success': ok, 'message': msg}
         except Exception as ex:
             import traceback
-            resp = {'reply_to': cmd_id, 'success': False, 'message': unicode(ex) + u"\n" + unicode(traceback.format_exc())}
+            tb = traceback.format_exc()
+            if isinstance(tb, bytes):
+                tb = tb.decode('mbcs', 'replace') if os.name == 'nt' else tb.decode('utf-8', 'replace')
+            # err_text: mensagens do arcpy em pt-BR vem em bytes; unicode(ex) quebrava AQUI, nenhuma
+            # resposta era gravada e a GUI esperava o prazo inteiro ("Tempo limite" falso)
+            resp = {'reply_to': cmd_id, 'success': False, 'message': err_text(ex) + u"\n" + tb}
 
-        # Gravar resposta com safe_write_json
-        safe_write_json(REPLY_FILE, resp)
+        # Gravar resposta com safe_write_json (se nao serializar, responde ao menos o erro)
+        if not safe_write_json(REPLY_FILE, resp):
+            safe_write_json(REPLY_FILE, {'reply_to': cmd_id, 'success': bool(resp.get('success')),
+                                         'message': _reply_text(resp.get('message'))})
         _log_debug("process_pending_arcmap_commands: concluido '%s' (sucesso=%s)" % (action, str(resp.get('success'))))
 
         # Atualizar contexto apos alteracoes
@@ -2948,47 +3129,73 @@ def process_pending_arcmap_commands():
         _is_processing_cmd = False
 
 _ipc_cmd_lock = threading.Lock()
+ARCMAP_BUSY_MESSAGE = u"ArcMap ocupado com outra operação (ex.: carregando uma imagem grande). Tente novamente em instantes."
+
+
+def _acquire_with_deadline(lock, timeout):
+    """lock.acquire com prazo (o Lock do Python 2 nao aceita timeout)."""
+    deadline = time.time() + max(0.0, float(timeout))
+    while True:
+        if lock.acquire(False):
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(0.05)
+
 
 def send_arcmap_command(action_dict, timeout=120):
-    """Envia um comando para o ArcMap a partir do processo da GUI e aguarda a confirmacao"""
-    with _ipc_cmd_lock:
-        cmd_id = "cmd_" + str(int(time.time() * 1000))
-        action_dict['id'] = cmd_id
+    """Envia um comando para o ArcMap a partir do processo da GUI e aguarda a confirmacao.
+    Um comando por vez; quem espera a vez desiste no proprio prazo (um export_aoi de 15 s nao fica
+    preso atras de um carregamento de 30 min) e recebe 'ArcMap ocupado'."""
+    if not _acquire_with_deadline(_ipc_cmd_lock, timeout):
+        _log_debug("send_arcmap_command: ArcMap ocupado; '%s' desistiu apos %ss" % (action_dict.get('action'), timeout))
+        return {'success': False, 'busy': True, 'message': ARCMAP_BUSY_MESSAGE}
+    try:
+        return _send_arcmap_command_locked(action_dict, timeout)
+    finally:
+        _ipc_cmd_lock.release()
 
-        # Limpar resposta anterior se existir
-        if os.path.exists(REPLY_FILE):
-            try:
-                os.remove(REPLY_FILE)
-            except Exception:
-                pass
 
-        _log_debug("send_arcmap_command: enviando acao '%s' (id=%s)" % (action_dict.get('action'), cmd_id))
-        safe_write_json(CMD_FILE, action_dict)
+def _send_arcmap_command_locked(action_dict, timeout):
+    cmd_id = "cmd_%d_%s" % (int(time.time() * 1000), uuid.uuid4().hex[:6])
+    action_dict['id'] = cmd_id
 
-        # Aguardar resposta no arquivo REPLY_FILE
-        t0 = time.time()
-        while time.time() - t0 < timeout:
-            if os.path.exists(REPLY_FILE):
-                rep = safe_read_json(REPLY_FILE)
-                if rep and rep.get('reply_to') == cmd_id:
-                    try:
-                        os.remove(REPLY_FILE)
-                    except Exception:
-                        pass
-                    _log_debug("send_arcmap_command: resposta recebida para '%s' (sucesso=%s)" % (
-                        action_dict.get('action'), str(rep.get('success'))
-                    ))
-                    return rep
-            time.sleep(0.08)
-
-        _log_debug("send_arcmap_command: TIMEOUT apos %ds para acao '%s'" % (timeout, action_dict.get('action')))
+    # Limpar resposta anterior se existir
+    if os.path.exists(REPLY_FILE):
         try:
-            if os.path.exists(CMD_FILE):
-                os.remove(CMD_FILE)
+            os.remove(REPLY_FILE)
         except Exception:
             pass
 
-        return {'success': False, 'message': u'Tempo limite esgotado (%ds) aguardando resposta do ArcMap.' % timeout}
+    _log_debug("send_arcmap_command: enviando acao '%s' (id=%s)" % (action_dict.get('action'), cmd_id))
+    if not safe_write_json(CMD_FILE, action_dict):
+        return {'success': False, 'message': u"Não foi possível enviar o comando '%s' ao ArcMap (falha ao gravar "
+                                             u"o arquivo de comando; veja arcgee_debug.log)." % action_dict.get('action')}
+
+    # Aguardar resposta no arquivo REPLY_FILE
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if os.path.exists(REPLY_FILE):
+            rep = safe_read_json(REPLY_FILE)
+            if rep and rep.get('reply_to') == cmd_id:
+                try:
+                    os.remove(REPLY_FILE)
+                except Exception:
+                    pass
+                _log_debug("send_arcmap_command: resposta recebida para '%s' (sucesso=%s)" % (
+                    action_dict.get('action'), str(rep.get('success'))
+                ))
+                return rep
+        time.sleep(0.08)
+
+    _log_debug("send_arcmap_command: TIMEOUT apos %ds para acao '%s'" % (timeout, action_dict.get('action')))
+    try:
+        if os.path.exists(CMD_FILE):
+            os.remove(CMD_FILE)
+    except Exception:
+        pass
+
+    return {'success': False, 'message': u'Tempo limite esgotado (%ds) aguardando resposta do ArcMap.' % timeout}
 
 def apply_stretch(layer_name=None, settings=None):
     """Envia comando para o ArcMap aplicar/garantir o Stretch configurado na camada ou no mapa"""

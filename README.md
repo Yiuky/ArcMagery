@@ -23,9 +23,8 @@
 <p align="center">
   <a href="https://github.com/Yiuky/arcgis-google-earth-engine-explorer/releases/latest"><strong>⬇️ Baixar</strong></a> •
   <a href="docs/MANUAL_DE_USO_E_INSTALACAO.md"><strong>📖 Manual</strong></a> •
-  <a href="CHANGELOG.md"><strong>📋 Changelog</strong></a> •
-  <a href="BACKLOG.md"><strong>🗂️ Backlog</strong></a> •
-  <a href="AGENTS.md"><strong>🤖 Guia para desenvolvedores / IA</strong></a> •
+  <a href="CHANGELOG.md"><strong>📋 Novidades</strong></a> •
+  <a href="https://github.com/Yiuky/arcgis-google-earth-engine-explorer/issues/new/choose"><strong>🐞 Relatar problema</strong></a> •
   <a href="#-english-abstract"><strong>🌐 English</strong></a> •
   <a href="#-doe-um-café-para-o-dev"><strong>☕ Doe um café</strong></a>
 </p>
@@ -33,7 +32,7 @@
 ---
 
 <p align="center">
-  <img src="docs/images/interface_arcmap.png" alt="ArcMagery no ArcMap" width="94%" />
+  <img src="docs/images/janela_principal.png" alt="Janela principal do ArcMagery" width="94%" />
 </p>
 
 ## 📌 O que faz
@@ -53,7 +52,7 @@ plugin que **se diagnostica e se recupera sozinho**.
 |---|---|
 | 🛰️ | **SPOT 1–5 (CNES, 1986–2015)**: 40 anos de histórico de satélite na mesma janela, com cada cena **alinhada automaticamente à Esri World Imagery** (o produto L1A vem com 150–480 m de erro; depois do alinhamento, ~2–5 m) |
 | 🩺 | **Diagnóstico com correção automática** no `install.bat` e na tela de abertura: enumera os problemas da máquina, corrige o que é seguro e diz *o que fazer* no resto |
-| 📦 | **Earth Engine sem `pip`**: o ArcMagery instala as próprias bibliotecas (versões fixas, SHA-256), funciona com o proxy de inspeção SSL e com o QGIS de qualquer versão desde a 3.16 |
+| 📦 | **Earth Engine sem `pip`**: o ArcMagery instala as próprias bibliotecas (versões fixas, SHA-256), funciona atrás de proxy com inspeção SSL e com o Python de qualquer QGIS desde a 3.18 (Python 3.8 a 3.14) |
 | 🚦 | **Tela de abertura**: confere Python, GDAL, internet, login do GEE, chave do GEODES e ArcMap antes de abrir |
 | 🔀 | **Canais Estável e Experimental (nightly)**, com o selo **EXPERIMENTAL** na interface |
 | ↩️ | **Rollback para a versão anterior** com um clique, a partir do backup de cada atualização |
@@ -76,7 +75,7 @@ plugin que **se diagnostica e se recupera sozinho**.
   retomada após falhas.
 - **Área de interesse:** extensão atual do mapa ou camada vetorial (AOI) do TOC; CBERS e SPOT mostram
   quanto da área cada cena **realmente** cobre.
-- **Estável:** a interface roda em processo próprio, e o ArcMap nunca congela.
+- **Sem travar o ArcMap:** a interface roda em processo próprio; downloads longos não bloqueiam o mapa.
 - **Rede corporativa:** tudo usa o repositório de certificados do Windows (proxy com inspeção SSL).
 - **Atualização segura:** Release do GitHub verificada por SHA-256, ou arquivo ZIP; backup antes de cada
   mudança e rollback automático se algo falhar.
@@ -89,7 +88,7 @@ plugin que **se diagnostica e se recupera sozinho**.
 |---|---|
 | Windows | 10 ou 11 (64-bit) |
 | ArcGIS Desktop | 10.8 / 10.8.2 (ArcMap, Python 2.7 em `C:\Python27\ArcGIS10.8`) |
-| QGIS | **3.16 ou mais novo** (o ArcMagery usa o Python dele: GDAL, numpy e Pillow). Não é preciso instalar nada com `pip` |
+| QGIS | **3.18 ou mais novo** (Python 3.8 a 3.14, 64-bit). O ArcMagery usa o Python dele (GDAL, numpy e Pillow); não é preciso instalar nada com `pip` |
 | Google Earth Engine | Conta com Project ID do Google Cloud (só para a fonte GEE) |
 | SPOT | Chave de API gratuita do [GEODES](https://geodes-portal.cnes.fr) (só para **baixar** cenas SPOT; a busca é livre) |
 
@@ -97,13 +96,16 @@ plugin que **se diagnostica e se recupera sozinho**.
 
 1. Baixe o `ArcMagery-<versão>.zip` da [última Release](https://github.com/Yiuky/arcgis-google-earth-engine-explorer/releases/latest)
    e extraia numa **pasta de caminho curto** (ex.: `C:\ArcMagery`).
-2. Feche o ArcMap e execute **`install.bat`**. O instalador:
-   - encontra o Python do QGIS;
+2. Feche o ArcMap e execute **`install.bat`** (não precisa ser administrador). O instalador:
+   - encontra o Python do QGIS mais novo (ou o indicado em `GEE_PYTHON3`);
    - roda o **diagnóstico** (`[OK]`, `[CORRIGIDO]`, `[AVISO]`, `[PROBLEMA]` + *o que fazer*) e instala os
      componentes do Earth Engine sem `pip` (~25 MB, ~15 s);
    - empacota e registra o Add-In. Relatório: `%LOCALAPPDATA%\ArcMagery\diagnostico.txt`.
 3. Só para o GEE, uma vez: execute **`autenticar_gee.bat`** (abre o navegador para a conta Google).
 4. No ArcMap: **Customize › Toolbars › ArcMagery** e clique no botão **ArcMagery**.
+
+Algo deu errado? Veja [Solução de problemas](docs/MANUAL_DE_USO_E_INSTALACAO.md#8-solução-de-problemas)
+no manual ou rode `install.bat` de novo: o diagnóstico lista o que falta e como resolver.
 
 ## 🚀 Uso rápido
 
@@ -117,13 +119,14 @@ satélite/coleção, a composição, o período e a área, clique em **Buscar**,
   chave** mostra o passo a passo). A imagem entra alinhada à Esri, em falsa cor.
 - **Google Earth histórico:** o zoom ocupa o lugar do satélite; cada data é uma linha.
 - **Esri Wayback:** cada linha é uma versão da imagem, com a data de captura.
-- **Google Earth / XYZ:** botão **Google Earth / Mosaicos XYZ...**; escolha a fonte e o zoom.
+- **Google Earth / XYZ:** botão **Google Earth / XYZ...**; escolha a fonte e o zoom.
 - **Desempenho:** *Configurações › Processamento & Sistema* (núcleos e threads de download de tiles).
 
-> ⚠️ **Termos de Uso:** o download em massa de tiles do **Google** e do **Bing** fora das APIs oficiais viola
-> os Termos de Serviço desses provedores (o ArcMagery avisa antes do primeiro uso). Para trabalho
-> institucional, prefira **Esri**, **CBERS/INPE** ou **SPOT/CNES** (dados abertos, Etalab 2.0; cite
-> *"SPOT images acquired by CNES's Spot World Heritage Programme"*).
+> ⚠️ **Termos de uso:** cada fonte tem termos próprios. O download em massa de tiles do **Google** (inclusive
+> o histórico), do **Bing** e da **Esri** fora das APIs oficiais pode violá-los (para Google e Bing, o
+> ArcMagery avisa antes do primeiro uso). Para dados abertos, prefira **CBERS/INPE**, **SPOT/CNES**
+> (Etalab 2.0; cite *"SPOT images acquired by CNES's Spot World Heritage Programme"*) e o **Earth Engine**,
+> conforme a licença de cada coleção.
 
 ## 🔄 Atualizar, canais e rollback
 
@@ -135,7 +138,18 @@ satélite/coleção, a composição, o período e a área, clique em **Buscar**,
   - **Método 2 – Arquivo ZIP:** instala um pacote baixado manualmente.
   - **Método 3 – Voltar para a Versão Anterior:** reinstala o backup salvo antes da última atualização (o
     mesmo botão desfaz o rollback).
-- **Por script:** feche o ArcMap e execute `atualizar.bat`. **Desinstalar:** `desinstalar.bat`.
+- **Por script:** baixe a nova Release e rode o `install.bat` dela; num clone git, `atualizar.bat` traz o
+  branch `main` (desenvolvimento). **Desinstalar:** `desinstalar.bat` (pergunta se remove também os dados).
+
+### Qual arquivo executar
+
+| Arquivo | Para quem | O que faz |
+|---|---|---|
+| `install.bat` | Usuário | Instala ou reinstala o Add-In, com diagnóstico |
+| `autenticar_gee.bat` | Usuário | Login no Google Earth Engine (uma vez) |
+| `atualizar.bat` | Usuário (clone git) | Atualiza pelo git e reinstala |
+| `desinstalar.bat` | Usuário | Remove o Add-In e, se quiser, os dados |
+| `run_tests.bat`, `build_release.py`, `deploy.ps1`, `tools\` | Desenvolvedor | Testes, pacote da Release e utilitários |
 
 ## 🏗️ Arquitetura
 
@@ -176,13 +190,15 @@ estável nunca instala (detalhes no [AGENTS.md](AGENTS.md)).
 
 ## 🤝 Contribuindo
 
-- Leia o [AGENTS.md](AGENTS.md): arquitetura, regras de Python 2.7 × 3 e armadilhas conhecidas.
+- Como relatar problemas, propor melhorias e enviar código: [CONTRIBUTING.md](CONTRIBUTING.md).
+- Arquitetura, regras de Python 2.7 × 3 e armadilhas conhecidas: [AGENTS.md](AGENTS.md).
 - Trabalho pendente e prioridades: [BACKLOG.md](BACKLOG.md).
-- Problemas e sugestões: abra uma *issue* pelos modelos do repositório. Para um bug, anexe o
-  `diagnostico.txt` (`%LOCALAPPDATA%\ArcMagery\`) e o `arcgee_debug.log` da sessão
-  (`%LOCALAPPDATA%\Temp\arcXXXX\`).
-- Antes do PR, rode o `run_tests.bat`. O GitHub Actions roda a suíte do backend a cada push; a suíte do
-  ArcMap exige ArcGIS Desktop e roda localmente.
+- Vulnerabilidades: siga a [política de segurança](SECURITY.md) (não abra *issue* pública).
+
+## 📝 Como citar
+
+Se o ArcMagery ajudou num trabalho acadêmico ou técnico, use o botão **Cite this repository** do GitHub
+(gerado a partir do [CITATION.cff](CITATION.cff)).
 
 ---
 
@@ -204,10 +220,6 @@ resolution, from six sources in a single window:
 - **Self-diagnosis:** the installer and the startup screen enumerate environment problems, fix the safe ones
   and explain the rest. Stable and experimental (nightly) update channels, SHA-256 verified releases, backups
   and one-click rollback.
-
-## 🔍 Tópicos
-
-`arcgis` • `arcmap` • `arcgis-addin` • `google-earth-engine` • `google-earth` • `esri-wayback` • `cbers` • `amazonia-1` • `inpe` • `spot` • `cnes` • `stac` • `sentinel-2` • `landsat` • `satellite-imagery-downloader` • `remote-sensing`
 
 ## ☕ Doe um café para o dev
 

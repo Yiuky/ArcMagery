@@ -1,5 +1,7 @@
 # Publica a GitHub Release verificavel ao enviar uma tag vX.Y.Z:
-#   git tag v2.3.1 && git push origin v2.3.1
+#   git tag v2.4.2 && git push origin v2.4.2
+# Experimental: o X.Y.Z da nightly e a PROXIMA versao (depois da 2.4.1: v2.4.2-nightly.AAAAMMDD),
+# porque 2.4.1-nightly.* ordena ANTES de 2.4.1 e nunca seria oferecida a quem esta na 2.4.1.
 # Gera ArcMagery-<versao>.zip + SHA256SUMS.txt (build_release.py) e usa as notas da versao no
 # CHANGELOG.md. O atualizador embutido so instala sem confirmacao Releases com SHA256SUMS.txt.
 name: Release
@@ -17,7 +19,26 @@ permissions:
   contents: write
 
 jobs:
+  # A suite do backend roda de novo no commit da tag: nada e publicado se ela falhar
+  tests:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependencias do backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Suite do backend
+        run: python tests/backend/run_all.py -v
+
   release:
+    needs: tests
     runs-on: windows-latest
     timeout-minutes: 15
     env:

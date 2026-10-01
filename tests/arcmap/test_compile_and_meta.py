@@ -12,7 +12,6 @@ import xml.etree.ElementTree as ET
 import _paths
 
 PY2_FILES = glob.glob(os.path.join(_paths.INSTALL, '*.py')) + [
-    os.path.join(_paths.REPO, 'pyt', 'GEE_Tools.pyt'),
     os.path.join(_paths.REPO, 'arcgis_addin', 'makeaddin.py'),
     os.path.join(_paths.REPO, 'build_release.py'),
     os.path.join(_paths.BACKEND, 'tilemath.py'),   # compartilhado com a GUI (Py2) e o backend (Py3)

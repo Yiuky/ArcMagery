@@ -20,6 +20,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import ssl
 import sys
@@ -302,10 +303,24 @@ def default_cache_dir():
     return os.path.join(base, 'ArcMagery', 'spot_cache')
 
 
+def safe_zip_name(name, fallback):
+    """Nome do .zip no cache a partir do titulo do asset STAC (dado externo): sem pastas nem
+    caracteres especiais, para nunca escapar do cache_dir."""
+    def clean(text):
+        return re.sub(r'[^\w.\-]', '_', os.path.basename((text or u'').replace('\\', '/'))).strip('.')
+
+    base = clean(name) or clean(u'%s' % (fallback or u'')) or u'spot_scene'
+    if not base.lower().endswith('.zip'):
+        base += '.zip'
+    return base
+
+
 def md5_ok(path, md5):
     if not zipfile.is_zipfile(path):
         return False
-    if not md5 or len(md5) != 32:
+    if not md5 or not re.match(r'^[0-9a-fA-F]{32}$', md5):
+        _log(u"SPOT: aviso: o catálogo não informa o MD5 da cena; integridade do arquivo não conferida "
+             u"(apenas a estrutura do .zip)")
         return True
     h = hashlib.md5()
     with open(path, 'rb') as fh:
@@ -320,7 +335,7 @@ def download_zip(scene, api_key, cache_dir=None, retries=3, opener=None):
         raise SpotError(u"A cena %s não tem arquivo para download." % scene.get('id'))
     cache_dir = cache_dir or default_cache_dir()
     os.makedirs(cache_dir, exist_ok=True)
-    path = os.path.join(cache_dir, scene.get('zip_name') or '%s.zip' % scene['id'])
+    path = os.path.join(cache_dir, safe_zip_name(scene.get('zip_name'), scene.get('id')))
     if os.path.exists(path) and md5_ok(path, scene.get('zip_md5')):
         _log(u"SPOT: cena já baixada (cache)")
         return path
@@ -646,6 +661,7 @@ def georeference(zip_path, out_tif, bbox=None, mode='false', align=True, work_di
     if not HAS_GDAL or np is None:
         raise SpotError(u"O SPOT requer GDAL e numpy (venv do ArcMagery ou Python do QGIS).")
     work = work_dir or tempfile.mkdtemp(prefix='arcmagery_spot_')
+    vrt = ds = None
     try:
         _log(u"SPOT: extraindo o pacote...")
         dim, tif = extract(zip_path, work)
@@ -703,23 +719,30 @@ def georeference(zip_path, out_tif, bbox=None, mode='false', align=True, work_di
             _log(u"PROGRESS %d/100" % int(pct * 100))
             return 1
 
-        _warp(vrt, tmp, epsg, round(px, 2), list(bbox) if bbox else None, resampling=resampling,
-              creation=['TILED=YES', 'COMPRESS=DEFLATE', 'PREDICTOR=2', 'BIGTIFF=IF_SAFER'], callback=cb)
-        vrt = None
-        ds = gdal.Open(tmp, gdal.GA_Update)
-        for i, b in enumerate(bands):
-            ds.GetRasterBand(i + 1).SetDescription(names[b - 1])
-        ds.SetMetadata({'ACQUISITION_DATE': meta['date'] or '', 'SPOT_SCENE': os.path.basename(zip_path),
-                        'SPOT_PLATFORM': meta['mission'], 'SPOT_LEVEL': meta['level'] or '',
-                        'SPOT_ALIGNED_TO': 'Esri World Imagery' if align_info.get('applied') else 'none'})
-        band1 = ds.GetRasterBand(1)
-        arr = band1.ReadAsArray(buf_xsize=min(1024, ds.RasterXSize), buf_ysize=min(1024, ds.RasterYSize))
-        valid_pct = round(100.0 * float((arr != 0).mean()), 1)
-        w, h = ds.RasterXSize, ds.RasterYSize
-        ds = None
-        if valid_pct <= 0:
-            _remove(tmp)
-            raise SpotError(u"A área cai fora da cena SPOT (recorte 100% NoData).")
+        try:
+            _warp(vrt, tmp, epsg, round(px, 2), list(bbox) if bbox else None, resampling=resampling,
+                  creation=['TILED=YES', 'COMPRESS=DEFLATE', 'PREDICTOR=2', 'BIGTIFF=IF_SAFER'], callback=cb)
+            vrt = None
+            ds = gdal.Open(tmp, gdal.GA_Update)
+            for i, b in enumerate(bands):
+                ds.GetRasterBand(i + 1).SetDescription(names[b - 1])
+            ds.SetMetadata({'ACQUISITION_DATE': meta['date'] or '', 'SPOT_SCENE': os.path.basename(zip_path),
+                            'SPOT_PLATFORM': meta['mission'], 'SPOT_LEVEL': meta['level'] or '',
+                            'SPOT_ALIGNED_TO': 'Esri World Imagery' if align_info.get('applied') else 'none'})
+            band1 = ds.GetRasterBand(1)
+            arr = band1.ReadAsArray(buf_xsize=min(1024, ds.RasterXSize), buf_ysize=min(1024, ds.RasterYSize))
+            band1 = None
+            valid_pct = round(100.0 * float((arr != 0).mean()), 1)
+            w, h = ds.RasterXSize, ds.RasterYSize
+            ds = None
+            if valid_pct <= 0:
+                raise SpotError(u"A área cai fora da cena SPOT (recorte 100% NoData).")
+        except BaseException:
+            vrt = ds = band1 = None   # fechar os handles antes de apagar o parcial (Windows bloqueia)
+            _release_traceback_frames()
+            for ext in ('', '.aux.xml'):
+                _remove(tmp + ext)
+            raise
         for ext in ('', '.ovr', '.aux.xml'):
             _remove(out_tif + ext)
         os.replace(tmp, out_tif)
@@ -730,9 +753,26 @@ def georeference(zip_path, out_tif, bbox=None, mode='false', align=True, work_di
                 'instrument': meta['instrument'], 'incidence_deg': meta['incidence_deg'],
                 'level': meta['level'], 'model_error_m': round(err, 2), 'alignment': align_info,
                 'attribution': ATTRIBUTION}
+    except BaseException:
+        vrt = ds = None
+        _release_traceback_frames()
+        raise
     finally:
+        # Um handle GDAL vivo (ex.: o VRT apos falha no _warp) mantem o IMAGERY.TIF aberto e o rmtree
+        # deixaria 100-600 MB no %TEMP% sem avisar: liberar antes de apagar
+        vrt = ds = None
         if not work_dir:
             shutil.rmtree(work, ignore_errors=True)
+
+
+def _release_traceback_frames():
+    """Chamado num except: limpa as variaveis locais das funcoes ja encerradas no traceback (ex.: o
+    'src' do _warp/gdal.Warp), que manteriam datasets GDAL - e os arquivos - abertos."""
+    try:
+        import traceback
+        traceback.clear_frames(sys.exc_info()[2])
+    except Exception:
+        pass
 
 
 def _frame_bbox(meta):
@@ -743,6 +783,11 @@ def _frame_bbox(meta):
 def download(identifier, bbox, out_tif, api_key, mode='false', align=True, cache_dir=None, keep_zip=True,
              http=None):
     """Busca a cena, baixa o zip (ou usa o cache), georreferencia/alinha e recorta ao BBOX."""
+    try:   # pastas de trabalho de execucoes interrompidas (> 24 h); melhor esforco
+        import sysenv
+        sysenv.sweep_stale_temp_dirs()
+    except Exception:
+        pass
     scene = get_scene(identifier, bbox, http=http)
     if bbox and scene.get('coverage_pct') is not None and scene['coverage_pct'] <= 0:
         raise SpotError(u"A cena %s não cobre a área escolhida." % identifier)

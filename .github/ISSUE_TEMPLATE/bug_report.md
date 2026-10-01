@@ -5,9 +5,9 @@ title: "[Bug] "
 labels: bug
 ---
 
-**Versão do ArcMagery** (ArcMagery › ℹ Sobre, ex.: 2.3.1):
+**Versão do ArcMagery** (ArcMagery › ℹ Sobre, ex.: 2.4.1):
 
-**Fonte de imagens:** Google Earth Engine / CBERS-INPE / Google Earth-XYZ / Esri Wayback
+**Fonte de imagens:** Google Earth Engine / CBERS-Amazônia-1 (INPE) / SPOT (CNES) / Google Earth histórico / Esri Wayback / Google Earth-XYZ
 
 **O que você fez** (passo a passo):
 1.
@@ -15,7 +15,8 @@ labels: bug
 
 **O que esperava x o que aconteceu** (anexe capturas de tela das mensagens):
 
-**Log da sessão do ArcMap** (anexe o arquivo, sem colar dados sensíveis):
-`%LOCALAPPDATA%\Temp\arcXXXX\arcgee_debug.log` (use a pasta `arc....` mais recente)
+**Arquivos de diagnóstico** (anexe; revise antes e apague dados pessoais ou de clientes):
+- `%LOCALAPPDATA%\ArcMagery\diagnostico.txt` (gerado pelo `install.bat` e pelo botão *Diagnosticar e corrigir* da tela de abertura)
+- `%LOCALAPPDATA%\Temp\arcXXXX\arcgee_debug.log` (use a pasta `arc....` mais recente)
 
-**Ambiente:** ArcGIS Desktop 10.8 / 10.8.2 · versão do QGIS (se instalado) · rede com proxy? (sim/não)
+**Ambiente:** Windows 10/11 · ArcGIS Desktop 10.8 / 10.8.2 · versão do QGIS · rede com proxy? (sim/não)

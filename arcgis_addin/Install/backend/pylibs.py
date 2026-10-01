@@ -117,7 +117,7 @@ def select_files(manifest, version_info=None):
             missing.append(pkg['name'])
     if missing:
         raise PylibsError(u"Sem roda compatível com o Python %d.%d para: %s. Versões suportadas: Python 3.8 a 3.14 "
-                          u"de 64 bits (QGIS 3.16 ou mais novo)." % (vi[0], vi[1], ', '.join(missing)))
+                          u"de 64 bits (QGIS 3.18 ou mais novo)." % (vi[0], vi[1], ', '.join(missing)))
     return chosen
 
 

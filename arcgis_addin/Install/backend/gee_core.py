@@ -16,6 +16,20 @@ import subprocess
 import concurrent.futures
 import urllib.request
 import tempfile
+
+# O earthengine-api usa requests/certifi e httplib2, que NAO leem o repositorio de certificados do
+# Windows: atras de proxy com inspecao SSL o 'ee' falharia com CERTIFICATE_VERIFY_FAILED. Antes do
+# import, apontar REQUESTS_CA_BUNDLE/SSL_CERT_FILE/HTTPLIB2_CA_CERTS para certifi + CA do Windows
+# (apenas se o usuario nao tiver definido; nunca levanta excecao).
+try:
+    _here = os.path.dirname(os.path.abspath(__file__))
+    if _here not in sys.path:
+        sys.path.insert(0, _here)
+    import sysenv as _sysenv
+    _sysenv.configure_requests_ca()
+except Exception:
+    _sysenv = None
+
 import ee
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gee_config.json")
@@ -1265,17 +1279,36 @@ def get_safe_destination_path(target_path):
         sys.stderr.flush()
         return safe_path
 
+def _sweep_stale_temp():
+    """Remove (melhor esforco) pastas arcgee_tiles_*/arcmagery_spot_* com mais de 24 h no %TEMP%,
+    deixadas por execucoes interrompidas. Nunca levanta excecao."""
+    try:
+        if _sysenv is not None:
+            _sysenv.sweep_stale_temp_dirs()
+    except Exception:
+        pass
+
+
 def download_url_with_timeout(url, out_path, timeout=120, max_retries=3):
-    """Realiza download via stream HTTP com timeout explicito de socket e tentativas contra dropouts."""
+    """Realiza download via stream HTTP com timeout explicito de socket e tentativas contra dropouts.
+    Grava em out_path + '.part' e so renomeia no fim: uma falha nunca deixa um GeoTIFF truncado
+    com o nome final."""
+    part = out_path + '.part'
     for attempt in range(max_retries):
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'ArcGEE-Downloader/1.10'})
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                with open(out_path, 'wb') as out_f:
+                with open(part, 'wb') as out_f:
                     shutil.copyfileobj(resp, out_f, length=65536)
+            os.replace(part, out_path)
             return True
-        except Exception as e:
-            if attempt == max_retries - 1:
+        except BaseException as e:
+            try:
+                if os.path.exists(part):
+                    os.remove(part)
+            except OSError:
+                pass
+            if attempt == max_retries - 1 or not isinstance(e, Exception):
                 raise
             time.sleep(1.5 * (attempt + 1))
     return False
@@ -1285,6 +1318,7 @@ def download_geotiff(image_ids, sensor, composition_code, custom_bands=None, loa
     import re
 
     out_tif_path = get_safe_destination_path(out_tif_path)
+    _sweep_stale_temp()
 
     if not image_ids:
         raise ValueError("Nenhum ID de imagem fornecido.")
@@ -1509,29 +1543,27 @@ def download_geotiff(image_ids, sensor, composition_code, custom_bands=None, loa
             return (idx, files)
         return None
 
-    # Download multithread paralelo dos quadrantes
-    max_workers = min(4, total_quads)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(_download_tile, (i, b)) for i, b in enumerate(grid_tiles)]
-        raw_results = [f.result() for f in concurrent.futures.as_completed(futures)]
-
-    # Filtrar quadrantes vazios e ordenar por indice
-    valid_results = [r for r in raw_results if r is not None]
-    valid_results.sort(key=lambda x: x[0])
-    ordered_tile_files = [f for r in valid_results for f in r[1]]
-
-    if not ordered_tile_files:
-        raise RuntimeError("Nenhum dado retornado para a regiao solicitada.")
-
-    sys.stderr.write("[ArcGEE] Mesclando %d quadrantes em GeoTIFF unico final via GDAL...\n" % len(ordered_tile_files))
-    sys.stderr.flush()
-    merge_geotiff_tiles(ordered_tile_files, out_tif_path, expected_bands_count=len(bands))
-
-    # Limpeza da pasta temporaria de quadrantes
     try:
-        shutil.rmtree(temp_tiles_dir)
-    except Exception:
-        pass
+        # Download multithread paralelo dos quadrantes
+        max_workers = min(4, total_quads)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(_download_tile, (i, b)) for i, b in enumerate(grid_tiles)]
+            raw_results = [f.result() for f in concurrent.futures.as_completed(futures)]
+
+        # Filtrar quadrantes vazios e ordenar por indice
+        valid_results = [r for r in raw_results if r is not None]
+        valid_results.sort(key=lambda x: x[0])
+        ordered_tile_files = [f for r in valid_results for f in r[1]]
+
+        if not ordered_tile_files:
+            raise RuntimeError("Nenhum dado retornado para a regiao solicitada.")
+
+        sys.stderr.write("[ArcGEE] Mesclando %d quadrantes em GeoTIFF unico final via GDAL...\n" % len(ordered_tile_files))
+        sys.stderr.flush()
+        merge_geotiff_tiles(ordered_tile_files, out_tif_path, expected_bands_count=len(bands))
+    finally:
+        # Limpeza da pasta temporaria de quadrantes (tambem em caso de erro: centenas de MB no %TEMP%)
+        shutil.rmtree(temp_tiles_dir, ignore_errors=True)
 
     sys.stderr.write("[ArcGEE] Validando integridade atômica do mosaico GeoTIFF (Health Check)...\n")
     sys.stderr.flush()

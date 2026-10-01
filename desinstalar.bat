@@ -7,8 +7,9 @@ echo ===========================================================================
 echo                        DESINSTALADOR DO ARCMAGERY
 echo ==============================================================================
 echo.
-echo Remove o Add-In do ArcGIS Desktop 10.8, o cache do ArcMap e a caixa de
-echo ferramentas. Suas configuracoes e o projeto GEE (%%APPDATA%%\ArcGEE) sao mantidos.
+echo Remove o Add-In do ArcGIS Desktop 10.8 e o cache do ArcMap. No fim, voce pode
+echo escolher remover tambem os dados do plugin (componentes, cache SPOT, backups,
+echo configuracoes e a chave do GEODES).
 echo.
 
 tasklist /FI "IMAGENAME eq ArcMap.exe" 2>nul | find /I "ArcMap.exe" >nul
@@ -26,15 +27,17 @@ if /i not "%CONFIRM%"=="S" (
 )
 
 set "FAILED="
-set "ADDIN_DIR=%USERPROFILE%\Documents\ArcGIS\AddIns\Desktop10.8\{ceae58c4-c44e-4edd-b8f4-1ba7d13b6b7d}"
+set "DOCS="
+for /f "usebackq delims=" %%D in (`powershell -NoProfile -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; [Environment]::GetFolderPath('MyDocuments')" 2^>nul`) do set "DOCS=%%D"
+if not defined DOCS set "DOCS=%USERPROFILE%\Documents"
+set "ADDIN_DIR=%DOCS%\ArcGIS\AddIns\Desktop10.8\{ceae58c4-c44e-4edd-b8f4-1ba7d13b6b7d}"
 set "CACHE_DIR=%LOCALAPPDATA%\ESRI\Desktop10.8\AssemblyCache\{CEAE58C4-C44E-4EDD-B8F4-1BA7D13B6B7D}"
-set "PYT_FILE=%USERPROFILE%\Documents\ArcGIS\GEE_Tools.pyt"
 
 echo.
-echo [1/4] Encerrando a interface do ArcMagery (somente ela)...
+echo [1/3] Encerrando a interface do ArcMagery (somente ela)...
 powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'pythonw.exe' -and $_.CommandLine -like '*gee_gui.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" 2>nul
 
-echo [2/4] Removendo o Add-In (.esriaddin)...
+echo [2/3] Removendo o Add-In (.esriaddin)...
 if exist "%ADDIN_DIR%" (
     rd /s /q "%ADDIN_DIR%"
     if exist "%ADDIN_DIR%" (echo    [ERRO] Nao foi possivel remover "%ADDIN_DIR%". & set "FAILED=1") else (echo    - Removido.)
@@ -42,25 +45,32 @@ if exist "%ADDIN_DIR%" (
     echo    - Nao instalado.
 )
 
-echo [3/4] Limpando o AssemblyCache do ArcMap...
+echo [3/3] Limpando o cache do ArcMap e arquivos temporarios...
 if exist "%CACHE_DIR%" (
     rd /s /q "%CACHE_DIR%"
-    if exist "%CACHE_DIR%" (echo    [ERRO] Nao foi possivel remover "%CACHE_DIR%". & set "FAILED=1") else (echo    - Removido.)
-) else (
-    echo    - Nenhum cache encontrado.
+    if exist "%CACHE_DIR%" (echo    [ERRO] Nao foi possivel remover "%CACHE_DIR%". & set "FAILED=1") else (echo    - Cache removido.)
 )
-
-echo [4/4] Removendo caixa de ferramentas e arquivos temporarios...
-if exist "%PYT_FILE%" del /q "%PYT_FILE%"
+:: caixa de ferramentas .pyt de versoes antigas
+if exist "%DOCS%\ArcGIS\GEE_Tools.pyt" del /q "%DOCS%\ArcGIS\GEE_Tools.pyt"
 del /q "%TEMP%\arcmagery_*_cmd.json" "%TEMP%\arcmagery_*_reply.json" "%TEMP%\arcmagery_*_context.json" "%TEMP%\arcmagery_*_gui_heartbeat.tmp" 2>nul
-del /q "%TEMP%\gee_arcgis_*.json" "%TEMP%\arcgis_gee_*.json" 2>nul
+del /q "%TEMP%\gee_arcgis_*.json" "%TEMP%\arcgis_gee_*.json" "%TEMP%\arcmagery_ca_bundle.pem" 2>nul
+for /d %%T in ("%TEMP%\arcmagery_spot_*" "%TEMP%\arcgee_tiles_*") do rd /s /q "%%~T" 2>nul
 echo    - Concluido.
 
 echo.
-set /p RMVENV="Remover tambem o ambiente Python do plugin (%LOCALAPPDATA%\ArcMagery\venv)? (S/N): "
-if /i "%RMVENV%"=="S" (
-    if exist "%LOCALAPPDATA%\ArcMagery\venv" rd /s /q "%LOCALAPPDATA%\ArcMagery\venv"
-    if exist "%LOCALAPPDATA%\ArcMagery\venv" (echo    [ERRO] Nao foi possivel remover o venv. & set "FAILED=1") else (echo    - Ambiente Python removido.)
+echo Dados que continuam no computador:
+echo   %LOCALAPPDATA%\ArcMagery        componentes do Earth Engine, cache SPOT, diagnostico
+echo   %LOCALAPPDATA%\CGMA_ArcGEE      backups e logs do atualizador (nome legado da pasta)
+echo   %APPDATA%\ArcGEE                configuracoes, projeto GEE e chave do GEODES
+echo   %USERPROFILE%\.config\earthengine   login do Google Earth Engine (usado tambem por outras ferramentas)
+echo.
+set /p RMDATA="Remover tambem as tres primeiras pastas? (S/N): "
+if /i "%RMDATA%"=="S" (
+    for %%F in ("%LOCALAPPDATA%\ArcMagery" "%LOCALAPPDATA%\CGMA_ArcGEE" "%APPDATA%\ArcGEE") do (
+        if exist "%%~F" rd /s /q "%%~F"
+        if exist "%%~F" (echo    [ERRO] Nao foi possivel remover "%%~F". & set "FAILED=1") else (echo    - Removido: %%~F)
+    )
+    echo    O login do Earth Engine foi mantido; para revoga-lo, apague a pasta .config\earthengine acima.
 )
 
 echo.

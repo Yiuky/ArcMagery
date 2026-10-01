@@ -21,6 +21,7 @@ import ssl
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -63,7 +64,7 @@ def _log(msg):
     sys.stderr.flush()
 
 
-def _get_json(url, params=None, timeout=60, retries=3):
+def _get_json(url, params=None, timeout=60, retries=3, _sleep=time.sleep):
     if params:
         url = url + ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
     ctx = ssl.create_default_context()  # repositorio de certificados do Windows (proxy corporativo)
@@ -80,9 +81,15 @@ def _get_json(url, params=None, timeout=60, retries=3):
             raise
         except ssl.SSLError as e:
             raise EsriError(u"Erro SSL ao acessar a Esri: %s" % e)
+        except urllib.error.HTTPError as e:
+            if 400 <= e.code < 500 and e.code not in (408, 429):
+                # erro permanente (404, 403...): repetir nao resolve
+                raise EsriError(u"Serviço Esri respondeu HTTP %d em %s" % (e.code, url.split('?')[0]))
+            last = e
         except Exception as e:
             last = e
-            time.sleep(1.0 * attempt)
+        if attempt < retries:   # esperar apenas se ainda houver outra tentativa
+            _sleep(1.0 * attempt)
     raise EsriError(u"Falha ao acessar %s: %s" % (url.split('?')[0], last))
 
 

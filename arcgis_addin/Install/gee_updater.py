@@ -58,7 +58,22 @@ GITHUB_API_RELEASES = "https://api.github.com/repos/Yiuky/arcgis-google-earth-en
 CHANNEL_STABLE, CHANNEL_NIGHTLY = "stable", "nightly"
 CHANNEL_LABELS = {CHANNEL_STABLE: u"Estável", CHANNEL_NIGHTLY: u"Experimental (nightly)"}
 RELEASE_CHECKSUM_ASSET = "SHA256SUMS.txt"
-UPDATER_USER_AGENT = "ArcMagery-Updater/2.3"
+def _installed_version(default="2.4"):
+    """Versao do config.xml instalado (AssemblyCache: ao lado deste arquivo; repositorio: pasta acima)."""
+    import re
+    here = os.path.dirname(os.path.abspath(__file__))
+    for p in (os.path.join(here, "config.xml"), os.path.join(here, "..", "config.xml")):
+        try:
+            with open(p, "rb") as f:
+                m = re.search(br"<Version>\s*([0-9A-Za-z.+-]+)\s*</Version>", f.read())
+            if m:
+                return str(m.group(1).decode("ascii"))
+        except Exception:
+            pass
+    return default
+
+
+UPDATER_USER_AGENT = "ArcMagery-Updater/%s" % _installed_version()
 GITHUB_HOST = "github.com"
 GITHUB_PORT = 443
 
@@ -152,14 +167,81 @@ class RollbackTriggeredError(UpdaterError):
     pass
 
 # ==============================================================================
+# CAMINHOS SEMPRE EM UNICODE (Python 2: os.environ e tempfile devolvem bytes no codepage
+# ANSI; misturar esses bytes com texto unicode quebrava com perfis acentuados, ex. C:\Users\joão)
+# ==============================================================================
+
+def _fs_text(path):
+    """Caminho como texto unicode. Bytes sao decodificados com a codificacao do sistema de arquivos."""
+    if path is None:
+        return u""
+    if sys.version_info[0] < 3 and isinstance(path, bytes):
+        enc = sys.getfilesystemencoding() or "mbcs"
+        try:
+            return path.decode(enc)
+        except Exception:
+            return path.decode(enc, "replace")
+    return path
+
+
+def _err(e):
+    """Texto unicode de uma excecao: no Python 2 unicode(e) quebra com mensagens localizadas do
+    Windows em bytes (WindowsError em pt-BR) e str(e) quebra com mensagens unicode acentuadas."""
+    if sys.version_info[0] >= 3:
+        return str(e)
+    try:
+        return unicode(e)
+    except UnicodeError:
+        pass
+    parts = []
+    for a in (getattr(e, "args", None) or (e,)):
+        if isinstance(a, bytes):
+            for enc in ("utf-8", "mbcs", "cp1252"):
+                try:
+                    parts.append(a.decode(enc))
+                    break
+                except (UnicodeError, LookupError):
+                    continue
+            else:
+                parts.append(a.decode("ascii", "replace"))
+        else:
+            try:
+                parts.append(unicode(a))
+            except UnicodeError:
+                parts.append(unicode(repr(a)))
+    return u" ".join(parts) or unicode(repr(e))
+
+
+def _env_path(name, default=u""):
+    return _fs_text(os.environ.get(name, "")) or default
+
+
+def _temp_dir():
+    return _fs_text(tempfile.gettempdir())
+
+
+def _documents_dir():
+    """Pasta Documentos REAL do usuario (com o OneDrive / Known Folder Move ela sai do perfil e o
+    ArcMap usa a redirecionada). SHGetFolderPathW(CSIDL_PERSONAL); se falhar, %USERPROFILE%\\Documents."""
+    try:
+        import ctypes
+        buf = ctypes.create_unicode_buffer(1024)
+        if ctypes.windll.shell32.SHGetFolderPathW(None, 5, None, 0, buf) == 0 and buf.value:
+            return buf.value
+    except Exception:
+        pass
+    return os.path.join(_env_path("USERPROFILE"), u"Documents")
+
+
+# ==============================================================================
 # SISTEMA DE LOGGING ESTRUTURADO
 # ==============================================================================
 
 def get_app_data_dir():
     """Retorna o diretório base para dados do aplicativo CGMA ArcGEE (%LOCALAPPDATA%\\CGMA_ArcGEE)."""
-    user_prof = os.environ.get("USERPROFILE", "")
-    local_appdata = os.environ.get("LOCALAPPDATA", "") or os.path.join(user_prof, "AppData", "Local")
-    base_dir = os.path.join(local_appdata, "CGMA_ArcGEE")
+    user_prof = _env_path("USERPROFILE")
+    local_appdata = _env_path("LOCALAPPDATA") or os.path.join(user_prof, u"AppData", u"Local")
+    base_dir = os.path.join(local_appdata, u"CGMA_ArcGEE")
     if not os.path.exists(base_dir):
         try:
             os.makedirs(base_dir)
@@ -175,8 +257,8 @@ def get_updater_log_path():
         try:
             os.makedirs(logs_dir)
         except Exception:
-            logs_dir = tempfile.gettempdir()
-    return os.path.join(logs_dir, "arcgee_updater.log")
+            logs_dir = _temp_dir()
+    return os.path.join(logs_dir, u"arcgee_updater.log")
 
 def get_backups_dir():
     """Retorna o diretório raiz onde os snapshots de backup são armazenados."""
@@ -186,7 +268,7 @@ def get_backups_dir():
         try:
             os.makedirs(backups_dir)
         except Exception:
-            backups_dir = os.path.join(tempfile.gettempdir(), "arcgee_backups")
+            backups_dir = os.path.join(_temp_dir(), u"arcgee_backups")
             if not os.path.exists(backups_dir):
                 try:
                     os.makedirs(backups_dir)
@@ -252,10 +334,7 @@ def get_free_disk_space_bytes(folder_path):
 
         # Garante wchar_p no Python 2 e Python 3
         if sys.version_info[0] < 3:
-            if isinstance(abs_path, str):
-                wchar_path = abs_path.decode("utf-8", "replace")
-            else:
-                wchar_path = abs_path
+            wchar_path = _fs_text(abs_path)
         else:
             wchar_path = str(abs_path)
 
@@ -268,7 +347,7 @@ def get_free_disk_space_bytes(folder_path):
         if ret:
             return free_user_bytes.value
     except Exception as e:
-        log_warning("Falha em GetDiskFreeSpaceExW: %s" % e)
+        log_warning(u"Falha em GetDiskFreeSpaceExW: %s" % _err(e))
 
     # Tentativa 2: shutil.disk_usage (Python 3)
     try:
@@ -289,7 +368,7 @@ def test_write_permission(directory_path):
         try:
             os.makedirs(directory_path)
         except Exception as e:
-            return False, "Nao foi possivel criar o diretorio: %s" % str(e)
+            return False, u"Nao foi possivel criar o diretorio: %s" % _err(e)
 
     canary = os.path.join(
         directory_path,
@@ -302,7 +381,7 @@ def test_write_permission(directory_path):
             os.remove(canary)
         return True, None
     except Exception as e:
-        return False, str(e)
+        return False, _err(e)
 
 def calculate_file_sha256(filepath):
     """Calcula o hash SHA-256 do arquivo em blocos de 64KB."""
@@ -397,7 +476,7 @@ def fetch_latest_release(api_url=GITHUB_API_LATEST_RELEASE):
         if code == 404:
             return None
         raise NetworkError(
-            u"Falha ao consultar a última Release do GitHub: %s" % e,
+            u"Falha ao consultar a última Release do GitHub: %s" % _err(e),
             title=u"Falha ao Consultar Releases",
             user_message=u"Não foi possível consultar a versão publicada no GitHub.",
             remediation=[u"Verifique a conexão/proxy.", u"Tente a atualização via arquivo ZIP."],
@@ -430,7 +509,7 @@ def fetch_newest_release(api_url=GITHUB_API_RELEASES):
         if getattr(e, "code", None) == 404:
             return None
         raise NetworkError(
-            u"Falha ao consultar as Releases do GitHub: %s" % e,
+            u"Falha ao consultar as Releases do GitHub: %s" % _err(e),
             title=u"Falha ao Consultar Releases",
             user_message=u"Não foi possível consultar as versões publicadas no GitHub.",
             remediation=[u"Verifique a conexão/proxy.", u"Tente a atualização via arquivo ZIP."],
@@ -483,30 +562,31 @@ def check_network_connectivity(host=GITHUB_HOST, port=GITHUB_PORT, timeout=5.0):
         s.close()
         return True, None
     except socket.gaierror as e:
-        return False, u"Falha na resolução de DNS para %s: %s" % (host, e)
+        return False, u"Falha na resolução de DNS para %s: %s" % (host, _err(e))
     except socket.timeout:
         return False, u"Tempo limite excedido (%ds) conectando a %s:%d" % (timeout, host, port)
     except Exception as e:
-        return False, u"Erro de conexão com %s:%d: %s" % (host, port, e)
+        return False, u"Erro de conexão com %s:%d: %s" % (host, port, _err(e))
 
 def find_system_directories():
     """
     Localiza os diretórios oficiais do Add-In no ArcGIS Desktop 10.8 e o repositório local de dev.
     """
-    user_prof = os.environ.get("USERPROFILE", "")
+    # Documentos pode estar redirecionado (OneDrive / GPO): o ArcMap usa a pasta real
     addin_dir = os.path.join(
-        user_prof,
-        r"Documents\ArcGIS\AddIns\Desktop10.8\%s" % ADDIN_UUID
+        _documents_dir(),
+        u"ArcGIS\\AddIns\\Desktop10.8\\%s" % ADDIN_UUID
     )
+    local_appdata = _env_path("LOCALAPPDATA") or os.path.join(_env_path("USERPROFILE"), u"AppData", u"Local")
     cache_dir = os.path.join(
-        user_prof,
-        r"AppData\Local\ESRI\Desktop10.8\AssemblyCache\%s" % ADDIN_UUID_UPPER
+        local_appdata,
+        u"ESRI\\Desktop10.8\\AssemblyCache\\%s" % ADDIN_UUID_UPPER
     )
 
-    curr_dir = os.path.dirname(os.path.abspath(__file__))
+    curr_dir = _fs_text(os.path.dirname(os.path.abspath(__file__)))
     candidates = [
-        os.path.abspath(os.path.join(curr_dir, "..", "..")),
-        os.environ.get("GEE_PLUGIN_DEV_REPO", "")
+        os.path.abspath(os.path.join(curr_dir, u"..", u"..")),
+        _env_path("GEE_PLUGIN_DEV_REPO")
     ]
     dev_repo = None
     for c in candidates:
@@ -567,7 +647,7 @@ def validate_zip_archive(zip_path, target_dirs=None):
     try:
         z = zipfile.ZipFile(zip_path, "r")
     except zipfile.BadZipfile as e:
-        log_error(u"Arquivo não é um ZIP válido: %s" % e)
+        log_error(u"Arquivo não é um ZIP válido: %s" % _err(e))
         raise CorruptPackageError(
             u"O arquivo não possui cabeçalho ZIP válido.",
             title=u"Pacote Corrompido",
@@ -576,7 +656,7 @@ def validate_zip_archive(zip_path, target_dirs=None):
                 u"Faça o download novamente do pacote oficial.",
                 u"Não renomeie extensões de arquivos arbitrariamente."
             ],
-            technical_details=str(e)
+            technical_details=_err(e)
         )
 
     try:
@@ -671,7 +751,7 @@ def validate_zip_archive(zip_path, target_dirs=None):
                 if ver_node is not None and ver_node.text:
                     proposed_version = ver_node.text.strip()
             except Exception as e_xml:
-                log_warning(u"Não foi possível extrair a versão do config.xml: %s" % e_xml)
+                log_warning(u"Não foi possível extrair a versão do config.xml: %s" % _err(e_xml))
 
     finally:
         z.close()
@@ -679,7 +759,7 @@ def validate_zip_archive(zip_path, target_dirs=None):
     # 5. Cálculo e validação de espaço livre em disco
     # Fórmula: 3x o tamanho descompactado (staging + backup + instalação) + 50 MB de margem
     required_space = (total_uncompressed_bytes * 3) + (50 * 1024 * 1024)
-    temp_dir = tempfile.gettempdir()
+    temp_dir = _temp_dir()
     free_temp = get_free_disk_space_bytes(temp_dir)
     log_info(u"Espaço livre em TEMP (%s): %.2f MB | Necessário: %.2f MB" % (
         temp_dir, free_temp / (1024.0 * 1024.0), required_space / (1024.0 * 1024.0)
@@ -738,7 +818,8 @@ def validate_git_repository(repo_path, remote_branch="main"):
     4. Verificação de stashes ou commits locais não sincronizados que possam causar conflito de merge.
     5. Verificação de possibilidade de avanço rápido (fast-forward).
     """
-    log_info(u"Iniciando pré-validação Git no repositório: %s" % repo_path)
+    log_info(u"Iniciando pré-validação Git no repositório: %s" % _fs_text(repo_path))
+    repo_path = _cmdline_path(repo_path)   # Py2: cwd do Popen precisa ser bytes ANSI
 
     # 1. Verificar executável git
     try:
@@ -755,7 +836,7 @@ def validate_git_repository(repo_path, remote_branch="main"):
         log_info(u"Git detectado: %s" % git_ver)
     except Exception as e_git:
         raise GitRepositoryError(
-            u"Executável 'git' não encontrado no sistema: %s" % e_git,
+            u"Executável 'git' não encontrado no sistema: %s" % _err(e_git),
             title=u"Git Não Encontrado",
             user_message=u"O comando 'git' não está instalado ou não foi adicionado ao PATH do Windows.",
             remediation=[
@@ -974,11 +1055,11 @@ def download_github_archive(target_path, progress_callback=None, url=None):
                 os.remove(part_path)
             except Exception:
                 pass
-        log_error(u"Erro durante o download do GitHub: %s" % e)
+        log_error(u"Erro durante o download do GitHub: %s" % _err(e))
         if isinstance(e, UpdaterError):
             raise
         raise NetworkError(
-            u"Falha durante transferência de dados do GitHub: %s" % e,
+            u"Falha durante transferência de dados do GitHub: %s" % _err(e),
             title=u"Erro ao Baixar Atualização",
             user_message=u"Ocorreu um erro ao baixar os arquivos de atualização do GitHub.\nA transferência foi interrompida.",
             remediation=[
@@ -992,6 +1073,28 @@ def download_github_archive(target_path, progress_callback=None, url=None):
 # MOTOR DE BACKUP E SNAPSHOT DE SEGURANÇA
 # ==============================================================================
 
+SNAPSHOT_REQUIRED_FILES = (u"GEE_Image_Selector.esriaddin",
+                           os.path.join(u"AssemblyCache", u"gee_gui.py"),
+                           os.path.join(u"AssemblyCache", u"config.xml"))
+
+
+def snapshot_missing_files(snapshot_dir):
+    """Arquivos obrigatorios para restaurar um snapshot que faltam nele (lista vazia = completo)."""
+    return [f for f in SNAPSHOT_REQUIRED_FILES if not os.path.isfile(os.path.join(snapshot_dir, f))]
+
+
+def discard_snapshot(backup_meta):
+    """Apaga o snapshot criado por um fluxo que falhou ANTES de despachar o executor: senao ele
+    (copia da versao ATUAL) viraria o alvo do botao 'Voltar para a Versao Anterior'."""
+    d = (backup_meta or {}).get("snapshot_dir")
+    if d and os.path.isdir(d):
+        try:
+            shutil.rmtree(d)
+            log_info(u"Snapshot descartado (fluxo interrompido antes da aplicação): %s" % d)
+        except Exception as e_rm:
+            log_warning(u"Não foi possível descartar o snapshot %s: %s" % (d, _err(e_rm)))
+
+
 def create_snapshot_backup(current_version="2.4.1", backups_root=None, custom_sys_dirs=None):
     """
     Cria um backup completo e atômico do estado operacional atual do plugin.
@@ -1002,13 +1105,14 @@ def create_snapshot_backup(current_version="2.4.1", backups_root=None, custom_sy
     Retorna o dicionário com metadados do snapshot.
     """
     sys_dirs = custom_sys_dirs if custom_sys_dirs else find_system_directories()
-    addin_dir = sys_dirs.get("addin_dir", "")
-    cache_dir = sys_dirs.get("cache_dir", "")
+    addin_dir = _fs_text(sys_dirs.get("addin_dir", ""))
+    cache_dir = _fs_text(sys_dirs.get("cache_dir", ""))
 
     timestamp_str = time.strftime("%Y%m%d_%H%M%S")
     if backups_root is None:
         backups_root = get_backups_dir()
-    snapshot_dir = os.path.join(backups_root, "backup_%s_%s" % (current_version.replace(".", "_"), timestamp_str))
+    backups_root = _fs_text(backups_root)
+    snapshot_dir = os.path.join(backups_root, u"backup_%s_%s" % (current_version.replace(".", "_"), timestamp_str))
 
     log_info(u"Criando snapshot de backup em: %s" % snapshot_dir)
     if not os.path.exists(snapshot_dir):
@@ -1016,10 +1120,10 @@ def create_snapshot_backup(current_version="2.4.1", backups_root=None, custom_sy
             os.makedirs(snapshot_dir)
         except Exception as e:
             raise PermissionCheckError(
-                u"Falha ao criar pasta de backup: %s" % e,
+                u"Falha ao criar pasta de backup: %s" % _err(e),
                 title=u"Erro de Backup",
                 user_message=u"Não foi possível criar o diretório de segurança para backup antes da atualização.",
-                technical_details=str(e)
+                technical_details=_err(e)
             )
 
     backup_manifest = {
@@ -1030,9 +1134,10 @@ def create_snapshot_backup(current_version="2.4.1", backups_root=None, custom_sy
     }
 
     # 1. Backup do arquivo .esriaddin
-    live_addin = os.path.join(addin_dir, "GEE_Image_Selector.esriaddin")
+    problems = []
+    live_addin = os.path.join(addin_dir, u"GEE_Image_Selector.esriaddin")
     if os.path.exists(live_addin):
-        dest_addin = os.path.join(snapshot_dir, "GEE_Image_Selector.esriaddin")
+        dest_addin = os.path.join(snapshot_dir, u"GEE_Image_Selector.esriaddin")
         try:
             shutil.copy2(live_addin, dest_addin)
             backup_manifest["files"]["esriaddin"] = {
@@ -1041,11 +1146,14 @@ def create_snapshot_backup(current_version="2.4.1", backups_root=None, custom_sy
                 "sha256": calculate_file_sha256(dest_addin)
             }
         except Exception as e_cp:
-            log_warning(u"Aviso: não foi possível copiar .esriaddin para o backup: %s" % e_cp)
+            log_warning(u"Aviso: não foi possível copiar .esriaddin para o backup: %s" % _err(e_cp))
+            problems.append(u"cópia do .esriaddin falhou (%s)" % _err(e_cp))
+    else:
+        problems.append(u".esriaddin instalado não encontrado em %s" % addin_dir)
 
     # 2. Backup do AssemblyCache
     if os.path.exists(cache_dir):
-        dest_cache = os.path.join(snapshot_dir, "AssemblyCache")
+        dest_cache = os.path.join(snapshot_dir, u"AssemblyCache")
         try:
             shutil.copytree(cache_dir, dest_cache)
             backup_manifest["files"]["cache_dir"] = {
@@ -1053,7 +1161,28 @@ def create_snapshot_backup(current_version="2.4.1", backups_root=None, custom_sy
                 "backup": dest_cache
             }
         except Exception as e_cache:
-            log_warning(u"Aviso: cópia do AssemblyCache para backup parcial: %s" % e_cache)
+            log_warning(u"Aviso: cópia do AssemblyCache para backup parcial: %s" % _err(e_cache))
+            problems.append(u"cópia do AssemblyCache falhou (%s)" % _err(e_cache))
+    else:
+        problems.append(u"AssemblyCache não encontrado em %s" % cache_dir)
+
+    # Sem snapshot COMPLETO nao ha como reverter: aborta antes de modificar qualquer arquivo
+    missing = snapshot_missing_files(snapshot_dir)
+    if missing or problems:
+        details = u"; ".join(problems + [u"ausente no snapshot: %s" % m for m in missing])
+        log_error(u"Snapshot de backup incompleto (%s): %s" % (snapshot_dir, details))
+        try:
+            shutil.rmtree(snapshot_dir)
+        except Exception:
+            pass
+        raise PreflightCheckError(
+            u"Snapshot de backup incompleto: %s" % details,
+            title=u"Backup Incompleto",
+            user_message=u"Não foi possível salvar uma cópia completa da versão instalada, então a "
+                         u"atualização foi cancelada antes de alterar qualquer arquivo.",
+            remediation=[u"Tente novamente em instantes (veja o log de atualização).",
+                         u"Se o plugin não estiver instalado nesta conta, instale-o pelo install.bat."],
+            technical_details=details)
 
     # 3. Gravar manifest.json
     try:
@@ -1062,7 +1191,7 @@ def create_snapshot_backup(current_version="2.4.1", backups_root=None, custom_sy
         with open(manifest_file, "w") as f_man:
             json.dump(backup_manifest, f_man, indent=2)
     except Exception as e_man:
-        log_warning(u"Não foi possível salvar manifest.json: %s" % e_man)
+        log_warning(u"Não foi possível salvar manifest.json: %s" % _err(e_man))
 
     # 4. Política de retenção: manter no máximo os últimos 5 backups
     try:
@@ -1080,7 +1209,7 @@ def create_snapshot_backup(current_version="2.4.1", backups_root=None, custom_sy
             except Exception:
                 pass
     except Exception as e_ret:
-        log_warning(u"Erro na retenção de backups: %s" % e_ret)
+        log_warning(u"Erro na retenção de backups: %s" % _err(e_ret))
 
     log_info(u"Snapshot de segurança gerado com sucesso.")
     return backup_manifest
@@ -1096,9 +1225,9 @@ def prepare_staging_environment(zip_path):
     Garante que arquivos corrompidos ou maliciosos nunca toquem o diretório do ArcMap.
     """
     log_info(u"Preparando ambiente de staging isolado...")
-    staging_base = tempfile.gettempdir()
+    staging_base = _temp_dir()
     ts = int(time.time() * 1000) % 1000000
-    staging_dir = os.path.join(staging_base, "arcgee_stage_%d" % ts)
+    staging_dir = os.path.join(staging_base, u"arcgee_stage_%d" % ts)
 
     if os.path.exists(staging_dir):
         try:
@@ -1109,16 +1238,18 @@ def prepare_staging_environment(zip_path):
         os.makedirs(staging_dir)
     except Exception as e:
         raise PermissionCheckError(
-            u"Não foi possível criar a pasta de staging: %s" % e,
+            u"Não foi possível criar a pasta de staging: %s" % _err(e),
             title=u"Erro de Sistema",
             user_message=u"Falha ao criar diretório temporário isolado para a atualização.",
-            technical_details=str(e)
+            technical_details=_err(e)
         )
 
     # 1. Extração segura com sanitização de caminhos (Prevenção Zip Slip)
     with zipfile.ZipFile(zip_path, "r") as z:
         for member in z.infolist():
             filename = member.filename.replace("\\", "/")
+            if sys.version_info[0] < 3 and isinstance(filename, bytes):
+                filename = filename.decode("cp437", "replace")   # staging_dir e unicode
             # Pular diretórios explícitos vazios
             if filename.endswith("/"):
                 continue
@@ -1221,106 +1352,228 @@ def prepare_staging_environment(zip_path):
 # ==============================================================================
 
 def _bat_text(text):
-    """Texto no mesmo tipo do template do .bat (bytes UTF-8 no Python 2; o .bat usa chcp 65001)."""
-    if sys.version_info[0] < 3 and not isinstance(text, bytes):
-        return text.encode("utf-8")
+    """Texto no tipo do template do .bat: unicode (o arquivo e gravado no codepage ANSI por _bat_bytes)."""
+    if sys.version_info[0] < 3 and isinstance(text, bytes):
+        return text.decode("utf-8", "replace")
     return text
 
 
-def generate_and_launch_detached_runner(staging_info, backup_info, sync_dev_repo=True, success_text=None):
-    """
-    Gera e despacha o script de instalação desacoplado com transação e ROLLBACK AUTOMÁTICO.
-    O script roda independente de processos Python (evitando travas de arquivos) e:
-    1. Aguarda o fechamento do processo GUI e taskkill do pythonw se necessário.
-    2. Valida o diretório de backup antes de iniciar qualquer alteração.
-    3. Executa a cópia atômica com verificação de ERRORLEVEL a cada passo.
-    4. Limpa pyc antigos e recompila novos módulos com python.exe.
-    5. Efetua SMOKE TEST: confere se gee_gui.py e config.xml estão íntegros no destino.
-    6. Em caso de falha em QUALQUER etapa: salta para :ROLLBACK, restaura todo o snapshot
-       anterior, recompila e exibe mensagem de alerta informando a reversão segura.
-    7. Em caso de sucesso total: limpa o staging e exibe notificação de sucesso.
-    """
-    sys_dirs = find_system_directories()
-    addin_dir = sys_dirs["addin_dir"]
-    cache_dir = sys_dirs["cache_dir"]
-    # No rollback a versao ANTIGA nunca e copiada para o repositorio de desenvolvimento
-    dev_repo = (sys_dirs["dev_repo"] or "") if sync_dev_repo else ""
-    success_text = success_text or (u"ArcMagery atualizado com sucesso!`n`nTodos os arquivos foram validados, "
-                                    u"instalados e recompilados.`nReabra o ArcMap para carregar a nova versão.")
+def _bat_bytes(text):
+    """Conteudo final do .bat. O executor roda DESANEXADO (sem console): o cmd le o arquivo no codepage
+    ANSI e 'chcp 65001' nao tem efeito, entao o arquivo e gravado em ANSI (mbcs) com CRLF."""
+    text = _bat_text(text).replace(u"\r\n", u"\n").replace(u"\n", u"\r\n")
+    try:
+        return text.encode("mbcs", "replace")
+    except LookupError:   # fora do Windows (testes)
+        return text.encode("cp1252", "replace")
 
-    staging_dir = staging_info["staging_dir"]
-    config_file = staging_info["config_file"]
-    install_dir = staging_info["install_dir"]
-    inst_backend = staging_info["inst_backend"]
-    staged_addin = staging_info["staged_addin"]
 
-    snapshot_dir = backup_info["snapshot_dir"]
-    log_file = get_updater_log_path()
+def _ansi_roundtrip(text):
+    """True se o texto sobrevive ao codepage ANSI (o que o cmd do executor consegue ler)."""
+    try:
+        return text.encode("mbcs", "replace").decode("mbcs") == text
+    except LookupError:
+        try:
+            return text.encode("cp1252", "replace").decode("cp1252") == text
+        except Exception:
+            return False
+    except Exception:
+        return False
 
-    ts = int(time.time() * 1000) % 1000000
-    bat_path = os.path.join(tempfile.gettempdir(), "apply_arcgee_update_%d.bat" % ts)
 
-    log_info(u"Gerando script desacoplado de transação: %s" % bat_path)
+def _short_path(path):
+    """Nome 8.3 (GetShortPathNameW). Se o caminho ainda nao existe, encurta o maior ancestral existente
+    e acrescenta o resto. Devolve o proprio caminho quando nao for possivel."""
+    try:
+        import ctypes
+        head, tail = path, []
+        while head and not os.path.exists(head):
+            new_head, t = os.path.split(head)
+            if not t or new_head == head:
+                break
+            tail.insert(0, t)
+            head = new_head
+        if not head or not os.path.exists(head):
+            return path
+        buf = ctypes.create_unicode_buffer(1024)
+        n = ctypes.windll.kernel32.GetShortPathNameW(head, buf, 1024)
+        if not n or n > 1024 or not buf.value:
+            return path
+        return os.path.join(buf.value, *tail) if tail else buf.value
+    except Exception:
+        return path
 
-    # Template do script em lote altamente resiliente com rollback automático
-    bat_content = r"""@echo off
-chcp 65001 >nul
+
+def bat_path_text(path):
+    """Caminho seguro para o .bat: o proprio caminho (unicode) se cabe no codepage ANSI; senao o nome
+    8.3. '%' vira '%%' (senao o cmd o expandiria como variavel)."""
+    path = _fs_text(path or u"")
+    if path and not _ansi_roundtrip(path):
+        short = _short_path(path)
+        if _ansi_roundtrip(short):
+            path = short
+        else:
+            log_warning(u"Caminho fora do codepage ANSI e sem nome 8.3; o executor pode não encontrá-lo: %s" % path)
+    return path.replace(u"%", u"%%")
+
+
+def _cmdline_path(path):
+    """Caminho para a linha de comando do Popen: no Python 2 o subprocess usa CreateProcessA, entao
+    o caminho vai em bytes ANSI (bat_path_text garante que cabe no codepage)."""
+    path = _fs_text(path)
+    if sys.version_info[0] < 3:
+        if not _ansi_roundtrip(path):
+            path = _short_path(path)
+        try:
+            return path.encode("mbcs", "replace")
+        except LookupError:
+            return path.encode("cp1252", "replace")
+    return path
+
+
+BAT_UNSAFE_PATH_CHARS = u"&^%!()"
+
+
+def _bat_safe_dir(path):
+    """O proprio diretorio (ou o nome 8.3) se o cmd consegue EXECUTAR um .bat dentro dele; senao None.
+    O cmd reabre o .bat pelo caminho a cada linha e se perde com '&' (perfil 'P&D'), '^', '%', '!' ou
+    parenteses no caminho do proprio arquivo, mesmo entre aspas; e precisa do caminho no codepage ANSI."""
+    p = _fs_text(path or u"")
+    if p and not _ansi_roundtrip(p):
+        p = _short_path(p)
+    if not p or not _ansi_roundtrip(p) or any(c in p for c in BAT_UNSAFE_PATH_CHARS):
+        return None
+    return p
+
+
+def runner_dir():
+    """Pasta onde o .bat do executor e gravado: a TEMP do usuario; se o caminho dela quebra o cmd,
+    %SystemRoot%\\Temp (os usuarios criam arquivos, mas nao listam os dos outros) e, por fim,
+    %ProgramData%\\ArcMagery\\tmp."""
+    candidates = (_temp_dir(),
+                  os.path.join(_env_path("SystemRoot", u"C:\\Windows"), u"Temp"),
+                  os.path.join(_env_path("ProgramData", u"C:\\ProgramData"), u"ArcMagery", u"tmp"))
+    for cand in candidates:
+        safe = _bat_safe_dir(cand)
+        if safe and test_write_permission(safe)[0]:
+            return safe
+    return _temp_dir()
+
+
+def cmd_run_bat_line(bat_path):
+    """Linha de comando que executa o .bat. 'cmd /s /c ""caminho""': sem /s, um '&' ou '(' no caminho
+    (ex.: perfil 'P&D') faz o cmd descartar as aspas e quebrar o caminho em dois comandos."""
+    path = _cmdline_path(bat_path)
+    if sys.version_info[0] < 3:
+        return b'cmd.exe /d /s /c ""' + path + b'""'
+    return u'cmd.exe /d /s /c ""%s""' % path
+
+
+def ps_message_expr(text):
+    """Expressao PowerShell 100% ASCII para o texto (MessageBox do executor): trechos entre aspas
+    simples + [char]N para quebras de linha e acentos. Nao depende do codepage em que o cmd le o .bat
+    e aceita tanto '\\n' quanto o antigo '`n' como quebra de linha."""
+    text = _bat_text(text or u"").replace(u"`n", u"\n").replace(u"\r\n", u"\n")
+    parts, chunk = [], []
+    for ch in text:
+        code = ord(ch)
+        if ch == u'"':
+            continue   # a mensagem fica dentro de -Command "..." do cmd
+        if 32 <= code < 127:
+            chunk.append(u"''" if ch == u"'" else (u"%%" if ch == u"%" else ch))
+            continue
+        if chunk:
+            parts.append(u"'%s'" % u"".join(chunk))
+            chunk = []
+        if ch == u"\n":
+            parts.append(u"[char]10")
+        elif code >= 32:
+            parts.append(u"[char]0x%04X" % code)
+    if chunk:
+        parts.append(u"'%s'" % u"".join(chunk))
+    return u"(%s)" % (u" + ".join(parts) if parts else u"''")
+
+
+def _gui_process_to_stop():
+    """(pid, imagem) do processo da propria interface, que o executor espera fechar (e finaliza se
+    preciso). So o pythonw.exe da GUI: nunca outros pythonw (scripts de outros usuarios, QGIS...)."""
+    exe = os.path.basename(sys.executable or "").lower()
+    if exe == "pythonw.exe":
+        return str(os.getpid()), exe
+    return u"", u"pythonw.exe"
+
+
+_BAT_TEMPLATE = r"""@echo off
 title Atualizador ArcMagery
 
-set LOG_FILE={log_file}
-set ADDIN_DIR={addin_dir}
-set CACHE_DIR={cache_dir}
-set BACKUP_DIR={snapshot_dir}
-set STAGING_DIR={staging_dir}
-set STAGED_ADDIN={staged_addin}
-set INSTALL_DIR={install_dir}
-set CONFIG_FILE={config_file}
-set INST_BACKEND={inst_backend}
-set DEV_REPO={dev_repo}
+set "LOG_FILE={log_file}"
+set "ADDIN_DIR={addin_dir}"
+set "CACHE_DIR={cache_dir}"
+set "BACKUP_DIR={snapshot_dir}"
+set "STAGING_DIR={staging_dir}"
+set "STAGED_ADDIN={staged_addin}"
+set "INSTALL_DIR={install_dir}"
+set "CONFIG_FILE={config_file}"
+set "INST_BACKEND={inst_backend}"
+set "DEV_REPO={dev_repo}"
+set "GUI_PID={gui_pid}"
+set "GUI_NAME={gui_name}"
 
 echo ====================================================================== >> "%LOG_FILE%"
-echo [%DATE% %TIME%] [TRANSAÇÃO DE ATUALIZAÇÃO INICIADA] >> "%LOG_FILE%"
+echo [%DATE% %TIME%] [TRANSACAO DE ATUALIZACAO INICIADA] >> "%LOG_FILE%"
 echo ====================================================================== >> "%LOG_FILE%"
 
-:: 1. Aguardar liberação dos processos Python e ArcMap
-echo [%DATE% %TIME%] Aguardando encerramento dos processos Python... >> "%LOG_FILE%"
+:: 1. Aguardar o encerramento da interface (somente o processo da propria GUI, nunca outros pythonw)
+echo [%DATE% %TIME%] Aguardando o encerramento da interface (PID %GUI_PID%)... >> "%LOG_FILE%"
 ping 127.0.0.1 -n 3 >nul
-taskkill /f /im pythonw.exe 2>nul
+if not defined GUI_PID goto :GUI_CLOSED
+:: Sem console (executor desanexado) tasklist nao imprime nada e o pipe tasklist/find trava: a espera e
+:: o encerramento usam o PowerShell, filtrando pelo PID E pelo nome do executavel da GUI.
+powershell -NoProfile -Command "$p = Get-Process -Id %GUI_PID% -ErrorAction SilentlyContinue; if ($p -and ($p.ProcessName -eq '%GUI_NAME%') -and -not $p.WaitForExit(15000)) {{ Stop-Process -Id %GUI_PID% -Force; 'KILLED' }}" >> "%LOG_FILE%" 2>&1
 ping 127.0.0.1 -n 2 >nul
+:GUI_CLOSED
 
-:: 2. Validação prévia de integridade do backup
-if not exist "%BACKUP_DIR%" (
-    echo [%DATE% %TIME%] [ERRO CRÍTICO] Diretório de backup não encontrado: "%BACKUP_DIR%" >> "%LOG_FILE%"
+:: 2. Validacao previa de integridade do backup (nada foi modificado ate aqui)
+if not exist "%BACKUP_DIR%\GEE_Image_Selector.esriaddin" (
+    echo [%DATE% %TIME%] [ERRO CRITICO] Backup sem GEE_Image_Selector.esriaddin: "%BACKUP_DIR%" >> "%LOG_FILE%"
+    goto :ABORT_NO_BACKUP
+)
+if not exist "%BACKUP_DIR%\AssemblyCache\gee_gui.py" (
+    echo [%DATE% %TIME%] [ERRO CRITICO] Backup sem AssemblyCache\gee_gui.py: "%BACKUP_DIR%" >> "%LOG_FILE%"
+    goto :ABORT_NO_BACKUP
+)
+if not exist "%BACKUP_DIR%\AssemblyCache\config.xml" (
+    echo [%DATE% %TIME%] [ERRO CRITICO] Backup sem AssemblyCache\config.xml: "%BACKUP_DIR%" >> "%LOG_FILE%"
     goto :ABORT_NO_BACKUP
 )
 
-echo [%DATE% %TIME%] Backup de segurança confirmado em: "%BACKUP_DIR%" >> "%LOG_FILE%"
+echo [%DATE% %TIME%] Backup de seguranca confirmado em: "%BACKUP_DIR%" >> "%LOG_FILE%"
 
-:: 3. ETAPA 1 DA TRANSAÇÃO: Atualizar arquivo .esriaddin
+:: 3. ETAPA 1 DA TRANSACAO: Atualizar arquivo .esriaddin
 if not exist "%ADDIN_DIR%" mkdir "%ADDIN_DIR%" >> "%LOG_FILE%" 2>&1
 echo [%DATE% %TIME%] Copiando pacote .esriaddin para "%ADDIN_DIR%"... >> "%LOG_FILE%"
 copy /Y "%STAGED_ADDIN%" "%ADDIN_DIR%\GEE_Image_Selector.esriaddin" >> "%LOG_FILE%" 2>&1
 if errorlevel 1 (
-    echo [%DATE% %TIME%] [FALHA] Erro ao copiar .esriaddin. Código de saída: %errorlevel% >> "%LOG_FILE%"
+    echo [%DATE% %TIME%] [FALHA] Erro ao copiar .esriaddin. Codigo de saida: %errorlevel% >> "%LOG_FILE%"
     goto :ROLLBACK
 )
 
-:: 4. ETAPA 2 DA TRANSAÇÃO: Atualizar arquivos do AssemblyCache
+:: 4. ETAPA 2 DA TRANSACAO: Atualizar arquivos do AssemblyCache
 if not exist "%CACHE_DIR%" mkdir "%CACHE_DIR%" >> "%LOG_FILE%" 2>&1
 echo [%DATE% %TIME%] Copiando novos componentes para AssemblyCache... >> "%LOG_FILE%"
 xcopy /s /e /y /i "%INSTALL_DIR%\*" "%CACHE_DIR%\" >> "%LOG_FILE%" 2>&1
 if errorlevel 1 (
-    echo [%DATE% %TIME%] [FALHA] Erro ao copiar componentes para AssemblyCache. Código: %errorlevel% >> "%LOG_FILE%"
+    echo [%DATE% %TIME%] [FALHA] Erro ao copiar componentes para AssemblyCache. Codigo: %errorlevel% >> "%LOG_FILE%"
     goto :ROLLBACK
 )
 
 copy /Y "%CONFIG_FILE%" "%CACHE_DIR%\config.xml" >> "%LOG_FILE%" 2>&1
 if errorlevel 1 (
-    echo [%DATE% %TIME%] [FALHA] Erro ao copiar config.xml para AssemblyCache. Código: %errorlevel% >> "%LOG_FILE%"
+    echo [%DATE% %TIME%] [FALHA] Erro ao copiar config.xml para AssemblyCache. Codigo: %errorlevel% >> "%LOG_FILE%"
     goto :ROLLBACK
 )
 
-:: 5. ETAPA 3 DA TRANSAÇÃO: Limpar bytecode antigo e recompilar
+:: 5. ETAPA 3 DA TRANSACAO: Limpar bytecode antigo e recompilar
 echo [%DATE% %TIME%] Limpando bytecode compilado antigo (.pyc)... >> "%LOG_FILE%"
 del /Q /F "%CACHE_DIR%\*.pyc" 2>nul
 del /Q /F "%CACHE_DIR%\backend\*.pyc" 2>nul
@@ -1329,11 +1582,11 @@ if exist "C:\Python27\ArcGIS10.8\python.exe" (
     echo [%DATE% %TIME%] Recompilando bytecode com Python 2.7 do ArcGIS... >> "%LOG_FILE%"
     "C:\Python27\ArcGIS10.8\python.exe" -m compileall "%CACHE_DIR%" >> "%LOG_FILE%" 2>&1
     if errorlevel 1 (
-        echo [%DATE% %TIME%] [AVISO] Compilação compileall retornou código diferente de zero. Prosseguindo para smoke test... >> "%LOG_FILE%"
+        echo [%DATE% %TIME%] [AVISO] compileall retornou codigo diferente de zero. Prosseguindo para o smoke test... >> "%LOG_FILE%"
     )
 )
 
-:: 6. ETAPA 4 DA TRANSAÇÃO: Smoke Test de integridade pós-cópia
+:: 6. ETAPA 4 DA TRANSACAO: Smoke Test de integridade pos-copia
 echo [%DATE% %TIME%] Executando Smoke Test nos componentes essenciais... >> "%LOG_FILE%"
 if not exist "%CACHE_DIR%\gee_gui.py" (
     echo [%DATE% %TIME%] [FALHA NO SMOKE TEST] gee_gui.py ausente no AssemblyCache! >> "%LOG_FILE%"
@@ -1348,9 +1601,9 @@ if not exist "%ADDIN_DIR%\GEE_Image_Selector.esriaddin" (
     goto :ROLLBACK
 )
 
-:: 7. Sincronização do repositório local de desenvolvimento (opcional se existir)
+:: 7. Sincronizacao do repositorio local de desenvolvimento (opcional se existir)
 if defined DEV_REPO if exist "%DEV_REPO%\arcgis_addin" (
-    echo [%DATE% %TIME%] Sincronizando repositório de desenvolvimento em "%DEV_REPO%"... >> "%LOG_FILE%"
+    echo [%DATE% %TIME%] Sincronizando repositorio de desenvolvimento em "%DEV_REPO%"... >> "%LOG_FILE%"
     xcopy /s /e /y /i "%INSTALL_DIR%\*" "%DEV_REPO%\arcgis_addin\Install\" >> "%LOG_FILE%" 2>&1
     copy /Y "%STAGED_ADDIN%" "%DEV_REPO%\arcgis_addin\GEE_Image_Selector.esriaddin" >> "%LOG_FILE%" 2>&1
     if exist "%DEV_REPO%\backend" (
@@ -1358,25 +1611,25 @@ if defined DEV_REPO if exist "%DEV_REPO%\arcgis_addin" (
     )
 )
 
-:: 8. SUCESSO TOTAL DA TRANSAÇÃO
-echo [%DATE% %TIME%] [SUCESSO] Atualização concluída com êxito e validada! >> "%LOG_FILE%"
+:: 8. SUCESSO TOTAL DA TRANSACAO
+echo [%DATE% %TIME%] [SUCESSO] Atualizacao concluida com exito e validada! >> "%LOG_FILE%"
 rd /s /q "%STAGING_DIR%" 2>nul
 
-powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show('{success_text}', 'Atualização Concluída', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)"
+powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show({success_text}, {success_title}, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)"
 (goto) 2>nul & del "%~f0"
 exit /b 0
 
 :: ============================================================================
-:: ROTINA DE ROLLBACK AUTOMÁTICO (REVERSÃO SEGURA EM CASO DE FALHA)
+:: ROTINA DE ROLLBACK AUTOMATICO (REVERSAO SEGURA EM CASO DE FALHA)
 :: ============================================================================
 :ROLLBACK
 echo ====================================================================== >> "%LOG_FILE%"
-echo [%DATE% %TIME%] [FALHA DETECTADA - INICIANDO ROLLBACK AUTOMÁTICO] >> "%LOG_FILE%"
+echo [%DATE% %TIME%] [FALHA DETECTADA - INICIANDO ROLLBACK AUTOMATICO] >> "%LOG_FILE%"
 echo ====================================================================== >> "%LOG_FILE%"
 
 set "ROLLBACK_ERR=0"
 
-:: Restaurar .esriaddin
+:: Restaurar .esriaddin (obrigatorio no backup)
 if exist "%BACKUP_DIR%\GEE_Image_Selector.esriaddin" (
     echo [%DATE% %TIME%] Restaurando .esriaddin do backup... >> "%LOG_FILE%"
     copy /Y "%BACKUP_DIR%\GEE_Image_Selector.esriaddin" "%ADDIN_DIR%\GEE_Image_Selector.esriaddin" >> "%LOG_FILE%" 2>&1
@@ -1384,9 +1637,20 @@ if exist "%BACKUP_DIR%\GEE_Image_Selector.esriaddin" (
         echo [%DATE% %TIME%] [ERRO] Falha ao restaurar .esriaddin! >> "%LOG_FILE%"
         set "ROLLBACK_ERR=1"
     )
+) else (
+    echo [%DATE% %TIME%] [ERRO] Backup sem GEE_Image_Selector.esriaddin: nada a restaurar! >> "%LOG_FILE%"
+    set "ROLLBACK_ERR=1"
 )
 
-:: Restaurar AssemblyCache
+:: Restaurar AssemblyCache (obrigatorio no backup: gee_gui.py e config.xml)
+if not exist "%BACKUP_DIR%\AssemblyCache\gee_gui.py" (
+    echo [%DATE% %TIME%] [ERRO] Backup sem AssemblyCache\gee_gui.py! >> "%LOG_FILE%"
+    set "ROLLBACK_ERR=1"
+)
+if not exist "%BACKUP_DIR%\AssemblyCache\config.xml" (
+    echo [%DATE% %TIME%] [ERRO] Backup sem AssemblyCache\config.xml! >> "%LOG_FILE%"
+    set "ROLLBACK_ERR=1"
+)
 if exist "%BACKUP_DIR%\AssemblyCache" (
     echo [%DATE% %TIME%] Restaurando AssemblyCache do backup... >> "%LOG_FILE%"
     xcopy /s /e /y /i "%BACKUP_DIR%\AssemblyCache\*" "%CACHE_DIR%\" >> "%LOG_FILE%" 2>&1
@@ -1394,48 +1658,109 @@ if exist "%BACKUP_DIR%\AssemblyCache" (
         echo [%DATE% %TIME%] [ERRO] Falha ao restaurar AssemblyCache! >> "%LOG_FILE%"
         set "ROLLBACK_ERR=1"
     )
+) else (
+    echo [%DATE% %TIME%] [ERRO] Backup sem a pasta AssemblyCache: nada a restaurar! >> "%LOG_FILE%"
+    set "ROLLBACK_ERR=1"
 )
 
-:: Recompilar versão restaurada
+:: Recompilar versao restaurada
 del /Q /F "%CACHE_DIR%\*.pyc" 2>nul
 del /Q /F "%CACHE_DIR%\backend\*.pyc" 2>nul
 if exist "C:\Python27\ArcGIS10.8\python.exe" (
     "C:\Python27\ArcGIS10.8\python.exe" -m compileall "%CACHE_DIR%" >> "%LOG_FILE%" 2>&1
 )
+if not exist "%CACHE_DIR%\gee_gui.py" set "ROLLBACK_ERR=1"
+if not exist "%CACHE_DIR%\config.xml" set "ROLLBACK_ERR=1"
 
 rd /s /q "%STAGING_DIR%" 2>nul
 
 if "%ROLLBACK_ERR%"=="0" (
-    echo [%DATE% %TIME%] [ROLLBACK CONCLUÍDO] Estado anterior restaurado com segurança. >> "%LOG_FILE%"
-    powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show('A atualização encontrou um erro durante a instalação e foi CANCELADA.`n`nO sistema executou o ROLLBACK AUTOMÁTICO e restaurou a versão anterior com sucesso.`nNenhuma funcionalidade foi perdida.`n`nConsulte o log de atualização para mais detalhes.', 'Atualização Cancelada - Rollback Executado', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)"
+    echo [%DATE% %TIME%] [ROLLBACK CONCLUIDO] Estado anterior restaurado com seguranca. >> "%LOG_FILE%"
+    powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show({rollback_ok_text}, {rollback_ok_title}, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)"
 ) else (
     echo [%DATE% %TIME%] [ROLLBACK COM ERROS] Ocorreram falhas ao restaurar os arquivos de backup. >> "%LOG_FILE%"
-    powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show('Aviso crítico: A atualização falhou e o rollback automático encontrou erros ao restaurar arquivos.`n`nVerifique o arquivo de log para detalhes e certifique-se de que o ArcMap esteja fechado.', 'Aviso de Rollback', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)"
+    powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show({rollback_err_text}, {rollback_err_title}, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)"
 )
 (goto) 2>nul & del "%~f0"
 exit /b 1
 
 :ABORT_NO_BACKUP
-echo [%DATE% %TIME%] [ERRO FATAL] Cancelando operação pois o backup não pôde ser verificado. >> "%LOG_FILE%"
-powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show('Erro crítico de atualização: diretório de backup não encontrado.`nA operação foi cancelada e nenhum arquivo foi modificado.', 'Erro de Atualização', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)"
+echo [%DATE% %TIME%] [ERRO FATAL] Cancelando operacao pois o backup nao pode ser verificado. >> "%LOG_FILE%"
+rd /s /q "%STAGING_DIR%" 2>nul
+powershell -NoProfile -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; [System.Windows.Forms.MessageBox]::Show({abort_text}, {abort_title}, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)"
 (goto) 2>nul & del "%~f0"
 exit /b 1
-""".format(
-        log_file=log_file,
-        addin_dir=addin_dir,
-        cache_dir=cache_dir,
-        snapshot_dir=snapshot_dir,
-        staging_dir=staging_dir,
-        staged_addin=staged_addin,
-        install_dir=install_dir,
-        config_file=config_file,
-        inst_backend=inst_backend,
-        dev_repo=dev_repo,
-        success_text=_bat_text(success_text.replace("'", ""))
+"""
+
+
+def build_runner_script(staging_info, backup_info, sys_dirs, log_file, sync_dev_repo=True, success_text=None,
+                        gui_process=None):
+    """Texto (unicode) do .bat do executor. Funcao pura: os testes geram o script sem executa-lo."""
+    success_text = success_text or (u"ArcMagery atualizado com sucesso!\n\nTodos os arquivos foram validados, "
+                                    u"instalados e recompilados.\nReabra o ArcMap para carregar a nova versão.")
+    # No rollback a versao ANTIGA nunca e copiada para o repositorio de desenvolvimento
+    dev_repo = (sys_dirs.get("dev_repo") or u"") if sync_dev_repo else u""
+    gui_pid, gui_exe = gui_process if gui_process is not None else _gui_process_to_stop()
+    template = _BAT_TEMPLATE if sys.version_info[0] >= 3 else _BAT_TEMPLATE.decode("ascii")
+    return template.format(
+        log_file=bat_path_text(log_file),
+        addin_dir=bat_path_text(sys_dirs.get("addin_dir")),
+        cache_dir=bat_path_text(sys_dirs.get("cache_dir")),
+        snapshot_dir=bat_path_text(backup_info["snapshot_dir"]),
+        staging_dir=bat_path_text(staging_info["staging_dir"]),
+        staged_addin=bat_path_text(staging_info["staged_addin"]),
+        install_dir=bat_path_text(staging_info["install_dir"]),
+        config_file=bat_path_text(staging_info["config_file"]),
+        inst_backend=bat_path_text(staging_info["inst_backend"]),
+        dev_repo=bat_path_text(dev_repo),
+        gui_pid=_bat_text(gui_pid),
+        gui_name=os.path.splitext(_bat_text(gui_exe))[0],   # Get-Process: nome sem '.exe'
+        success_text=ps_message_expr(success_text),
+        success_title=ps_message_expr(u"Atualização Concluída"),
+        rollback_ok_text=ps_message_expr(
+            u"A atualização encontrou um erro durante a instalação e foi CANCELADA.\n\n"
+            u"O sistema executou o ROLLBACK AUTOMÁTICO e restaurou a versão anterior com sucesso.\n"
+            u"Nenhuma funcionalidade foi perdida.\n\nConsulte o log de atualização para mais detalhes."),
+        rollback_ok_title=ps_message_expr(u"Atualização Cancelada - Rollback Executado"),
+        rollback_err_text=ps_message_expr(
+            u"Aviso crítico: a atualização falhou e o rollback automático encontrou erros ao restaurar arquivos.\n\n"
+            u"Verifique o arquivo de log para detalhes e certifique-se de que o ArcMap esteja fechado."),
+        rollback_err_title=ps_message_expr(u"Aviso de Rollback"),
+        abort_text=ps_message_expr(
+            u"Erro crítico de atualização: o backup de segurança não foi encontrado ou está incompleto.\n"
+            u"A operação foi cancelada e nenhum arquivo foi modificado."),
+        abort_title=ps_message_expr(u"Erro de Atualização"),
     )
 
-    with open(bat_path, "w") as f_bat:
-        f_bat.write(bat_content)
+
+def generate_and_launch_detached_runner(staging_info, backup_info, sync_dev_repo=True, success_text=None):
+    """
+    Gera e despacha o script de instalação desacoplado com transação e ROLLBACK AUTOMÁTICO.
+    O script roda independente de processos Python (evitando travas de arquivos) e:
+    1. Aguarda o fechamento do processo da GUI (só o PID dela, conferindo o nome do executável;
+       finaliza-o se não fechar em ~15 s). Nunca 'taskkill /im pythonw.exe' (U-02).
+    2. Valida o snapshot (esriaddin + AssemblyCache) antes de iniciar qualquer alteração.
+    3. Executa a cópia atômica com verificação de ERRORLEVEL a cada passo.
+    4. Limpa pyc antigos e recompila novos módulos com python.exe.
+    5. Efetua SMOKE TEST: confere se gee_gui.py e config.xml estão íntegros no destino.
+    6. Em caso de falha em QUALQUER etapa: salta para :ROLLBACK, restaura todo o snapshot
+       anterior, recompila e exibe mensagem de alerta informando a reversão segura.
+    7. Em caso de sucesso total: limpa o staging e exibe notificação de sucesso.
+    O .bat é gravado no codepage ANSI (o cmd desanexado não tem console: chcp não funciona) e os
+    caminhos fora do ANSI usam o nome 8.3.
+    """
+    sys_dirs = find_system_directories()
+    log_file = get_updater_log_path()
+
+    ts = int(time.time() * 1000) % 1000000
+    bat_path = os.path.join(runner_dir(), u"apply_arcgee_update_%d_%d.bat" % (os.getpid(), ts))
+
+    log_info(u"Gerando script desacoplado de transação: %s" % bat_path)
+    bat_content = build_runner_script(staging_info, backup_info, sys_dirs, log_file,
+                                      sync_dev_repo=sync_dev_repo, success_text=success_text)
+
+    with open(bat_path, "wb") as f_bat:
+        f_bat.write(_bat_bytes(bat_content))
 
     log_info(u"Script em lote criado. Despachando processo desanexado...")
 
@@ -1445,7 +1770,7 @@ exit /b 1
     creation_flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
 
     subprocess.Popen(
-        ["cmd.exe", "/c", bat_path],
+        cmd_run_bat_line(bat_path),
         creationflags=creation_flags,
         close_fds=True
     )
@@ -1493,17 +1818,21 @@ def execute_zip_update_flow(zip_path, current_version="2.4.1", progress_callback
     # Fase 2: Snapshot de segurança
     backup_meta = create_snapshot_backup(current_version=current_version)
 
-    if progress_callback:
-        progress_callback(u"3/4 Preparando e compilando nova versão...")
+    try:
+        if progress_callback:
+            progress_callback(u"3/4 Preparando e compilando nova versão...")
 
-    # Fase 3: Staging isolado
-    staging_info = prepare_staging_environment(zip_path)
+        # Fase 3: Staging isolado
+        staging_info = prepare_staging_environment(zip_path)
 
-    if progress_callback:
-        progress_callback(u"4/4 Finalizando e aplicando alterações...")
+        if progress_callback:
+            progress_callback(u"4/4 Finalizando e aplicando alterações...")
 
-    # Fase 4: Despacho desacoplado
-    generate_and_launch_detached_runner(staging_info, backup_meta)
+        # Fase 4: Despacho desacoplado
+        generate_and_launch_detached_runner(staging_info, backup_meta)
+    except Exception:
+        discard_snapshot(backup_meta)   # nada foi aplicado: o snapshot da versao atual nao vira "anterior"
+        raise
     return True
 
 def execute_git_update_flow(repo_path, remote_branch="main", current_version="2.4.1", progress_callback=None):
@@ -1526,7 +1855,15 @@ def execute_git_update_flow(repo_path, remote_branch="main", current_version="2.
 
     # Fase 2: Snapshot de segurança
     backup_meta = create_snapshot_backup(current_version=current_version)
+    try:
+        return _git_update_after_snapshot(repo_path, remote_branch, git_meta, backup_meta, progress_callback)
+    except Exception:
+        discard_snapshot(backup_meta)
+        raise
 
+
+def _git_update_after_snapshot(repo_path, remote_branch, git_meta, backup_meta, progress_callback):
+    repo_path = _cmdline_path(repo_path)
     if progress_callback:
         progress_callback(u"3/4 Baixando atualizações do GitHub via Git...")
 
@@ -1609,7 +1946,7 @@ def execute_online_github_update_flow(current_version="2.4.1", progress_callback
             # Se for um erro específico de Git (ex: dirty working tree), propagar para o usuário
             raise e_pf
         except Exception as e_git_fallback:
-            log_warning(u"Atualização Git não pôde ser concluída (%s). Alternando para canal ZIP online." % e_git_fallback)
+            log_warning(u"Atualização Git não pôde ser concluída (%s). Alternando para canal ZIP online." % _err(e_git_fallback))
 
     # Canal ZIP Online: Release publicada + SHA256SUMS (verificado) ou, com confirmação
     # explícita do usuário, o branch main sem verificação de integridade.
@@ -1658,7 +1995,7 @@ def execute_online_github_update_flow(current_version="2.4.1", progress_callback
     if progress_callback:
         progress_callback(u"1/4 Baixando pacote do GitHub...")
 
-    tmp_zip = os.path.join(tempfile.gettempdir(), "arcgee_github_update_%d.zip" % int(time.time()))
+    tmp_zip = os.path.join(_temp_dir(), u"arcgee_github_update_%d.zip" % int(time.time()))
 
     def dl_progress(down, total):
         if total and progress_callback:
@@ -1731,10 +2068,18 @@ def describe_backup(b):
     return u"v%s%s" % (b.get("version"), when)
 
 
-def find_previous_version_backup(backups_root=None):
-    """Versao anterior = o snapshot mais recente (tirado antes da ultima atualizacao ou rollback)."""
-    backups = list_version_backups(backups_root)
-    return backups[0] if backups else None
+def find_previous_version_backup(backups_root=None, current_version=None):
+    """Versao anterior = o snapshot mais recente (tirado antes da ultima atualizacao ou rollback) de
+    uma versao DIFERENTE da instalada: um snapshot da propria versao atual (reinstalacao da mesma versao
+    ou fluxo que falhou depois do snapshot) nao 'volta' para nada."""
+    cur_k = version_key(current_version) if current_version else None
+    for b in list_version_backups(backups_root):
+        if cur_k is not None and version_key(b.get("version")) == cur_k:
+            continue
+        if current_version and cur_k is None and b.get("version") == current_version:
+            continue
+        return b
+    return None
 
 
 def execute_rollback_to_previous_flow(current_version="2.4.1", progress_callback=None, backup=None):
@@ -1742,7 +2087,7 @@ def execute_rollback_to_previous_flow(current_version="2.4.1", progress_callback
     snapshot da versao ATUAL primeiro (se a restauracao falhar, o executor volta a ela), copia do
     backup escolhido para um staging descartavel e nada e copiado para o repositorio de desenvolvimento."""
     log_info(u"=== INICIANDO ROLLBACK PARA A VERSÃO ANTERIOR ===")
-    target = backup or find_previous_version_backup()
+    target = backup or find_previous_version_backup(current_version=current_version)
     if not target:
         raise UpdaterError(
             u"Nenhum snapshot de versão anterior encontrado em %s." % get_backups_dir(),
@@ -1762,32 +2107,36 @@ def execute_rollback_to_previous_flow(current_version="2.4.1", progress_callback
         progress_callback(u"1/3 Salvando a versão atual (para poder desfazer)...")
     backup_meta = create_snapshot_backup(current_version=current_version)
 
-    if progress_callback:
-        progress_callback(u"2/3 Preparando %s..." % label)
-    staging_dir = tempfile.mkdtemp(prefix="arcgee_rollback_")
-    install_dir = os.path.join(staging_dir, "Install")
-    shutil.copytree(target["cache_dir"], install_dir)
-    staged_addin = os.path.join(staging_dir, "GEE_Image_Selector.esriaddin")
-    shutil.copy2(target["addin"], staged_addin)
-    for root, _dirs, files in os.walk(install_dir):
-        for f in files:
-            if f.endswith((".pyc", ".pyo")):
-                try:
-                    os.remove(os.path.join(root, f))
-                except Exception:
-                    pass
-    staging_info = {
-        "staging_dir": staging_dir,
-        "config_file": os.path.join(install_dir, "config.xml"),
-        "install_dir": install_dir,
-        "inst_backend": os.path.join(install_dir, "backend"),
-        "staged_addin": staged_addin,
-    }
+    try:
+        if progress_callback:
+            progress_callback(u"2/3 Preparando %s..." % label)
+        staging_dir = tempfile.mkdtemp(prefix="arcgee_rollback_", dir=_temp_dir())
+        install_dir = os.path.join(staging_dir, u"Install")
+        shutil.copytree(target["cache_dir"], install_dir)
+        staged_addin = os.path.join(staging_dir, u"GEE_Image_Selector.esriaddin")
+        shutil.copy2(target["addin"], staged_addin)
+        for root, _dirs, files in os.walk(install_dir):
+            for f in files:
+                if f.endswith((".pyc", ".pyo")):
+                    try:
+                        os.remove(os.path.join(root, f))
+                    except Exception:
+                        pass
+        staging_info = {
+            "staging_dir": staging_dir,
+            "config_file": os.path.join(install_dir, u"config.xml"),
+            "install_dir": install_dir,
+            "inst_backend": os.path.join(install_dir, u"backend"),
+            "staged_addin": staged_addin,
+        }
 
-    if progress_callback:
-        progress_callback(u"3/3 Aplicando %s..." % label)
-    generate_and_launch_detached_runner(
-        staging_info, backup_meta, sync_dev_repo=False,
-        success_text=u"ArcMagery voltou para a versão anterior (%s).`n`nReabra o ArcMap para carregar essa versão. "
-                     u"Para desfazer, use de novo o botão de rollback." % label)
+        if progress_callback:
+            progress_callback(u"3/3 Aplicando %s..." % label)
+        generate_and_launch_detached_runner(
+            staging_info, backup_meta, sync_dev_repo=False,
+            success_text=u"ArcMagery voltou para a versão anterior (%s).\n\nReabra o ArcMap para carregar essa versão. "
+                         u"Para desfazer, use de novo o botão de rollback." % label)
+    except Exception:
+        discard_snapshot(backup_meta)
+        raise
     return target

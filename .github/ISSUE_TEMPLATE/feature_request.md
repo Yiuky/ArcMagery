@@ -11,4 +11,4 @@ labels: enhancement
 
 **Fonte de dados envolvida** (precisa ter API/serviço público ou licença de uso):
 
-Antes de abrir, veja se já existe no [BACKLOG.md](../../BACKLOG.md).
+Antes de abrir, veja se já existe no [BACKLOG.md](https://github.com/Yiuky/arcgis-google-earth-engine-explorer/blob/main/BACKLOG.md).

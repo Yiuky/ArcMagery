@@ -311,7 +311,8 @@ class RollbackToPreviousTest(unittest.TestCase):
                                                         'dev_repo': os.path.join(self.tmp, 'repo')})
         import subprocess
         saved_popen = subprocess.Popen
-        subprocess.Popen = lambda args, **kw: written.setdefault('bat', open(args[-1]).read())
+        # linha 'cmd.exe /d /s /c ""<bat>""' (aspas duplas: caminhos com '&' nao quebram)
+        subprocess.Popen = lambda args, **kw: written.setdefault('bat', open(args.split(b'""')[1]).read())
         try:
             up.generate_and_launch_detached_runner(
                 {'staging_dir': 's', 'config_file': 'c', 'install_dir': 'i', 'inst_backend': 'b', 'staged_addin': 'a'},
@@ -320,8 +321,10 @@ class RollbackToPreviousTest(unittest.TestCase):
             subprocess.Popen = saved_popen
         bat = written['bat']
         lines = [l.strip() for l in bat.splitlines()]
-        self.assertIn('set DEV_REPO=', lines)          # vazio: o rollback nao sincroniza o repositorio
+        self.assertIn('set "DEV_REPO="', lines)        # vazio: o rollback nao sincroniza o repositorio
         self.assertIn('Voltou para a vers', bat)
+        self.assertNotIn('chcp', bat)                  # desanexado nao tem console: o .bat e ANSI
+        self.assertNotIn('/im pythonw.exe', bat)       # U-02: nunca mata todos os pythonw
 
 
 if __name__ == '__main__':
