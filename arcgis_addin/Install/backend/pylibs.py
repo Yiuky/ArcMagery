@@ -24,7 +24,7 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MANIFEST = os.path.join(HERE, 'pylibs_manifest.json')
-USER_AGENT = 'ArcMagery/2.0 (+https://github.com/Yiuky/arcgis-google-earth-engine-explorer)'
+USER_AGENT = 'ArcMagery/2.0 (+https://github.com/Yiuky/ArcMagery)'
 # Diretorios grandes que o ArcMagery nao usa (o 'ee' busca o documento de descoberta no servidor)
 PRUNE = [os.path.join('googleapiclient', 'discovery_cache', 'documents')]
 MARKER = 'arcmagery_pylibs.json'

@@ -628,7 +628,7 @@ class GEEAboutDialog(object):
 
     def _open_github(self):
         try:
-            webbrowser.open("https://github.com/Yiuky/arcgis-google-earth-engine-explorer")
+            webbrowser.open("https://github.com/Yiuky/ArcMagery")
         except Exception:
             pass
 
@@ -1642,7 +1642,7 @@ class GEEPluginWindow(object):
                     if sys.version_info[0] < 3:
                         import urllib2
                         req = urllib2.Request(
-                            "https://api.github.com/repos/Yiuky/arcgis-google-earth-engine-explorer/commits/main",
+                            "https://api.github.com/repos/Yiuky/ArcMagery/commits/main",
                             headers={'User-Agent': 'ArcMagery-UpdateCheck'}
                         )
                         res = urllib2.urlopen(req, timeout=5)
@@ -1652,7 +1652,7 @@ class GEEPluginWindow(object):
                         import urllib.request
                         import json
                         req = urllib.request.Request(
-                            "https://api.github.com/repos/Yiuky/arcgis-google-earth-engine-explorer/commits/main",
+                            "https://api.github.com/repos/Yiuky/ArcMagery/commits/main",
                             headers={'User-Agent': 'ArcMagery-UpdateCheck'}
                         )
                         res = urllib.request.urlopen(req, timeout=5)

@@ -32,7 +32,7 @@ except Exception:  # pragma: no cover
     HAS_GDAL = False
 
 STAC_URL = os.environ.get('ARCMAGERY_STAC_URL', 'https://data.inpe.br/bdc/stac/v1').rstrip('/')
-USER_AGENT = 'ArcMagery/2.0 (+https://github.com/Yiuky/arcgis-google-earth-engine-explorer)'
+USER_AGENT = 'ArcMagery/2.0 (+https://github.com/Yiuky/ArcMagery)'
 
 # Bandas por camera (especificacao INPE). Ordem: azul, verde, vermelho, NIR.
 _MUX = ['BAND5', 'BAND6', 'BAND7', 'BAND8']

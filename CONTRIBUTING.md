@@ -6,7 +6,7 @@ ajuda é bem-vinda: relatos de problemas, sugestões, documentação e código.
 ## Relatar um problema
 
 1. Confira a seção [Solução de problemas](docs/MANUAL_DE_USO_E_INSTALACAO.md#8-solução-de-problemas) do
-   manual e se já existe uma [issue](https://github.com/Yiuky/arcgis-google-earth-engine-explorer/issues)
+   manual e se já existe uma [issue](https://github.com/Yiuky/ArcMagery/issues)
    parecida.
 2. Abra uma issue com o modelo **Relatar problema** e anexe:
    - `%LOCALAPPDATA%\ArcMagery\diagnostico.txt` (gerado pelo `install.bat` e pelo botão

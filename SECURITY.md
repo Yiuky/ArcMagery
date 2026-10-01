@@ -11,7 +11,7 @@
 ## Como relatar uma vulnerabilidade
 
 **Não abra uma issue pública.** Use o relato privado do GitHub:
-[Report a vulnerability](https://github.com/Yiuky/arcgis-google-earth-engine-explorer/security/advisories/new)
+[Report a vulnerability](https://github.com/Yiuky/ArcMagery/security/advisories/new)
 (aba *Security* do repositório).
 
 Inclua a versão afetada, os passos para reproduzir e o impacto esperado. A resposta inicial costuma sair em

@@ -112,7 +112,7 @@ As outras fontes (CBERS, SPOT, Google Earth, Esri) **não** dependem do Earth En
 
 ### 4.2 Instalação com o `install.bat` (recomendada)
 
-1. Baixe o `ArcMagery-<versão>.zip` da [última Release](https://github.com/Yiuky/arcgis-google-earth-engine-explorer/releases/latest)
+1. Baixe o `ArcMagery-<versão>.zip` da [última Release](https://github.com/Yiuky/ArcMagery/releases/latest)
    e extraia numa **pasta de caminho curto**, por exemplo `C:\ArcMagery` (caminhos longos passam do
    limite de 260 caracteres do Windows). Quem usa git pode clonar o repositório.
 2. Dê um duplo clique em **`install.bat`**. O instalador:
@@ -580,7 +580,7 @@ Bing quando essas fontes são usadas.
 
 * **Desenvolvedor:** Joberth Firmino Gambati ([@Yiuky](https://github.com/Yiuky)).
 * Projeto **pessoal e independente**: não é um produto oficial de nenhuma instituição nem fala em nome dela.
-* **Repositório:** <https://github.com/Yiuky/arcgis-google-earth-engine-explorer>
+* **Repositório:** <https://github.com/Yiuky/ArcMagery>
 * **Licença:** código aberto sob a [licença MIT](../LICENSE): uso livre para fins pessoais, acadêmicos e
   comerciais.
 * **Imagens:** © Google, © Esri e parceiros, © Microsoft, CBERS/Amazônia-1 © INPE, SPOT © CNES (Etalab 2.0)

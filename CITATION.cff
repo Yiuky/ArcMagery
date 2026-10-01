@@ -12,8 +12,8 @@ authors:
 version: 2.4.2
 date-released: 2026-10-01
 license: MIT
-repository-code: "https://github.com/Yiuky/arcgis-google-earth-engine-explorer"
-url: "https://github.com/Yiuky/arcgis-google-earth-engine-explorer"
+repository-code: "https://github.com/Yiuky/ArcMagery"
+url: "https://github.com/Yiuky/ArcMagery"
 keywords:
   - ArcGIS
   - ArcMap

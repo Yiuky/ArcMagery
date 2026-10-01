@@ -52,5 +52,5 @@ echo      ^(baixa a ultima Release do canal escolhido e confere o SHA-256 antes 
 echo   2. Baixe a ultima Release, extraia em uma pasta nova e execute o install.bat.
 echo.
 set /p OPEN="Abrir a pagina de Releases no navegador? (S/N): "
-if /i "%OPEN%"=="S" start "" "https://github.com/Yiuky/arcgis-google-earth-engine-explorer/releases/latest"
+if /i "%OPEN%"=="S" start "" "https://github.com/Yiuky/ArcMagery/releases/latest"
 exit /b 0

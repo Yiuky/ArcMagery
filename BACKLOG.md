@@ -100,6 +100,7 @@ Nenhum item aberto (o U-02 foi concluído; ver **Concluídos**).
 | B-05 | `has_credentials` exige o arquivo `credentials` e rejeita conta de serviço/ADC | `gee_core` | Tentar `ee.Initialize` antes de negar |
 | U-05 | O passo 7 do atualizador (sincronizar repositório de desenvolvimento) sobrescreve edições locais no canal ZIP | `gee_updater` (template) | Remover: o atualizador não deve mexer no repositório |
 | N-10 | Percent Clip: percentuais por camada não são expostos pelo ArcObjects 10.8 (vale o padrão do ArcMap). Avaliar se `IRasterDefaultsEnv7.MinPercent/MaxPercent` deve ser ajustado pelo plugin (altera um padrão global do usuário) | `arcmagery_symbology.py` | Decisão do mantenedor |
+| T-01 | `tests/arcmap/test_cancel_and_hang.py` falhou 1 vez em 3 rodadas da suíte completa (2026-10-01), mas passou 8 vezes seguidas sozinho: limites de tempo fixos sensíveis à carga | `test_cancel_and_hang.py`, `gee_bridge.RESULT_GRACE_SECONDS` | Trocar esperas fixas por espera com prazo (poll) e folga maior |
 | X-01 | Cache de tiles XYZ (`<saída>_tiles`) fica órfão quando o download falha: a janela XYZ dá nome com data/hora a cada download, então nunca retoma | `xyz_core.py`, `arcmagery_sources_gui.py` | Cache com chave estável (provedor, zoom, bbox) em `%LOCALAPPDATA%\ArcMagery\cache\xyz`, com expiração |
 | G-10 | Landsat 7 aparece como "Presente (Ativo)" no quadro do sensor, mas a missão terminou | `gee_gui` (metadados dos sensores) | Conferir a última data no acervo e mostrar o período fechado |
 | N-07 | Rede com inspeção SSL que não confia no bundle do Windows: não há opção de CA na interface | `stac_core.configure_gdal_http` | Campo "CA bundle (.pem)" nas Configurações → `GDAL_CURL_CA_BUNDLE` |
@@ -118,7 +119,6 @@ Nenhum item aberto (o U-02 foi concluído; ver **Concluídos**).
 | N-06 | Campo de **URL XYZ personalizada** na interface (o backend já aceita `{z}/{x}/{y}`, `{s}` e `{q}`) | `xyz_core.get_provider` |
 | N-08 | Teste de fumaça da janela principal (`GEEPluginWindow`) com a ponte simulada | `tests/arcmap` |
 | R-01 | Centralizar versão e nome (hoje em `config.xml`, `gee_gui.CURRENT_VERSION` e padrões do atualizador; o teste `test_versions_are_consistent` garante que coincidem) | Ler de `config.xml` |
-| R-02 | Renomear o repositório GitHub para `arcmagery` (o GitHub redireciona o antigo) e atualizar as URLs em `gee_updater.py`, `gee_gui.py` e `README.md` | Fazer depois da U-01 |
 | R-03 | `gee_gui.py` tem 3.200 linhas: dividir `setup_ui` (~365 linhas) e unificar os caminhos multicore/sequencial de download | Refatoração sem mudar comportamento, protegida por testes |
 | R-05 | Proveniência da build: `actions/attest-build-provenance` e actions fixadas por SHA no `release.yml` | O `SHA256SUMS.txt` publicado na mesma Release não protege contra conta comprometida |
 | R-06 | Renomear `GEE_Image_Selector.esriaddin` para `ArcMagery.esriaddin` (mesmo `AddInID`) e migrar `%LOCALAPPDATA%\CGMA_ArcGEE` para `%LOCALAPPDATA%\ArcMagery`, lendo a pasta antiga | Exige migração no atualizador e no rollback; ver R-04 |
@@ -130,6 +130,7 @@ Nenhum item aberto (o U-02 foi concluído; ver **Concluídos**).
 
 | ID | Versão | Descrição | Coberto por |
 |---|---|---|---|
+| R-02 | não lançado | Repositório renomeado para `ArcMagery` (o GitHub redireciona o nome antigo; atualizador conferido com a URL antiga em Py2 e Py3) | conferência manual (2026-10-01) |
 | U-02 | 2.4.2 | `.bat` do atualizador encerrava todos os `pythonw.exe`; agora espera/encerra só o PID da interface | `tests/arcmap/test_robustness_fixes.py` (execução real desanexada) |
 | U-04 | 2.4.2 | Atualizador e `.bat` com caminhos acentuados (unicode + `.bat` em ANSI/8.3, sem `chcp`) | `test_robustness_fixes.py` |
 | G-01 | 2.4.2 | Atualizador usa a fila da GUI (`post_to_gui`) em vez de `top.after` nas threads | `test_robustness_fixes.py` |

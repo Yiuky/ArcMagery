@@ -30,7 +30,7 @@ import tilemath  # noqa: E402
 
 WAYBACK_CONFIG_URL = "https://s3-us-west-2.amazonaws.com/config.maptiles.arcgis.com/waybackconfig.json"
 TILEMAP_URL = "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tilemap"
-USER_AGENT = "ArcMagery/2.3 (+https://github.com/Yiuky/arcgis-google-earth-engine-explorer)"
+USER_AGENT = "ArcMagery/2.3 (+https://github.com/Yiuky/ArcMagery)"
 CACHE_SECONDS = 24 * 3600
 ATTRIBUTION = u"Esri, Maxar, Vantor, Airbus e parceiros (World Imagery / Wayback)"
 

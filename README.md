@@ -17,14 +17,14 @@
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-2.7%20%7C%203.8--3.14-3776AB.svg?logo=python&logoColor=white" alt="Python"></a>
   <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.4.2-28A745.svg" alt="Versão v2.4.2"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License MIT"></a>
-  <a href="https://github.com/Yiuky/arcgis-google-earth-engine-explorer/actions/workflows/tests.yml"><img src="https://github.com/Yiuky/arcgis-google-earth-engine-explorer/actions/workflows/tests.yml/badge.svg" alt="Testes"></a>
+  <a href="https://github.com/Yiuky/ArcMagery/actions/workflows/tests.yml"><img src="https://github.com/Yiuky/ArcMagery/actions/workflows/tests.yml/badge.svg" alt="Testes"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/Yiuky/arcgis-google-earth-engine-explorer/releases/latest"><strong>⬇️ Baixar</strong></a> •
+  <a href="https://github.com/Yiuky/ArcMagery/releases/latest"><strong>⬇️ Baixar</strong></a> •
   <a href="docs/MANUAL_DE_USO_E_INSTALACAO.md"><strong>📖 Manual</strong></a> •
   <a href="CHANGELOG.md"><strong>📋 Novidades</strong></a> •
-  <a href="https://github.com/Yiuky/arcgis-google-earth-engine-explorer/issues/new/choose"><strong>🐞 Relatar problema</strong></a> •
+  <a href="https://github.com/Yiuky/ArcMagery/issues/new/choose"><strong>🐞 Relatar problema</strong></a> •
   <a href="#-english-abstract"><strong>🌐 English</strong></a> •
   <a href="#-doe-um-café-para-o-dev"><strong>☕ Doe um café</strong></a>
 </p>
@@ -94,7 +94,7 @@ plugin que **se diagnostica e se recupera sozinho**.
 
 ## ⚡ Instalação
 
-1. Baixe o `ArcMagery-<versão>.zip` da [última Release](https://github.com/Yiuky/arcgis-google-earth-engine-explorer/releases/latest)
+1. Baixe o `ArcMagery-<versão>.zip` da [última Release](https://github.com/Yiuky/ArcMagery/releases/latest)
    e extraia numa **pasta de caminho curto** (ex.: `C:\ArcMagery`).
 2. Feche o ArcMap e execute **`install.bat`** (não precisa ser administrador). O instalador:
    - encontra o Python do QGIS mais novo (ou o indicado em `GEE_PYTHON3`);

@@ -48,12 +48,12 @@ import xml.etree.ElementTree as ET
 ADDIN_UUID = "{ceae58c4-c44e-4edd-b8f4-1ba7d13b6b7d}"
 ADDIN_UUID_UPPER = "{CEAE58C4-C44E-4EDD-B8F4-1BA7D13B6B7D}"
 
-GITHUB_REPO_URL = "https://github.com/Yiuky/arcgis-google-earth-engine-explorer"
-GITHUB_ZIP_URL = "https://github.com/Yiuky/arcgis-google-earth-engine-explorer/archive/refs/heads/main.zip"
+GITHUB_REPO_URL = "https://github.com/Yiuky/ArcMagery"
+GITHUB_ZIP_URL = "https://github.com/Yiuky/ArcMagery/archive/refs/heads/main.zip"
 # Canal oficial: GitHub Releases com arquivo de hashes publicado junto do pacote.
-GITHUB_API_LATEST_RELEASE = "https://api.github.com/repos/Yiuky/arcgis-google-earth-engine-explorer/releases/latest"
+GITHUB_API_LATEST_RELEASE = "https://api.github.com/repos/Yiuky/ArcMagery/releases/latest"
 # Lista de Releases (inclui pre-releases/nightly; /latest so devolve a ultima ESTAVEL)
-GITHUB_API_RELEASES = "https://api.github.com/repos/Yiuky/arcgis-google-earth-engine-explorer/releases?per_page=40"
+GITHUB_API_RELEASES = "https://api.github.com/repos/Yiuky/ArcMagery/releases?per_page=40"
 # Canais de atualizacao: estavel (Releases normais) e experimental (pre-releases "-nightly.AAAAMMDD")
 CHANNEL_STABLE, CHANNEL_NIGHTLY = "stable", "nightly"
 CHANNEL_LABELS = {CHANNEL_STABLE: u"Estável", CHANNEL_NIGHTLY: u"Experimental (nightly)"}

@@ -7,6 +7,6 @@ quem usa o ArcMagery e não tolere assédio, ofensas ou exposição de dados pes
 para issues, pull requests e qualquer outro espaço do projeto.
 
 Comportamentos inaceitáveis podem ser relatados ao mantenedor pelo
-[relato privado do GitHub](https://github.com/Yiuky/arcgis-google-earth-engine-explorer/security/advisories/new)
+[relato privado do GitHub](https://github.com/Yiuky/ArcMagery/security/advisories/new)
 ou pelo [LinkedIn](https://www.linkedin.com/in/joberth-firmino-gambati-57248a94). Os relatos são tratados
 com sigilo, e o mantenedor pode remover comentários, commits ou contribuições que violem este código.

@@ -51,7 +51,7 @@ GEODES_URL = os.environ.get('ARCMAGERY_GEODES_URL', 'https://geodes-portal.cnes.
 STAC_SEARCH = GEODES_URL + '/api/stac/search'
 QUOTA_URL = GEODES_URL + '/processing/download/get'
 DATASETS = ('SWH_SPOT123_L1', 'SWH_SPOT4_L1', 'SWH_SPOT5_L1')
-USER_AGENT = 'ArcMagery/2.0 (+https://github.com/Yiuky/arcgis-google-earth-engine-explorer)'
+USER_AGENT = 'ArcMagery/2.0 (+https://github.com/Yiuky/ArcMagery)'
 ATTRIBUTION = u"SPOT images acquired by CNES's Spot World Heritage Programme (Licence Ouverte Etalab 2.0)"
 PAGE = 500
 
