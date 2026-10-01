@@ -24,7 +24,20 @@ import sys
 import tempfile
 from typing import Dict, Any, Optional, Callable
 
-from qgis.PyQt.QtCore import QObject, QThread, pyqtSignal
+try:
+    from qgis.PyQt.QtCore import QObject, QThread, pyqtSignal
+except ImportError:
+    try:
+        from PyQt5.QtCore import QObject, QThread, pyqtSignal
+    except ImportError:
+        class QObject:
+            def __init__(self, *args, **kwargs): pass
+        class QThread:
+            def __init__(self, *args, **kwargs): pass
+        class pyqtSignal:
+            def __init__(self, *args, **kwargs): pass
+            def emit(self, *args, **kwargs): pass
+            def connect(self, *args, **kwargs): pass
 
 
 # os.path.realpath resolve junctions e symlinks do Windows.

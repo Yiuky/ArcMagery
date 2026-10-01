@@ -6,10 +6,23 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 
 ## [Não lançado]
 
-### 🔧 Alterado
-- Repositório renomeado de `arcgis-google-earth-engine-explorer` para **`ArcMagery`**. O GitHub
-  redireciona o endereço antigo, então o atualizador das versões já instaladas continua encontrando as
-  novas versões; os links do plugin e da documentação passam a usar o nome novo.
+## [2.4.3-nightly.20261001] - 2026-10-01
+
+> Versão experimental (nightly): inclusão do plugin QMagery para QGIS (suporte completo a GEE,
+> INPE STAC com CBERS-2/2B/4/4A e Amazônia-1, SPOT 1-5, Google Earth Histórico, Esri Wayback e XYZ),
+> integração de status de carga e paridade monorepo com ArcMagery.
+
+### 🌟 Adicionado
+- **Plugin QMagery para QGIS:**
+  - Porta completa da funcionalidade do ArcMagery para o QGIS 3.x (PyQGIS).
+  - Catálogo completo do INPE com suporte a todas as 30 coleções, incluindo CBERS-2, CBERS-2B, Cubes e Mosaicos.
+  - Carregamento de rasters diretamente no painel de camadas do QGIS em resolução nativa.
+  - Integração de status com marcação visual na tabela (`✓ Carregado`), barra de progresso com porcentagem centralizada e botões de ação alinhados.
+  - Cancelamento atômico e imediato de tarefas em segundo plano sem travamentos ou janelas de console.
+
+### 🛡️ Corrigido
+- Tratamento de caracteres especiais e formato de data no salvamento de arquivos temporários no Windows.
+- Ocultação da janela de console (`CREATE_NO_WINDOW` e `SW_HIDE`) em todas as operações de subprocesso.
 
 ## [2.4.2] - 2026-10-01
 
