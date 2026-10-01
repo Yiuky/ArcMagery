@@ -26,7 +26,8 @@
   <a href="CHANGELOG.md"><strong>📋 Changelog</strong></a> •
   <a href="BACKLOG.md"><strong>🗂️ Backlog</strong></a> •
   <a href="AGENTS.md"><strong>🤖 Guia para desenvolvedores / IA</strong></a> •
-  <a href="#-english-abstract"><strong>🌐 English</strong></a>
+  <a href="#-english-abstract"><strong>🌐 English</strong></a> •
+  <a href="#-doe-um-café-para-o-dev"><strong>☕ Doe um café</strong></a>
 </p>
 
 ---
@@ -206,6 +207,26 @@ resolution, from six sources in a single window:
 ## 🔍 Tópicos
 
 `arcgis` • `arcmap` • `arcgis-addin` • `google-earth-engine` • `google-earth` • `esri-wayback` • `cbers` • `amazonia-1` • `inpe` • `spot` • `cnes` • `stac` • `sentinel-2` • `landsat` • `satellite-imagery-downloader` • `remote-sensing` • `sema-mt-cgma`
+
+## ☕ Doe um café para o dev
+
+O ArcMagery é gratuito e de código aberto, desenvolvido nas horas vagas e no dia a dia da fiscalização
+ambiental. Se ele economizou o seu tempo, considere pagar um café para o desenvolvedor: ajuda a manter o
+projeto vivo e a trazer novas fontes de imagem.
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/pix_qrcode.png" alt="QR Code Pix" width="180" /></td>
+    <td>
+      <strong>Pix</strong> (qualquer valor)<br><br>
+      Chave aleatória:<br>
+      <code>fcf8071f-416d-49f1-b4b9-3188d3d03c4b</code><br><br>
+      Pix copia e cola:<br>
+      <code>00020101021126580014br.gov.bcb.pix0136fcf8071f-416d-49f1-b4b9-3188d3d03c4b5204000053039865802BR5917JOBERTH F GAMBATI6006CUIABA62070503***63048088</code><br><br>
+      <em>Favorecido: Joberth Firmino Gambati</em>
+    </td>
+  </tr>
+</table>
 
 ## 👤 Autor e licença
 
