@@ -9,8 +9,8 @@ abstract: >-
 authors:
   - family-names: Gambati
     given-names: Joberth Firmino
-version: 2.4.1
-date-released: 2026-09-30
+version: 2.4.2
+date-released: 2026-10-01
 license: MIT
 repository-code: "https://github.com/Yiuky/arcgis-google-earth-engine-explorer"
 url: "https://github.com/Yiuky/arcgis-google-earth-engine-explorer"

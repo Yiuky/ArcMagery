@@ -15,7 +15,7 @@
   <a href="https://data.inpe.br/stac/browser/"><img src="https://img.shields.io/badge/INPE-STAC%20CBERS-00843D.svg" alt="STAC INPE"></a>
   <a href="https://geodes-portal.cnes.fr/"><img src="https://img.shields.io/badge/CNES-SPOT%201--5-1B4F72.svg" alt="SPOT CNES"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-2.7%20%7C%203.8--3.14-3776AB.svg?logo=python&logoColor=white" alt="Python"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.4.1-28A745.svg" alt="Versão v2.4.1"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.4.2-28A745.svg" alt="Versão v2.4.2"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License MIT"></a>
   <a href="https://github.com/Yiuky/arcgis-google-earth-engine-explorer/actions/workflows/tests.yml"><img src="https://github.com/Yiuky/arcgis-google-earth-engine-explorer/actions/workflows/tests.yml/badge.svg" alt="Testes"></a>
 </p>
@@ -180,8 +180,8 @@ Com a versão atualizada em `config.xml`, `gee_gui.py` e `gee_updater.py`, o sel
 entrada no `CHANGELOG.md`:
 
 ```bat
-git tag v2.4.1
-git push origin v2.4.1
+git tag v2.4.2
+git push origin v2.4.2
 ```
 
 O workflow **Release** gera `ArcMagery-<versão>.zip` e `SHA256SUMS.txt` e publica a Release com as notas do

@@ -12,7 +12,7 @@ rodar os testes.
   real, de uma entrada no checklist manual (seção **V**).
 - Prioridade: **P0** (bloqueia uso/segurança) · **P1** (resultado errado ou travamento) ·
   **P2** (robustez e experiência) · **P3** (melhoria e refatoração).
-- Estado de referência: v2.4.1 + correções não lançadas (ver CHANGELOG), 2026-10-01.
+- Estado de referência: v2.4.2, 2026-10-01.
 
 ---
 
@@ -130,11 +130,11 @@ Nenhum item aberto (o U-02 foi concluído; ver **Concluídos**).
 
 | ID | Versão | Descrição | Coberto por |
 |---|---|---|---|
-| U-02 | não lançado | `.bat` do atualizador encerrava todos os `pythonw.exe`; agora espera/encerra só o PID da interface | `tests/arcmap/test_robustness_fixes.py` (execução real desanexada) |
-| U-04 | não lançado | Atualizador e `.bat` com caminhos acentuados (unicode + `.bat` em ANSI/8.3, sem `chcp`) | `test_robustness_fixes.py` |
-| G-01 | não lançado | Atualizador usa a fila da GUI (`post_to_gui`) em vez de `top.after` nas threads | `test_robustness_fixes.py` |
-| B-06 | não lançado | Caixa de ferramentas `.pyt` quebrada removida | `tests/arcmap/test_compile_and_meta.py` |
-| B-07 | não lançado | Tiles temporários e parciais do GEE/SPOT/CBERS removidos em falha; varredura de pastas antigas | `tests/backend/test_hardening.py` |
+| U-02 | 2.4.2 | `.bat` do atualizador encerrava todos os `pythonw.exe`; agora espera/encerra só o PID da interface | `tests/arcmap/test_robustness_fixes.py` (execução real desanexada) |
+| U-04 | 2.4.2 | Atualizador e `.bat` com caminhos acentuados (unicode + `.bat` em ANSI/8.3, sem `chcp`) | `test_robustness_fixes.py` |
+| G-01 | 2.4.2 | Atualizador usa a fila da GUI (`post_to_gui`) em vez de `top.after` nas threads | `test_robustness_fixes.py` |
+| B-06 | 2.4.2 | Caixa de ferramentas `.pyt` quebrada removida | `tests/arcmap/test_compile_and_meta.py` |
+| B-07 | 2.4.2 | Tiles temporários e parciais do GEE/SPOT/CBERS removidos em falha; varredura de pastas antigas | `tests/backend/test_hardening.py` |
 | C-01 | 2.0.0 | Máscara de nuvem dos mosaicos nunca aplicada (`getInfo` dentro de `map`) | `tests/backend/test_gee_core_mosaic.py` (+ teste ao vivo no EE) |
 | C-02 | 2.0.0 | `toInt16` truncava Landsat L2 (SR > 0,70 e ST_B10) | `test_gee_core_mosaic.py` |
 | C-03 | 2.0.0 | Worker morria sob `pythonw` (a detecção de stdout da v1.12 era ineficaz) | `tests/arcmap/test_gui_core.py::PythonwStdoutTest` |

@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Imagens de satélite no ArcGIS Desktop (ArcMap 10.8.x), direto no TOC e na resolução nativa</strong><br>
   Google Earth Engine · CBERS/Amazônia-1 (INPE) · SPOT 1–5 (CNES) · Google Earth (atual e histórico) · Esri Wayback · XYZ<br>
-  <em>Versão 2.4.1 · projeto pessoal e independente de Joberth Firmino Gambati</em>
+  <em>Versão 2.4.2 · projeto pessoal e independente de Joberth Firmino Gambati</em>
 </p>
 
 ---

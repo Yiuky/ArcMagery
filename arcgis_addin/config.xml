@@ -2,10 +2,10 @@
   <Name>ArcMagery</Name>
   <AddInID>{ceae58c4-c44e-4edd-b8f4-1ba7d13b6b7d}</AddInID>
   <Description>ArcMagery - imagens de satelite no ArcMap 10.8: Google Earth Engine, Google Earth (atual e historico), Esri Wayback, CBERS/Amazonia-1 (INPE) e SPOT 1-5 (CNES).</Description>
-  <Version>2.4.1</Version>
+  <Version>2.4.2</Version>
   <Author>Joberth Firmino Gambati</Author>
   <Company>Joberth Firmino Gambati</Company>
-  <Date>09/30/2026</Date>
+  <Date>10/01/2026</Date>
   <Targets>
     <Target name="Desktop" version="10.8" />
   </Targets>

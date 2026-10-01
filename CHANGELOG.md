@@ -4,7 +4,10 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [2.4.2] - 2026-10-01
+
+> Versão estável de correções: atualizador, interface, ponte com o ArcMap, backend e
+> instaladores, com a documentação revisada.
 
 ### 🛡️ Corrigido
 - **Atualizador:**

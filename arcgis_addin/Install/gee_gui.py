@@ -611,7 +611,7 @@ class GEEAboutDialog(object):
 
         tips_text = (
             u"1. Resolução nativa: cada fonte é baixada na grade do próprio sensor, sem reamostragem.\n"
-            u"2. Áreas extensas: o download é dividido em partes automaticamente e retomado após falhas.\n"
+            u"2. Áreas extensas: o download é dividido em partes e juntado num único GeoTIFF.\n"
             u"3. Buffer da AOI: ajuste em 'Configurações' a margem, em metros, ao redor do vetor.\n"
             u"4. Bandas e simbologia: clique com o botão direito na camada, no TOC."
         )
@@ -1044,7 +1044,7 @@ class GEEUpdaterDialog(object):
             retry_fn=self._do_github_update, flags=flags)
 
 
-CURRENT_VERSION = "2.4.1"
+CURRENT_VERSION = "2.4.2"
 APP_NAME = u"ArcMagery"
 
 
