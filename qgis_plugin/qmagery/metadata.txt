@@ -1,0 +1,16 @@
+[general]
+name=QMagery
+qgisMinimumVersion=3.18
+description=Imagens de satélite no QGIS: GEE, CBERS/Amazônia-1, SPOT 1-5, Google Earth histórico, Esri Wayback e XYZ
+version=1.0.0
+author=Joberth Firmino Gambati
+email=
+about=QMagery carrega imagens de satélite direto no painel de camadas do QGIS, na resolução nativa, sem downloads manuais. Porta o ArcMagery (ArcMap 10.8) para o QGIS 3.x reutilizando o mesmo backend Python 3.
+tracker=https://github.com/Yiuky/ArcMagery/issues
+repository=https://github.com/Yiuky/ArcMagery
+tags=satellite,imagery,remote sensing,GEE,INPE,CBERS,SPOT,Landsat,Sentinel
+homepage=https://github.com/Yiuky/ArcMagery
+category=Raster
+icon=resources/icons/icon.png
+experimental=True
+deprecated=False
