@@ -31,6 +31,8 @@ Estrutura visual:
 import os
 import sys
 import json
+import re
+import time
 import tempfile
 from datetime import date, timedelta
 from typing import Optional, List, Dict
@@ -899,7 +901,9 @@ class MainDialog(QDialog):
         self._lbl_pct.setText("0%")
         self._lbl_progress.setText("Iniciando download e processamento...")
 
-        out_tif = os.path.join(tempfile.gettempdir(), f"qmagery_{row}_{int(date.today().strftime('%s', )) if hasattr(date.today(), 'strftime') else 'img'}.tif")
+        clean_id = re.sub(r'[^a-zA-Z0-9_-]', '_', str(item_id).split('/')[-1])
+        ts = int(time.time())
+        out_tif = os.path.join(tempfile.gettempdir(), f"qmagery_{clean_id}_{ts}.tif")
 
         self._runner = BackendRunner(self)
         self._runner.progress.connect(self._on_load_progress)
