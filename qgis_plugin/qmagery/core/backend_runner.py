@@ -39,6 +39,48 @@ _BACKEND_DIR = os.path.normpath(
 _RUN_GEE = os.path.join(_BACKEND_DIR, 'run_gee.py')
 
 
+def get_python_executable() -> str:
+    """
+    Retorna o executável Python 3 correto.
+    No Windows dentro do QGIS Desktop, sys.executable aponta para qgis-ltr-bin.exe (ou qgis.exe).
+    Se passarmos argumentos como [sys.executable, script, ...], o QGIS tenta abrir o script
+    como uma camada de mapa/projeto, gerando o erro 'Fonte de dados inválida: --params-file=...'.
+    Esta função localiza o python.exe ou python3.exe no ambiente do QGIS/OSGeo4W.
+    """
+    # 1. Se sys.executable já terminar com python.exe ou python3.exe, verifica se existe
+    exe = sys.executable or ""
+    exe_name = os.path.basename(exe).lower()
+    if exe_name in ('python.exe', 'python3.exe', 'pythonw.exe') and os.path.isfile(exe):
+        return exe
+
+    # 2. Procura em sys.prefix / base_prefix / apps/Python3xx
+    candidates = []
+    base = os.path.normpath(getattr(sys, 'base_prefix', sys.prefix))
+    candidates.append(os.path.join(base, 'python.exe'))
+    candidates.append(os.path.join(base, 'python3.exe'))
+
+    # Diretório bin do QGIS (ex: C:\Program Files\QGIS 3.44.10\bin\python.exe)
+    root = os.path.dirname(os.path.dirname(base))
+    candidates.append(os.path.join(root, 'bin', 'python.exe'))
+    candidates.append(os.path.join(root, 'bin', 'python3.exe'))
+
+    # Se exe estiver em <QGIS>\bin\qgis-ltr-bin.exe
+    if os.path.dirname(exe):
+        candidates.append(os.path.join(os.path.dirname(exe), 'python.exe'))
+        candidates.append(os.path.join(os.path.dirname(exe), 'python3.exe'))
+
+    # Variável de ambiente específica
+    env_py = os.environ.get('PYTHON_EXECUTABLE') or os.environ.get('GEE_PYTHON3')
+    if env_py:
+        candidates.insert(0, env_py)
+
+    for c in candidates:
+        if c and os.path.isfile(c):
+            return os.path.realpath(c)
+
+    return sys.executable
+
+
 class BackendError(RuntimeError):
     """Erro retornado pelo backend (success=false no JSON ou exit != 0)."""
     def __init__(self, message: str, diagnostics: Optional[Dict] = None):
@@ -74,8 +116,9 @@ class _BackendWorker(QObject):
             env['PYTHONIOENCODING'] = 'utf-8'
             env.pop('PYTHONPATH', None)
 
+            py_exe = get_python_executable()
             proc = subprocess.Popen(
-                [sys.executable, _RUN_GEE, self.command,
+                [py_exe, _RUN_GEE, self.command,
                  '--params-file=' + params_file],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -223,8 +266,9 @@ class BackendRunner(QObject):
             env['PYTHONIOENCODING'] = 'utf-8'
             env.pop('PYTHONPATH', None)
 
+            py_exe = get_python_executable()
             proc = subprocess.run(
-                [sys.executable, _RUN_GEE, command,
+                [py_exe, _RUN_GEE, command,
                  '--params-file=' + params_file],
                 capture_output=True,
                 timeout=timeout,
