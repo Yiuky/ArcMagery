@@ -39,9 +39,10 @@
 ## 📌 O que faz
 
 O ArcMagery é um Python Add-In para o **ArcMap 10.8/10.8.2**. Ele busca, recorta e carrega imagens de
-satélite direto no TOC, na **resolução nativa**, sem sair do ArcMap e sem downloads manuais. Foi
-desenvolvido na Coordenadoria de Geoprocessamento e Monitoramento Ambiental (**CGMA / SEMA-MT**) para
-fiscalização ambiental, sensoriamento remoto e perícias.
+satélite direto no TOC, na **resolução nativa**, sem sair do ArcMap e sem downloads manuais. Serve a
+quem trabalha com sensoriamento remoto, monitoramento ambiental e perícias.
+
+> Projeto **pessoal e independente** de Joberth Firmino Gambati: não é um produto oficial de nenhuma instituição nem fala em nome dela.
 
 ## 🏁 Marco da versão 2.4
 
@@ -187,7 +188,7 @@ estável nunca instala (detalhes no [AGENTS.md](AGENTS.md)).
 
 ## 🌐 English Abstract
 
-**ArcMagery** (formerly *CGMA ArcGEE Explorer*) is a Python Add-In for **ArcGIS Desktop 10.8 / 10.8.2
+**ArcMagery** (formerly *ArcGEE Explorer*) is an independent, personal open-source Python Add-In for **ArcGIS Desktop 10.8 / 10.8.2
 (ArcMap)** that searches, clips and loads satellite imagery straight into the table of contents, at native
 resolution, from six sources in a single window:
 
@@ -206,12 +207,11 @@ resolution, from six sources in a single window:
 
 ## 🔍 Tópicos
 
-`arcgis` • `arcmap` • `arcgis-addin` • `google-earth-engine` • `google-earth` • `esri-wayback` • `cbers` • `amazonia-1` • `inpe` • `spot` • `cnes` • `stac` • `sentinel-2` • `landsat` • `satellite-imagery-downloader` • `remote-sensing` • `sema-mt-cgma`
+`arcgis` • `arcmap` • `arcgis-addin` • `google-earth-engine` • `google-earth` • `esri-wayback` • `cbers` • `amazonia-1` • `inpe` • `spot` • `cnes` • `stac` • `sentinel-2` • `landsat` • `satellite-imagery-downloader` • `remote-sensing`
 
 ## ☕ Doe um café para o dev
 
-O ArcMagery é gratuito e de código aberto, desenvolvido nas horas vagas e no dia a dia da fiscalização
-ambiental. Se ele economizou o seu tempo, considere pagar um café para o desenvolvedor: ajuda a manter o
+O ArcMagery é gratuito e de código aberto, desenvolvido nas horas vagas. Se ele economizou o seu tempo, considere pagar um café para o desenvolvedor: ajuda a manter o
 projeto vivo e a trazer novas fontes de imagem.
 
 <table>
@@ -231,7 +231,6 @@ projeto vivo e a trazer novas fontes de imagem.
 ## 👤 Autor e licença
 
 - **Desenvolvedor:** Joberth Firmino Gambati ([@Yiuky](https://github.com/Yiuky))
-- **Organização:** CGMA, Secretaria de Estado de Meio Ambiente de Mato Grosso (SEMA-MT)
 - **Licença:** [MIT](LICENSE)
 - Imagens: © Google, © Esri e parceiros, © Microsoft, CBERS/Amazônia-1 © INPE, SPOT © CNES (Etalab 2.0), e os
   provedores do Google Earth Engine. Respeite as licenças de cada fonte.

@@ -76,7 +76,7 @@ PRODUCTS = [
 
 TUTORIAL_STEPS = [
     (u"1. Crie a conta gratuita no GEODES",
-     u"Acesse %s e clique em \"Log in\" > \"Register\". Informe nome, e-mail, organização (ex.: SEMA-MT) "
+     u"Acesse %s e clique em \"Log in\" > \"Register\". Informe nome, e-mail, organização "
      u"e confirme o cadastro pelo link enviado ao seu e-mail." % GEODES_PORTAL),
     (u"2. Entre e abra o seu perfil",
      u"Depois de entrar, clique no seu nome no canto superior direito e escolha \"My Profile\"."),

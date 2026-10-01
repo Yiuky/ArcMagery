@@ -611,7 +611,7 @@ def run_backend_cmd(subcmd, args_dict, on_progress=None, python_exe=None, group=
         elif subcmd == 'stac_download':
             timeout_seconds = 1800  # 30 minutos: recortes CBERS grandes
         elif subcmd in ('xyz_download', 'gehist_download'):
-            timeout_seconds = 4 * 3600  # ate 100 mil tiles (~30 tiles/s na rede da SEMA: ~1 h)
+            timeout_seconds = 4 * 3600  # ate 100 mil tiles (~30 tiles/s em rede corporativa: ~1 h)
         elif subcmd == 'gehist_dates':
             timeout_seconds = 1800  # varredura do catalogo historico (1 consulta por tile)
         elif subcmd in ('gehist_thumb', 'wayback_thumb'):

@@ -580,8 +580,7 @@ class GEEAboutDialog(object):
 
         info_text = (
             u"• Versão: v2.4.1 (ArcMagery: GEE, CBERS/INPE, SPOT 1-5 (CNES), Google Earth / XYZ e Esri Wayback)\n"
-            u"• Organização: Coordenadoria de Geoprocessamento e Monitoramento Ambiental\n"
-            u"  Secretaria de Estado de Meio Ambiente de Mato Grosso (CGMA / SEMA-MT)\n"
+            u"• Projeto pessoal e independente: não é produto oficial de nenhuma instituição\n"
             u"• Desenvolvedor: Joberth Firmino Gambati\n"
             u"• Compatibilidade: ArcGIS Desktop 10.8 / 10.8.2 (ArcMap) & Python 3.9+\n"
             u"• Licença: Código Aberto (MIT License)"

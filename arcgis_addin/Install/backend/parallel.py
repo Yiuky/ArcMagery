@@ -5,7 +5,7 @@ Paralelismo seguro para o download de tiles - Python 3.
   * imap_bounded: como pool.map, mas com no maximo `workers * PENDING_PER_WORKER` tarefas em
     andamento. Os resultados nunca se acumulam na memoria (antes, 100 mil tiles eram submetidos
     de uma vez e, se a gravacao atrasasse, as respostas ficavam todas em RAM).
-  * default_workers: threads de rede. Medido na rede da SEMA (Google Earth, 225 tiles):
+  * default_workers: threads de rede. Medido em rede corporativa (Google Earth, 225 tiles):
     8 = 32 tiles/s, 16 = 65, 32 = 112, 48 = 141, 64 = 158. O ganho satura perto de 48.
   * default_cores: nucleos para o GDAL (piramides, reprojecao), deixando folga para o ArcMap.
 """

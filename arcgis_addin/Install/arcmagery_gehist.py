@@ -24,7 +24,7 @@ ALL = PREFIX + 'ALL'          # varre todos os zooms: uma linha por (data, zoom)
 DEFAULT_ZOOM = 18
 ALL_ZOOMS = [15, 16, 17, 18, 19, 20]   # deve bater com backend/gehist_core.ALL_ZOOMS
 MAX_TILES = 100000   # deve bater com backend/gehist_core.MAX_TILES
-TILES_PER_SECOND = 140.0  # medido na rede da SEMA com 48 threads (225 tiles em 1,6 s)
+TILES_PER_SECOND = 140.0  # medido em rede corporativa com 48 threads (225 tiles em 1,6 s)
 
 _ZOOMS = [18, 19, 20, 17, 16, 15]
 

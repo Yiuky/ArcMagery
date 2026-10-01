@@ -89,7 +89,7 @@ def _log(msg):
 
 
 def _ctx():
-    return ssl.create_default_context()   # repositorio de certificados do Windows (proxy da SEMA)
+    return ssl.create_default_context()   # repositorio de certificados do Windows (proxy corporativo)
 
 
 # ------------------------------------------------------------------------------ geometria

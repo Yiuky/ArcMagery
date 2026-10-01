@@ -432,10 +432,10 @@ O projeto passa a se chamar **ArcMagery**. O identificador do Add-In (`AddInID`)
 ### 🌟 Adicionado
 - **Nova Identidade Visual Oficial (Ícone 3D):** Criação e integração do logotipo moderno do satélite em múltiplos formatos e resoluções (`16x16`, `20x20`, `24x24`, `32x32`, `48x48`, `64x64`, `.ico` e `.png`).
 - **Botão Oficial com Ícone e Texto no ArcMap:** Barra de ferramentas configurada para exibir o rótulo **ArcGEE Explorer** acompanhado do ícone temático.
-- **Exibição do Logotipo em Alta Resolução:** Janela "Sobre" enriquecida com o emblema oficial do satélite e identificação visual da CGMA / SEMA-MT.
+- **Exibição do Logotipo em Alta Resolução:** Janela "Sobre" enriquecida com o emblema do satélite.
 
 ### 🔄 Modificado
-- **Padronização de Nomenclatura:** Atualização do nome oficial da aplicação em toda a interface e documentação para **CGMA ArcGEE Explorer**.
+- **Padronização de Nomenclatura:** Atualização do nome oficial da aplicação em toda a interface e documentação para **ArcGEE Explorer**.
 - **Simplificação da Barra Superior:** Remoção do botão redundante de stretch no topo da janela, consolidando todas as configurações de realce radiométrico dentro do painel de preferências avançadas.
 
 ---

@@ -2,7 +2,7 @@
 """
 ArcMagery - bibliotecas Python 3 do backend SEM pip (earthengine-api e dependencias).
 
-Por que: o pip das maquinas da SEMA falha com a inspecao SSL do proxy e, sem o earthengine-api, o
+Por que: o pip de maquinas em rede corporativa falha com a inspecao SSL do proxy e, sem o earthengine-api, o
 GEE quebra com "No module named 'ee'". Aqui as rodas (wheels) fixadas em pylibs_manifest.json sao
 baixadas com urllib usando os certificados do Windows, conferidas por SHA-256 e extraidas em
 %LOCALAPPDATA%\\ArcMagery\\pylibs\\py3XY. Qualquer Python 3.10+ de 64 bits (o do QGIS basta: ele ja

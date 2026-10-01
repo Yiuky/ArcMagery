@@ -7,8 +7,8 @@
 <p align="center">
   <strong>Google Earth Engine, Google Earth (atual e histórico), Esri Wayback, CBERS/INPE e SPOT/CNES no ArcGIS Desktop (ArcMap 10.8 / 10.8.2)</strong><br>
   <em>Versão 2.4.1</em><br>
-  <em>Desenvolvido para operações de Sensoriamento Remoto, Geoprocessamento e Fiscalização Ambiental</em><br>
-  <strong>Coordenadoria de Geoprocessamento e Monitoramento Ambiental (CGMA / SEMA-MT)</strong>
+  <em>Para Sensoriamento Remoto, Geoprocessamento e Monitoramento Ambiental</em><br>
+  <em>Projeto pessoal e independente de Joberth Firmino Gambati</em>
 </p>
 
 ---
@@ -41,9 +41,9 @@
 
 ## 1. Apresentação e Visão Geral
 
-O **ArcMagery** é uma extensão oficial (Python Add-In) para **ArcGIS Desktop 10.8 e 10.8.2 (ArcMap)** que integra diretamente o poder de processamento em nuvem do **Google Earth Engine (GEE)** ao ambiente cartográfico da ESRI, junto com outras cinco fontes de imagem na mesma janela: **CBERS/Amazônia-1 (INPE)**, **SPOT 1–5 (CNES, 1986–2015)**, **Google Earth histórico**, **Esri Wayback** e mosaicos **Google Earth / XYZ** (seção 6.10 em diante).
+O **ArcMagery** é uma extensão (Python Add-In) para **ArcGIS Desktop 10.8 e 10.8.2 (ArcMap)** que integra diretamente o poder de processamento em nuvem do **Google Earth Engine (GEE)** ao ambiente cartográfico da ESRI, junto com outras cinco fontes de imagem na mesma janela: **CBERS/Amazônia-1 (INPE)**, **SPOT 1–5 (CNES, 1986–2015)**, **Google Earth histórico**, **Esri Wayback** e mosaicos **Google Earth / XYZ** (seção 6.10 em diante).
 
-Projetado especialmente para fluxos intensivos de sensoriamento remoto, perícias ambientais e monitoramento de cobertura vegetal da **SEMA-MT**, o plugin elimina a necessidade de exportar imagens para o Google Drive ou baixar gigabytes de cenas completas manualmente. 
+Projetado para fluxos intensivos de sensoriamento remoto, perícias ambientais e monitoramento de cobertura vegetal, o plugin elimina a necessidade de exportar imagens para o Google Drive ou baixar gigabytes de cenas completas manualmente. 
 
 ### Diferenciais Exclusivos:
 * **Garantia de Qualidade Nativa 100%:** Nenhuma imagem baixada sofre reamostragem ou rebaixamento espacial. Os pixels do Sentinel-2 permanecem com 10 metros estritos e os do Landsat com 30 metros.
@@ -594,7 +594,6 @@ O ArcMagery conta com uma arquitetura de atualização **transacional e à prova
 ## 9. Créditos e Licença
 
 * **Desenvolvedor:** Joberth Firmino Gambati
-* **Instituição:** Coordenadoria de Geoprocessamento e Monitoramento Ambiental (CGMA)  
-  *Secretaria de Estado de Meio Ambiente de Mato Grosso (SEMA-MT)*
+* Projeto **pessoal e independente** de Joberth Firmino Gambati: não é um produto oficial de nenhuma instituição nem fala em nome dela.
 * **Repositório Oficial:** [https://github.com/Yiuky/arcgis-google-earth-engine-explorer](https://github.com/Yiuky/arcgis-google-earth-engine-explorer)
-* **Licença:** Código aberto distribuído sob a licença [MIT](LICENSE). Permitido o uso livre para fins governamentais, acadêmicos e comerciais.
+* **Licença:** Código aberto distribuído sob a licença [MIT](LICENSE). Permitido o uso livre para fins pessoais, acadêmicos e comerciais.
