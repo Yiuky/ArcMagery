@@ -97,37 +97,84 @@ GEE_SENSOR_METADATA = {
 # Coleções do STAC INPE (idênticas ao arcmagery_inpe.py)
 INPE_PREFIX = 'INPE:'
 INPE_COLLECTIONS = [
+    # Nível 4 (Ortorretificado)
     ("CBERS-4A WPM · 8 m multiespectral + 2 m PAN", 'CB4A-WPM-L4-DN-1', 8, "29/12/2019 até o Presente (Ativo)",
-     "BAND1 azul, BAND2 verde, BAND3 vermelho, BAND4 NIR (8 m) · BAND0 pancromática (2 m)"),
+     "BAND1 azul, BAND2 verde, BAND3 vermelho, BAND4 NIR (8 m) · BAND0 pancromática (2 m)", "Nível 4 (ortorretificado), números digitais."),
     ("CBERS-4A WPM · 2 m fusionada RGB (PCA)", 'CB4A-WPM-PCA-FUSED-1', 2, "02/03/2023 até o Presente (Ativo)",
-     "RGB fusionado (pancromática + multiespectral)"),
+     "RGB fusionado (pancromática + multiespectral)", "Produto fusionado pelo INPE (alta resolução 2m)."),
     ("CBERS-4A MUX · 16 m", 'CB4A-MUX-L4-DN-1', 16, "27/12/2019 até o Presente (Ativo)",
-     "BAND5 azul, BAND6 verde, BAND7 vermelho, BAND8 NIR"),
+     "BAND5 azul, BAND6 verde, BAND7 vermelho, BAND8 NIR", "Nível 4 (ortorretificado), números digitais."),
     ("CBERS-4A MUX · 16 m reflectância de superfície", 'CB4A-MUX-L4-SR-1', 16, "01/01/2026 até o Presente (Ativo)",
-     "BAND5 azul, BAND6 verde, BAND7 vermelho, BAND8 NIR"),
+     "BAND5 azul, BAND6 verde, BAND7 vermelho, BAND8 NIR", "Reflectância de superfície (SR)."),
     ("CBERS-4A WFI · 55 m reflectância de superfície", 'CB4A-WFI-L4-SR-1', 55, "01/01/2020 até o Presente (Ativo)",
-     "BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR"),
-    ("CBERS-4 MUX · 20 m reflectância de superfície", 'CB4-MUX-L4-SR-1', 20, "01/01/2016 até o Presente (Ativo)",
-     "BAND5 azul, BAND6 verde, BAND7 vermelho, BAND8 NIR"),
-    ("CBERS-4 MUX · 20 m", 'CB4-MUX-L4-DN-1', 20, "09/12/2014 até o Presente (Ativo)",
-     "BAND5 azul, BAND6 verde, BAND7 vermelho, BAND8 NIR"),
-    ("CBERS-4 WFI · 64 m reflectância de superfície", 'CB4-WFI-L4-SR-1', 64, "01/01/2016 até o Presente (Ativo)",
-     "BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR"),
-    ("CBERS-4 PAN · 10 m (verde, vermelho, NIR)", 'CB4-PAN10M-L4-DN-1', 10, "09/12/2014 até o Presente (Ativo)",
-     "BAND2 verde, BAND3 vermelho, BAND4 NIR"),
-    ("CBERS-4 PAN · 5 m pancromática", 'CB4-PAN5M-L4-DN-1', 5, "09/12/2014 até o Presente (Ativo)",
-     "BAND1 pancromática"),
-    ("Amazônia-1 WFI · 64 m reflectância de superfície", 'AMZ1-WFI-L4-SR-1', 64, "01/01/2024 até o Presente (Ativo)",
-     "BAND1 azul, BAND2 verde, BAND3 vermelho, BAND4 NIR"),
-    ("Amazônia-1 WFI · 64 m", 'AMZ1-WFI-L4-DN-1', 64, "17/03/2021 até o Presente (Ativo)",
-     "BAND1 azul, BAND2 verde, BAND3 vermelho, BAND4 NIR"),
+     "BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR", "Faixa larga (~684 km), revisita frequente."),
     ("CBERS-4A WFI · 55 m", 'CB4A-WFI-L4-DN-1', 55, "04/07/2020 até o Presente (Ativo)",
-     "BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR"),
+     "BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR", "Nível 4, números digitais."),
+    ("CBERS-4 MUX · 20 m reflectância de superfície", 'CB4-MUX-L4-SR-1', 20, "01/01/2016 até o Presente (Ativo)",
+     "BAND5 azul, BAND6 verde, BAND7 vermelho, BAND8 NIR", "Reflectância de superfície (SR)."),
+    ("CBERS-4 MUX · 20 m", 'CB4-MUX-L4-DN-1', 20, "09/12/2014 até o Presente (Ativo)",
+     "BAND5 azul, BAND6 verde, BAND7 vermelho, BAND8 NIR", "Nível 4, números digitais."),
+    ("CBERS-4 WFI · 64 m reflectância de superfície", 'CB4-WFI-L4-SR-1', 64, "01/01/2016 até o Presente (Ativo)",
+     "BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR", "Faixa larga (~866 km)."),
     ("CBERS-4 WFI · 64 m", 'CB4-WFI-L4-DN-1', 64, "09/12/2014 até o Presente (Ativo)",
-     "BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR"),
+     "BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR", "Nível 4, números digitais."),
+    ("CBERS-4 PAN · 10 m (verde, vermelho, NIR)", 'CB4-PAN10M-L4-DN-1', 10, "09/12/2014 até o Presente (Ativo)",
+     "BAND2 verde, BAND3 vermelho, BAND4 NIR", "Sem banda azul: use falsa cor."),
+    ("CBERS-4 PAN · 5 m pancromática", 'CB4-PAN5M-L4-DN-1', 5, "09/12/2014 até o Presente (Ativo)",
+     "BAND1 pancromática", "Uma banda (tons de cinza)."),
+    ("Amazônia-1 WFI · 64 m reflectância de superfície", 'AMZ1-WFI-L4-SR-1', 64, "01/01/2024 até o Presente (Ativo)",
+     "BAND1 azul, BAND2 verde, BAND3 vermelho, BAND4 NIR", "Primeiro satélite brasileiro de observação (2021)."),
+    ("Amazônia-1 WFI · 64 m", 'AMZ1-WFI-L4-DN-1', 64, "17/03/2021 até o Presente (Ativo)",
+     "BAND1 azul, BAND2 verde, BAND3 vermelho, BAND4 NIR", "Nível 4, números digitais."),
+
+    # Histórico CBERS-2 e CBERS-2B (2003 - 2010)
+    ("Histórico · CBERS-2 CCD · 20 m (2003-2009)", 'CB2-CCD-L2-DN-1', 20, "28/10/2003 a 07/01/2009 (Encerrado)",
+     "B1 azul, B2 verde, B3 vermelho, B4 NIR, B5 pancromática (20 m)",
+     "Nível 2 sem ortorretificação. Footprint retangular histórico do INPE."),
+    ("Histórico · CBERS-2B CCD · 20 m (2007-2010)", 'CB2B-CCD-L2-DN-1', 20, "25/09/2007 a 11/03/2010 (Encerrado)",
+     "B1 azul, B2 verde, B3 vermelho, B4 NIR, B5 pancromática (20 m)",
+     "Nível 2 sem ortorretificação. Footprint retangular histórico do INPE."),
+    ("Histórico · CBERS-2B HRC · 2,5 m pancromática (2007-2010)", 'CB2B-HRC-L2-DN-1', 2.5, "29/09/2007 a 11/03/2010 (Encerrado)",
+     "BAND1 pancromática (2,5 m)", "Nível 2. Cenas menores de alta resolução (~27 km)."),
+    ("Histórico · CBERS-2 WFI · 260 m (2003-2005)", 'CB2-WFI-L2-DN-1', 260, "22/10/2003 a 13/04/2005 (Encerrado)",
+     "BAND1 vermelho, BAND2 NIR", "Nível 2. Apenas vermelho e NIR."),
+    ("Histórico · CBERS-2B WFI · 260 m (2007-2010)", 'CB2B-WFI-L2-DN-1', 260, "29/09/2007 a 10/03/2010 (Encerrado)",
+     "BAND1 vermelho, BAND2 NIR", "Nível 2. Apenas vermelho e NIR."),
+
+    # Cubos de dados (Brazil Data Cube)
+    ("Cubo 16 dias · CBERS-4 WFI 64 m (sem nuvens, NDVI/EVI)", 'CBERS4-WFI-16D-2', 64, "01/01/2016 até o Presente (Ativo)",
+     "BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR · NDVI · EVI", "Composição temporal sem nuvens (Brazil Data Cube)."),
+    ("Cubo 8 dias · CBERS-4/4A WFI 64 m (sem nuvens, NDVI/EVI)", 'CBERS-WFI-8D-1', 64, "01/01/2020 até o Presente (Ativo)",
+     "BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR · NDVI · EVI", "Composição temporal sem nuvens (Brazil Data Cube)."),
+    ("Cubo 2 meses · CBERS-4 MUX 20 m (sem nuvens, NDVI/EVI)", 'CBERS4-MUX-2M-1', 20, "01/01/2016 até o Presente (Ativo)",
+     "BAND5 azul, BAND6 verde, BAND7 vermelho, BAND8 NIR · NDVI · EVI", "Composição temporal sem nuvens (Brazil Data Cube)."),
+
+    # Nível 2 (Correção Sistemática)
+    ("CBERS-4A WPM · 8 m + 2 m PAN (Nível 2)", 'CB4A-WPM-L2-DN-1', 8, "29/12/2019 até o Presente (Ativo)",
+     "BAND1 azul, BAND2 verde, BAND3 vermelho, BAND4 NIR (8 m) · BAND0 pancromática (2 m)", "Nível 2: correção sistemática, sem ortorretificação."),
+    ("CBERS-4A MUX · 16 m (Nível 2)", 'CB4A-MUX-L2-DN-1', 16, "27/12/2019 até o Presente (Ativo)",
+     "BAND5 azul, BAND6 verde, BAND7 vermelho, BAND8 NIR", "Nível 2: correção sistemática, sem ortorretificação."),
+    ("CBERS-4A WFI · 55 m (Nível 2)", 'CB4A-WFI-L2-DN-1', 55, "27/12/2019 até o Presente (Ativo)",
+     "BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR", "Nível 2: correção sistemática, sem ortorretificação."),
+    ("CBERS-4 MUX · 20 m (Nível 2)", 'CB4-MUX-L2-DN-1', 20, "08/12/2014 até o Presente (Ativo)",
+     "BAND5 azul, BAND6 verde, BAND7 vermelho, BAND8 NIR", "Nível 2: correção sistemática, sem ortorretificação."),
+    ("CBERS-4 WFI · 64 m (Nível 2)", 'CB4-WFI-L2-DN-1', 64, "14/12/2014 até o Presente (Ativo)",
+     "BAND13 azul, BAND14 verde, BAND15 vermelho, BAND16 NIR", "Nível 2: correção sistemática, sem ortorretificação."),
+    ("CBERS-4 PAN · 10 m (Nível 2)", 'CB4-PAN10M-L2-DN-1', 10, "09/12/2014 até o Presente (Ativo)",
+     "BAND2 verde, BAND3 vermelho, BAND4 NIR", "Nível 2: correção sistemática, sem ortorretificação."),
+    ("CBERS-4 PAN · 5 m pancromática (Nível 2)", 'CB4-PAN5M-L2-DN-1', 5, "09/12/2014 até o Presente (Ativo)",
+     "BAND1 pancromática", "Nível 2: correção sistemática, sem ortorretificação."),
+    ("Amazônia-1 WFI · 64 m (Nível 2)", 'AMZ1-WFI-L2-DN-1', 64, "03/03/2021 até o Presente (Ativo)",
+     "BAND1 azul, BAND2 verde, BAND3 vermelho, BAND4 NIR", "Nível 2: correção sistemática, sem ortorretificação."),
+
+    # Mosaicos
+    ("Mosaico Brasil · CBERS-4 WFI (abr-jun/2020, RGB)", 'mosaic-cbers4-brazil-3m-1', 64, "01/04/2020 a 30/06/2020",
+     "RGB visual", "Mosaico trimestral de todo o Brasil."),
+    ("Mosaico Paraíba · CBERS-4A WFI (jul-set/2020, RGB)", 'mosaic-cbers4a-paraiba-3m-1', 55, "01/07/2020 a 30/09/2020",
+     "RGB visual", "Mosaico trimestral do estado da Paraíba."),
 ]
 
-INPE_SENSOR_DISPLAY = [(label, INPE_PREFIX + cid) for (label, cid, _r, _p, _b) in INPE_COLLECTIONS]
+INPE_SENSOR_DISPLAY = [(label, INPE_PREFIX + cid) for (label, cid, _r, _p, _b, *rest) in INPE_COLLECTIONS]
 
 INPE_SENSOR_METADATA = dict(
     (INPE_PREFIX + cid, {
@@ -137,9 +184,42 @@ INPE_SENSOR_METADATA = dict(
         'period_display': period,
         'res': f'{res}m',
         'available_bands': bands,
-        'default_pixel_size': str(res),
-    }) for (label, cid, res, period, bands) in INPE_COLLECTIONS
+        'notes': notes[0] if notes else '',
+        'default_pixel_size': str(int(res) if isinstance(res, (int, float)) and res == int(res) else res),
+    }) for (label, cid, res, period, bands, *notes) in INPE_COLLECTIONS
 )
+
+INPE_PRODUCTS = [
+    ('rgb', 'Cor natural (vermelho, verde, azul)'),
+    ('false', 'Falsa cor (NIR, vermelho, verde)'),
+    ('multi', 'Multibanda (todas as bandas disponíveis)'),
+    ('pan', 'Pancromática (tons de cinza, maior resolução)'),
+    ('fused', 'Fusionada RGB (PCA)'),
+    ('ndvi', 'NDVI (índice de vegetação)'),
+    ('evi', 'EVI (índice de vegetação)'),
+    ('visual', 'RGB visual (mosaico)'),
+]
+
+_INPE_CUBE_MODES = ['rgb', 'false', 'multi', 'ndvi', 'evi']
+INPE_COLLECTION_MODES = {
+    'CB4A-WPM-L4-DN-1': ['rgb', 'false', 'multi', 'pan'],
+    'CB4A-WPM-L2-DN-1': ['rgb', 'false', 'multi', 'pan'],
+    'CB4A-WPM-PCA-FUSED-1': ['fused'],
+    'CB4-PAN10M-L4-DN-1': ['false', 'multi'],
+    'CB4-PAN10M-L2-DN-1': ['false', 'multi'],
+    'CB4-PAN5M-L4-DN-1': ['pan'],
+    'CB4-PAN5M-L2-DN-1': ['pan'],
+    'CBERS4-WFI-16D-2': _INPE_CUBE_MODES,
+    'CBERS-WFI-8D-1': _INPE_CUBE_MODES,
+    'CBERS4-MUX-2M-1': _INPE_CUBE_MODES,
+    'CB2-CCD-L2-DN-1': ['rgb', 'false', 'multi', 'pan'],
+    'CB2B-CCD-L2-DN-1': ['rgb', 'false', 'multi', 'pan'],
+    'CB2B-HRC-L2-DN-1': ['pan'],
+    'CB2-WFI-L2-DN-1': ['multi'],
+    'CB2B-WFI-L2-DN-1': ['multi'],
+    'mosaic-cbers4-brazil-3m-1': ['visual'],
+    'mosaic-cbers4a-paraiba-3m-1': ['visual'],
+}
 
 # SPOT 1-5 (idêntico ao arcmagery_spot.py)
 SPOT_PREFIX = 'SPOT:'

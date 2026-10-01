@@ -52,7 +52,7 @@ from ..core.qgis_layer import add_raster_layer, add_xyz_tile_layer
 from ..core.catalog_constants import (
     MAX_ALLOWED_SCALE,
     GEE_SENSOR_DISPLAY, GEE_SENSOR_METADATA, GEE_COMPOSITIONS,
-    INPE_SENSOR_DISPLAY, INPE_SENSOR_METADATA,
+    INPE_SENSOR_DISPLAY, INPE_SENSOR_METADATA, INPE_COLLECTION_MODES, INPE_PRODUCTS,
     SPOT_SENSOR_DISPLAY, SPOT_SENSOR_METADATA,
     GEHIST_SENSOR_DISPLAY, GEHIST_SENSOR_METADATA,
     WAYBACK_SENSOR_DISPLAY, WAYBACK_SENSOR_METADATA,
@@ -222,12 +222,24 @@ class MainDialog(QDialog):
             rb = QRadioButton(text)
             rb.setStyleSheet("""
                 QRadioButton {
-                    background-color: #fdfefe; border: 1px solid #aed6f1;
-                    padding: 3px 10px; border-radius: 3px; font-weight: 500;
+                    background-color: #fdfefe;
+                    border: 1px solid #b0c4de;
+                    padding: 5px 12px;
+                    border-radius: 4px;
+                    font-size: 8.5pt;
+                    font-weight: 500;
+                    color: #2c3e50;
                 }
                 QRadioButton::indicator { width: 0px; height: 0px; }
+                QRadioButton:hover {
+                    background-color: #ebf5fb;
+                    border-color: #3498db;
+                }
                 QRadioButton:checked {
-                    background-color: #aed6f1; border: 1px solid #3498db; font-weight: bold; color: #154360;
+                    background-color: #2980b9;
+                    border: 1px solid #1f618d;
+                    font-weight: bold;
+                    color: #ffffff;
                 }
             """)
             if code == "gee":
@@ -286,17 +298,23 @@ class MainDialog(QDialog):
         self._lbl_bands.setWordWrap(True)
         info_layout.addWidget(self._lbl_bands)
 
+        self._lbl_notes = QLabel("")
+        self._lbl_notes.setStyleSheet("color: #78281f; font-size: 8pt; font-style: italic;")
+        self._lbl_notes.setWordWrap(True)
+        self._lbl_notes.setVisible(False)
+        info_layout.addWidget(self._lbl_notes)
+
         form.addWidget(self._info_frame)
 
         # Composição / multibanda
-        lbl_comp = QLabel("Composição / multibanda:")
-        form.addWidget(lbl_comp)
+        self._lbl_comp = QLabel("Composição / multibanda:")
+        form.addWidget(self._lbl_comp)
 
         self._cbo_comp = QComboBox()
         self._cbo_comp.currentIndexChanged.connect(self._on_composition_changed)
         form.addWidget(self._cbo_comp)
 
-        # Bandas personalizadas opcionais
+        # Bandas personalizadas opcionais (apenas GEE)
         self._lbl_custom = QLabel("Bandas Personalizadas (opcional, ex: B4,B3,B2):")
         self._lbl_custom.setStyleSheet("font-size: 8pt;")
         form.addWidget(self._lbl_custom)
@@ -304,7 +322,7 @@ class MainDialog(QDialog):
         self._txt_custom = QLineEdit()
         form.addWidget(self._txt_custom)
 
-        # Modo de carga
+        # Modo de carga (apenas GEE)
         self._mode_box = QGroupBox(" Modo de Carga no QGIS ")
         mode_layout = QVBoxLayout(self._mode_box)
         mode_layout.setContentsMargins(6, 6, 6, 6)
@@ -459,13 +477,50 @@ class MainDialog(QDialog):
 
         # Botões de Ação
         row_act = QHBoxLayout()
-        self._btn_load = QPushButton("[ Carregar no QGIS ]")
-        self._btn_load.setStyleSheet("QPushButton { background-color: #117864; color: #ffffff; font-weight: bold; padding: 6px 14px; border-radius: 3px; } QPushButton:hover { background-color: #16a085; } QPushButton:disabled { background-color: #d5dbdb; color: #7f8c8d; }")
+        row_act.setSpacing(10)
+        self._btn_load = QPushButton("⬇ Carregar no QGIS")
+        self._btn_load.setStyleSheet("""
+            QPushButton {
+                background-color: #1e8449;
+                color: #ffffff;
+                font-weight: bold;
+                font-size: 9.5pt;
+                padding: 7px 18px;
+                border-radius: 4px;
+                border: 1px solid #196f3d;
+            }
+            QPushButton:hover {
+                background-color: #27ae60;
+            }
+            QPushButton:disabled {
+                background-color: #d5dbdb;
+                color: #7f8c8d;
+                border: 1px solid #bdc3c7;
+            }
+        """)
         self._btn_load.setEnabled(False)
         self._btn_load.clicked.connect(self._on_load_clicked)
         row_act.addWidget(self._btn_load)
 
-        self._btn_thumb = QPushButton("[ Miniatura ]")
+        self._btn_thumb = QPushButton("🖼 Miniatura")
+        self._btn_thumb.setStyleSheet("""
+            QPushButton {
+                background-color: #ffffff;
+                color: #2c3e50;
+                font-weight: bold;
+                padding: 7px 14px;
+                border-radius: 4px;
+                border: 1px solid #bdc3c7;
+            }
+            QPushButton:hover {
+                background-color: #ebedef;
+            }
+            QPushButton:disabled {
+                background-color: #f8f9f9;
+                color: #bdc3c7;
+                border-color: #eaeded;
+            }
+        """)
         self._btn_thumb.setEnabled(False)
         self._btn_thumb.clicked.connect(self._on_thumb_clicked)
         row_act.addWidget(self._btn_thumb)
@@ -480,13 +535,32 @@ class MainDialog(QDialog):
         bar = QFrame()
         bar.setStyleSheet("background-color: #eaeded; border-top: 1px solid #bdc3c7;")
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(6, 3, 6, 3)
-        layout.setSpacing(6)
+        layout.setContentsMargins(10, 4, 10, 4)
+        layout.setSpacing(10)
 
         self._lbl_progress = QLabel("Pronto. (QMagery v1.0.0)")
+        self._lbl_progress.setStyleSheet("color: #2c3e50; font-size: 8.5pt;")
         layout.addWidget(self._lbl_progress, stretch=1)
 
         self._btn_cancel = QPushButton("■ Interromper")
+        self._btn_cancel.setStyleSheet("""
+            QPushButton {
+                background-color: #ffffff;
+                color: #c0392b;
+                font-weight: bold;
+                padding: 4px 10px;
+                border: 1px solid #e74c3c;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #fadbd8;
+            }
+            QPushButton:disabled {
+                background-color: #f2f3f4;
+                color: #bdc3c7;
+                border-color: #d5dbdb;
+            }
+        """)
         self._btn_cancel.setEnabled(False)
         self._btn_cancel.clicked.connect(self._on_cancel_clicked)
         layout.addWidget(self._btn_cancel)
@@ -500,7 +574,7 @@ class MainDialog(QDialog):
         self._lbl_pct = QLabel("0%")
         self._lbl_pct.setFixedWidth(40)
         self._lbl_pct.setAlignment(Qt.AlignCenter)
-        self._lbl_pct.setStyleSheet("font-weight: bold;")
+        self._lbl_pct.setStyleSheet("font-weight: bold; color: #2c3e50;")
         layout.addWidget(self._lbl_pct)
 
         parent_layout.addWidget(bar)
@@ -576,9 +650,14 @@ class MainDialog(QDialog):
 
         # Habilita ou desabilita widgets exclusivos do GEE
         is_gee = (code == 'gee')
-        self._mode_box.setEnabled(is_gee)
-        self._txt_custom.setEnabled(is_gee)
-        self._lbl_custom.setEnabled(is_gee)
+        self._mode_box.setVisible(is_gee)
+        self._txt_custom.setVisible(is_gee)
+        self._lbl_custom.setVisible(is_gee)
+
+        # Para fontes XYZ (gehist / wayback), composição não se aplica
+        is_xyz_like = code in ('gehist', 'wayback')
+        self._lbl_comp.setVisible(not is_xyz_like)
+        self._cbo_comp.setVisible(not is_xyz_like)
 
         self._on_sensor_changed()
 
@@ -602,6 +681,14 @@ class MainDialog(QDialog):
         self._lbl_detail.setText(f"📡 {agency}: {coll} ({res})")
         self._lbl_bands.setText(f"🌈 Bandas: {meta.get('available_bands', '-')}")
 
+        notes = meta.get('notes', '')
+        if notes:
+            self._lbl_notes.setText(f"ℹ️ {notes}")
+            self._lbl_notes.setVisible(True)
+        else:
+            self._lbl_notes.setText("")
+            self._lbl_notes.setVisible(False)
+
         # Resolução
         def_px = meta.get('default_pixel_size', '10')
         self._cbo_pixel.setCurrentText(def_px)
@@ -613,6 +700,20 @@ class MainDialog(QDialog):
             comps = GEE_COMPOSITIONS.get(sensor_code, GEE_COMPOSITIONS['S2'])
             for code, label in comps:
                 self._cbo_comp.addItem(f"{code} - {label}", code)
+        elif self._current_source == 'inpe':
+            cid = sensor_code.replace('INPE:', '')
+            allowed_modes = INPE_COLLECTION_MODES.get(cid, ['rgb', 'false', 'multi'])
+            mode_labels = dict(INPE_PRODUCTS)
+            for m in allowed_modes:
+                lbl = mode_labels.get(m, m.upper())
+                self._cbo_comp.addItem(f"{m.upper()} - {lbl}", m)
+        elif self._current_source == 'spot':
+            if 'PAN' in sensor_code:
+                self._cbo_comp.addItem("PAN - Pancromática (tons de cinza)", "pan")
+            else:
+                self._cbo_comp.addItem("RGB - Cor natural (3 bandas)", "rgb")
+                self._cbo_comp.addItem("FALSE - Falsa cor (NIR)", "false")
+                self._cbo_comp.addItem("MULTI - Multibanda bruta", "multi")
         else:
             self._cbo_comp.addItem("RGB - Cor natural (3 bandas)", "RGB")
         self._cbo_comp.blockSignals(False)
@@ -945,18 +1046,21 @@ class MainDialog(QDialog):
             self._runner.run("download", params)
 
         elif self._current_source == 'inpe':
+            mode = self._cbo_comp.currentData() or "rgb"
             self._runner.run("stac_download", {
                 "collection": self._cbo_sensor.currentData().replace("INPE:", ""),
                 "item_id": item.get("id", item_id),
                 "bbox": ",".join(str(v) for v in bbox),
-                "mode": "rgb",
+                "mode": mode,
                 "out": out_tif
             })
 
         elif self._current_source == 'spot':
+            spot_mode = self._cbo_comp.currentData() or "rgb"
             self._runner.run("spot_download", {
                 "item_id": item.get("id", item_id),
                 "bbox": ",".join(str(v) for v in bbox),
+                "mode": spot_mode,
                 "out": out_tif,
                 "align": True
             })

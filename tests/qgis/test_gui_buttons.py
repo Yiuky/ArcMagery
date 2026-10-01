@@ -360,6 +360,35 @@ class TestGuiButtonsFunctionality(unittest.TestCase):
                 self.dlg._btn_replace.click()
                 mock_load.assert_called_once()
 
+    def test_inpe_cbers2_collections_and_composition_modes(self):
+        """Testa se as coleções CBERS-2 e CBERS-2B estão disponíveis e suas composições ajustadas."""
+        # Muda para fonte INPE
+        self.dlg._on_source_toggled('inpe', True)
+
+        # Coleta todas as coleções do combo sensor
+        inpe_items = [self.dlg._cbo_sensor.itemData(i) for i in range(self.dlg._cbo_sensor.count())]
+        self.assertIn('INPE:CB2-CCD-L2-DN-1', inpe_items, "CBERS-2 CCD deve estar nas opções INPE")
+        self.assertIn('INPE:CB2B-CCD-L2-DN-1', inpe_items, "CBERS-2B CCD deve estar nas opções INPE")
+        self.assertIn('INPE:CB2B-HRC-L2-DN-1', inpe_items, "CBERS-2B HRC deve estar nas opções INPE")
+        self.assertIn('INPE:CB2-WFI-L2-DN-1', inpe_items, "CBERS-2 WFI deve estar nas opções INPE")
+        self.assertIn('INPE:CB2B-WFI-L2-DN-1', inpe_items, "CBERS-2B WFI deve estar nas opções INPE")
+
+        # Seleciona CB2-CCD-L2-DN-1 e verifica composições
+        idx_ccd = self.dlg._cbo_sensor.findData('INPE:CB2-CCD-L2-DN-1')
+        self.dlg._cbo_sensor.setCurrentIndex(idx_ccd)
+        modes_ccd = [self.dlg._cbo_comp.itemData(i) for i in range(self.dlg._cbo_comp.count())]
+        self.assertEqual(modes_ccd, ['rgb', 'false', 'multi', 'pan'])
+
+        # Seleciona CB2B-HRC-L2-DN-1 e verifica modo pan
+        idx_hrc = self.dlg._cbo_sensor.findData('INPE:CB2B-HRC-L2-DN-1')
+        self.dlg._cbo_sensor.setCurrentIndex(idx_hrc)
+        modes_hrc = [self.dlg._cbo_comp.itemData(i) for i in range(self.dlg._cbo_comp.count())]
+        self.assertEqual(modes_hrc, ['pan'])
+
+        # Verifica exibição da nota informativa
+        self.assertFalse(self.dlg._lbl_notes.isHidden())
+        self.assertIn("Nível 2", self.dlg._lbl_notes.text())
+
 
 if __name__ == '__main__':
     unittest.main()
