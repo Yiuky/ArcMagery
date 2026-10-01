@@ -28,6 +28,9 @@ class MainDialog(QDialog):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
 
+        # Status bar (deve ser criada antes das abas, pois elas a recebem no construtor)
+        self._status = QStatusBar()
+
         self._tabs = QTabWidget()
         layout.addWidget(self._tabs)
 
@@ -39,8 +42,6 @@ class MainDialog(QDialog):
         self._add_tab('Esri Wayback', 'wayback_tab', 'WaybackTab')
         self._add_tab('Google / XYZ', 'xyz_tab', 'XyzTab')
 
-        # Status bar
-        self._status = QStatusBar()
         layout.addWidget(self._status)
 
         # Botões

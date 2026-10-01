@@ -44,9 +44,9 @@ class GeeTab(QWidget):
         self.iface = iface
         self.status_bar = status_bar
         self._runner: Optional[BackendRunner] = None
+        self._info_runner: Optional[BackendRunner] = None
         self._results = []
         self._setup_ui()
-        self._load_sources_info()
 
     # ------------------------------------------------------------------
     # Interface
