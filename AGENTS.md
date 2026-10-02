@@ -90,7 +90,9 @@ Python 3 do QGIS + %LOCALAPPDATA%\ArcMagery\pylibs\py3XY  <- backend/gee_core.py
   preservado (Landsat L2/S2 = uint16). Veja C-01 e C-02 no backlog.
 - **CBERS:** recorte por `srcWin` em pixels inteiros (grade nativa, sem reamostragem). Rejeite
   recortes 100% NoData. O footprint real vem de `coverage_pct`, porque o servidor do INPE trata
-  `intersects` como bbox.
+  `intersects` como bbox. Cenas cujo footprint é só o retângulo envolvente (Nível 2, CBERS-2/2B) têm a
+  cobertura MEDIDA na imagem (`stac_core.measure_envelope_coverage`); as conexões `/vsicurl/` abertas em
+  threads precisam ser fechadas na própria thread (`VSICurlClearCache`), senão o processo não encerra.
 - **Simbologia:** nunca aplique renderer "no escuro". Use `arcmagery_symbology` (construct → save → reler →
   `compare`) e localize camadas por `IRasterLayer.FilePath` (via `normalize_path`, que expande 8.3),
   nunca por nome. O ArcObjects pode ser testado fora do ArcMap (ver `tests/arcmap/test_symbology.py`).
@@ -124,6 +126,14 @@ set ARCMAGERY_GEE_PROJECT=<id>  :: + teste real no Earth Engine (requer autentic
 - Os testes do atualizador simulam tudo: **nunca** tocam o AssemblyCache nem backups reais.
 - `tests/arcmap/legacy_gee_updater_check.py` é um diagnóstico manual antigo (faz `git fetch` real)
   e fica fora da suíte.
+- **Todas as fontes com a rede:** `tests/qgis/test_ao_vivo.py` (`ARCMAGERY_LIVE=1`, com o Python do QGIS)
+  busca cada sensor/coleção/grupo/zoom/provedor, baixa cada produto e carrega no QGIS conferindo pixels
+  válidos, simbologia e posição; com `ARCMAGERY_LIVE_KEEP=<pasta>` guarda as imagens e o
+  `tests/arcmap/test_carga_ao_vivo.py` (Python 2.7) as carrega pelo caminho do `load_into_toc`. Rode antes de
+  publicar uma versão que mexa em fontes, backend ou carga. Nunca gasta a cota do GEODES sem
+  `ARCMAGERY_SPOT_QUOTA=1` (usa só cenas em cache).
+- Os testes do QMagery rodam com um `%APPDATA%` temporário (`tests/qgis/_paths.py`): nunca gravam nas
+  configurações reais; os testes ao vivo só LEEM o projeto do GEE e a chave do GEODES reais.
 - Integração com o ArcMap real (TOC, simbologia) não é automatizável: use o checklist **V** do
   backlog.
 

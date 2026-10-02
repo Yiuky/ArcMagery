@@ -74,6 +74,14 @@ class LocalizacaoDoBackend(unittest.TestCase):
     def test_repositorio_usa_o_backend_do_arcmagery(self):
         self.assertEqual(os.path.normcase(config.backend_dir()), os.path.normcase(_paths.BACKEND))
 
+    def test_testes_nao_gravam_nas_configuracoes_reais(self):
+        # bug de 2026-10-02: os testes de interface gravaram uma pasta temporária como pasta de saída
+        # (e "termos aceitos") no %APPDATA%\ArcGEE do usuário
+        real = os.path.normcase(os.path.join(_paths.REAL_APPDATA, 'ArcGEE'))
+        self.assertNotEqual(os.path.normcase(config.user_config_dir()), real)
+        config.save_settings({'tile_threads': 8})
+        self.assertTrue(os.path.normcase(config.settings_file()).startswith(os.path.normcase(os.environ['APPDATA'])))
+
     def test_configuracao_fica_fora_da_pasta_do_plugin(self):
         # o Gerenciador de Complementos apaga a pasta do plugin a cada atualização
         for path in (config.gee_config_file(), config.geodes_config_file(), config.settings_file()):

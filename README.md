@@ -190,6 +190,15 @@ set ARCMAGERY_LIVE=1             :: inclui testes com internet (INPE, Esri, Goog
 set ARCMAGERY_GEE_PROJECT=<id>   :: inclui teste real no Earth Engine
 ```
 
+Todas as fontes, com a internet (~20 min): busca, download de cada produto e carga no QGIS e no ArcMap:
+
+```bat
+set ARCMAGERY_LIVE=1
+set ARCMAGERY_LIVE_KEEP=%TEMP%\arcmagery_ao_vivo
+"C:\Program Files\QGIS 3.xx\bin\python-qgis-ltr.bat" tests\qgis\test_ao_vivo.py
+C:\Python27\ArcGIS10.8\python.exe tests\arcmap\test_carga_ao_vivo.py
+```
+
 ## 📦 Publicar uma versão (mantenedor)
 
 Com a versão atualizada em `config.xml`, `gee_gui.py`, `gee_updater.py`, no selo deste README, no

@@ -311,6 +311,85 @@ def footprint_is_envelope(geometry):
         return False
 
 
+MEASURE_MAX_ITEMS = 100     # teto de cenas medidas por busca (cada medida ~1 s, 8 em paralelo)
+MEASURE_SAMPLE = 64         # a janela da area e lida reduzida a no maximo 64 x 64 px
+
+
+def needs_measured_coverage(item):
+    """O 'footprint' publicado pelo INPE nem sempre descreve a imagem (medido em 2026-10-02 em Cuiaba):
+      - retangulo envolvente (Amazonia-1 WFI L2, parte do CBERS-2): cobria a area, imagem 0%;
+      - poligono do CBERS-2 CCD/WFI Nivel 2 (sem ortorretificacao): 100% pelo poligono, imagem 0%;
+      - bordas de cena (poligono parcial) tambem divergem.
+    Medir na imagem tudo que nao for Nivel 4+ com o poligono cobrindo a area inteira."""
+    cov = item.get('coverage_pct')
+    return bool(item.get('coverage_is_estimate') or '-L2-' in (item.get('collection') or '')
+                or (cov is not None and cov < 99.5))
+
+
+def measured_coverage_pct(feature, bbox):
+    """Cobertura REAL da area na imagem: le a janela da area (reduzida) da 1a banda da cena e conta os
+    pixels com imagem. Para cenas cujo 'footprint' e so o retangulo envolvente (ex.: Amazonia-1 WFI
+    Nivel 2): o retangulo da passagem (~10 graus) cobria a area, mas a faixa imageada, inclinada, nao,
+    e o recorte saia 100% NoData. Retorna None se nao der para medir (sem GDAL, rede)."""
+    if not HAS_GDAL:
+        return None
+    try:
+        import numpy as np
+        coll = feature.get('collection')
+        modes = available_modes(coll)
+        if not modes:
+            return None
+        first = band_plan(coll, modes[0])[0][0]
+        asset = resolve_asset(feature.get('assets', {}), first)
+        if not asset or not asset.get('href'):
+            return None
+        configure_gdal_http()
+        ds = gdal.Open(_vsi(asset['href']))
+        if ds is None:
+            return None
+        try:
+            try:
+                x, y, w, h = bbox_to_srcwin(ds, bbox)
+            except StacError:
+                return 0.0
+            band = ds.GetRasterBand(1)
+            arr = band.ReadAsArray(x, y, w, h, buf_xsize=min(w, MEASURE_SAMPLE), buf_ysize=min(h, MEASURE_SAMPLE))
+            nd = band.GetNoDataValue()
+            valid = (arr != nd) if nd is not None else (arr != 0)
+            return round(100.0 * float(np.mean(valid)), 1)
+        finally:
+            band = ds = None
+            # As conexoes /vsicurl/ ficam presas a THREAD que as abriu: sem fecha-las aqui, o
+            # hard_exit do run_gee (que limpa so a thread principal) espera a E/S de rede e o
+            # processo nao encerra (mesmo sintoma do recorte CBERS, ver run_gee.hard_exit).
+            try:
+                gdal.VSICurlClearCache()
+            except Exception:
+                pass
+    except Exception:
+        return None
+
+
+def measure_envelope_coverage(items, bbox, workers=8):
+    """Troca a cobertura estimada (retangulo envolvente) pela medida na imagem, em paralelo. Itens sem
+    medida (falha de rede) continuam com a estimativa e coverage_is_estimate=True."""
+    todo = [it for it in items if it.get('_feature') is not None][:MEASURE_MAX_ITEMS]
+    if todo and HAS_GDAL:
+        _log(u"INPE: medindo na imagem a cobertura real de %d cena(s)..." % len(todo))
+        configure_gdal_http()   # opcoes globais do GDAL: uma vez, antes das threads
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(workers, len(todo))) as pool:
+            measured = list(pool.map(lambda it: measured_coverage_pct(it['_feature'], bbox), todo))
+        for it, pct in zip(todo, measured):
+            if pct is not None:
+                it['coverage_pct'] = pct
+                it['coverage_is_estimate'] = False
+                it['coverage_measured'] = True
+    for it in items:
+        it.pop('_feature', None)
+    return items
+
+
 def _bbox_polygon(bbox):
     x0, y0, x1, y1 = bbox
     return {'type': 'Polygon', 'coordinates': [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]]}
@@ -378,7 +457,9 @@ def search(collections, bbox, start_date=None, end_date=None, max_cloud=None, ma
             item = _summarize_item(f, bbox)
             if max_cloud is not None and item['cloud_cover'] is not None and item['cloud_cover'] > float(max_cloud):
                 continue
-            if min_coverage is not None and item['coverage_pct'] is not None and item['coverage_pct'] < float(min_coverage):
+            if needs_measured_coverage(item):
+                item['_feature'] = f   # medida abaixo, na imagem
+            elif min_coverage is not None and item['coverage_pct'] is not None and item['coverage_pct'] < float(min_coverage):
                 continue
             results.append(item)
         nxt = next((l for l in page.get('links', []) if l.get('rel') == 'next'), None)
@@ -389,6 +470,9 @@ def search(collections, bbox, start_date=None, end_date=None, max_cloud=None, ma
             body = dict(body, **(nxt.get('body') or {})) if nxt.get('merge') else (nxt.get('body') or body)
         else:
             body = None
+    measure_envelope_coverage(results, bbox)
+    if min_coverage is not None:
+        results = [it for it in results if it['coverage_pct'] is None or it['coverage_pct'] >= float(min_coverage)]
     results = dedupe_same_scene(results)
     results.sort(key=lambda it: it.get('datetime') or '', reverse=True)
     return results[:max_items]

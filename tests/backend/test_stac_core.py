@@ -216,6 +216,63 @@ class StacSearchTest(unittest.TestCase):
 
 
 @unittest.skipUnless(_paths.HAS_GDAL, "GDAL indisponivel")
+class StacEnvelopeCoverageTest(unittest.TestCase):
+    """Amazonia-1 WFI Nivel 2 (bug de 2026-10-02): o 'footprint' e so o retangulo da passagem; a faixa
+    imageada (inclinada) nao cobria a area e o recorte saia 100% NoData. A cobertura e medida na imagem."""
+
+    @classmethod
+    def setUpClass(cls):
+        from osgeo import gdal, osr
+        import numpy as np
+        cls.tmp = tempfile.mkdtemp(prefix='arcmagery_env_')
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        path = os.path.join(cls.tmp, 'BAND.tif')
+        ds = gdal.GetDriverByName('GTiff').Create(path, 200, 100, 1, gdal.GDT_UInt16)
+        ds.SetGeoTransform((-57.0, 0.01, 0.0, -15.0, 0.0, -0.01))       # -57..-55 x -16..-15
+        ds.SetProjection(srs.ExportToWkt())
+        arr = np.zeros((100, 200), dtype=np.uint16)
+        arr[:, 100:] = 500                                                 # imagem so a leste de -56
+        ds.GetRasterBand(1).WriteArray(arr)
+        ds = None
+        names = stac_core.band_plan('AMZ1-WFI-L2-DN-1', stac_core.available_modes('AMZ1-WFI-L2-DN-1')[0])[0]
+        cls.feature = _feature('AMAZONIA_1_WFI_X_L2', 'AMZ1-WFI-L2-DN-1', '2026-09-11', _square(-57, -16, -55, -15),
+                               assets=dict((n, {'href': path}) for n in names))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_retangulo_cobre_mas_a_imagem_nao(self):
+        west = [-56.8, -15.8, -56.2, -15.2]
+        self.assertEqual(stac_core.aoi_coverage_pct(self.feature['geometry'], west), 100.0)   # estimativa
+        self.assertEqual(stac_core.measured_coverage_pct(self.feature, west), 0.0)            # real
+        self.assertEqual(stac_core.measured_coverage_pct(self.feature, [-55.8, -15.8, -55.2, -15.2]), 100.0)
+        self.assertEqual(stac_core.measured_coverage_pct(self.feature, [-50, -10, -49, -9]), 0.0)   # fora
+
+    def test_busca_descarta_a_cena_fora_da_faixa(self):
+        items = [stac_core._summarize_item(self.feature, [-56.8, -15.8, -56.2, -15.2])]
+        self.assertTrue(items[0]['coverage_is_estimate'])
+        items[0]['_feature'] = self.feature
+        stac_core.measure_envelope_coverage(items, [-56.8, -15.8, -56.2, -15.2])
+        self.assertEqual((items[0]['coverage_pct'], items[0]['coverage_is_estimate']), (0.0, False))
+        self.assertNotIn('_feature', items[0])
+
+    def test_quais_cenas_sao_medidas(self):
+        need = stac_core.needs_measured_coverage
+        self.assertTrue(need({'collection': 'AMZ1-WFI-L4-DN-1', 'coverage_pct': 100.0, 'coverage_is_estimate': True}))
+        self.assertTrue(need({'collection': 'CB2-CCD-L2-DN-1', 'coverage_pct': 100.0}))   # poligono do Nivel 2 erra
+        self.assertTrue(need({'collection': 'CB4A-WPM-L4-DN-1', 'coverage_pct': 40.0}))   # borda de cena
+        self.assertFalse(need({'collection': 'CB4A-WPM-L4-DN-1', 'coverage_pct': 100.0}))
+        self.assertFalse(need({'collection': 'CBERS4-WFI-16D-2', 'coverage_pct': 100.0}))
+
+    def test_sem_acesso_a_imagem_fica_a_estimativa(self):
+        broken = dict(self.feature, assets=dict((k, {'href': os.path.join(self.tmp, 'nao_existe.tif')})
+                                                for k in self.feature['assets']))
+        self.assertIsNone(stac_core.measured_coverage_pct(broken, [-56.8, -15.8, -56.2, -15.2]))
+
+
+@unittest.skipUnless(_paths.HAS_GDAL, "GDAL indisponivel")
 class StacDownloadTest(unittest.TestCase):
     """Cena sintetica em UTM 21S (EPSG:32721), pixel 8 m, servida localmente."""
 

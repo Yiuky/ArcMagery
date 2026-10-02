@@ -17,6 +17,32 @@ for p in (BACKEND, PLUGIN_ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
+# Os testes NUNCA gravam nas configurações reais do usuário (%APPDATA%\ArcGEE): o QMagery lê o APPDATA
+# a cada chamada, então basta apontá-lo para uma pasta temporária antes de qualquer teste. Os testes ao
+# vivo leem (só leem) o projeto do GEE e a chave do GEODES reais por REAL_APPDATA.
+import atexit  # noqa: E402
+import shutil  # noqa: E402
+import tempfile  # noqa: E402
+
+REAL_APPDATA = os.environ.get('QMAGERY_REAL_APPDATA') or os.environ.get('APPDATA') or os.path.expanduser('~')
+if not os.environ.get('QMAGERY_REAL_APPDATA'):
+    os.environ['QMAGERY_REAL_APPDATA'] = REAL_APPDATA
+    _fake = tempfile.mkdtemp(prefix='qmagery_test_appdata_')
+    os.environ['APPDATA'] = _fake
+    atexit.register(shutil.rmtree, _fake, True)
+
+
+def real_user_file(name):
+    """Conteúdo (dict) de %APPDATA%\\ArcGEE\\<name> do usuário real, só leitura; {} se não existir."""
+    import io
+    import json
+    try:
+        with io.open(os.path.join(REAL_APPDATA, 'ArcGEE', name), encoding='utf-8-sig') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
 # Conexões locais não devem passar por proxy corporativo
 os.environ['NO_PROXY'] = os.environ['no_proxy'] = '127.0.0.1,localhost'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')

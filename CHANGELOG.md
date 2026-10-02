@@ -6,6 +6,24 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 
 ## [Não lançado]
 
+### 🛡️ Corrigido
+- **CBERS/Amazônia-1 Nível 2 (e histórico CBERS-2/2B):** cenas que não passavam pela área apareciam na
+  tabela com "até 100% da área" e o carregamento falhava com "recorte 100% NoData". O INPE publica para
+  elas só o retângulo envolvente da passagem (~10° no WFI), e no CBERS-2 Nível 2 até o polígono publicado
+  erra (32 de 61 cenas de Cuiabá diziam cobrir a área e não tinham imagem nela). Agora a busca **mede a
+  cobertura real** na própria imagem (leitura reduzida da janela da área) das cenas de Nível 2, das que só
+  têm o retângulo e das de cobertura parcial, e descarta as que não cobrem. A busca dessas coleções leva
+  ~15 s em vez de ~2 s. Vale para o ArcMagery e o QMagery.
+- QMagery: os testes de interface gravavam nas configurações reais do usuário (pasta de saída temporária
+  e aviso de termos aceito); agora rodam com um `%APPDATA%` próprio.
+
+### 🧪 Testes
+- **Suíte ao vivo de todas as fontes** (`tests/qgis/test_ao_vivo.py`, `ARCMAGERY_LIVE=1`): busca de cada
+  sensor do GEE, coleção do INPE, grupo do SPOT, zoom do Google Earth histórico e do Wayback e provedor
+  XYZ; download de cada produto e carga no QGIS, conferindo pixels válidos, simbologia e posição sobre a
+  área. `tests/arcmap/test_carga_ao_vivo.py` carrega as mesmas imagens pelo caminho do ArcMagery
+  (`.lyr`, bandas RGB, Stretch, camada num `.mxd`, simbologia conferida).
+
 ## [2.4.3-nightly.20261002] - 2026-10-02
 
 > Versão experimental (nightly): o QMagery (plugin do QGIS) passa a ser instalável e atualizável por

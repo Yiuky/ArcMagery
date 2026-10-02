@@ -134,6 +134,7 @@ Nenhum item aberto (o U-02 foi concluído; ver **Concluídos**).
 
 | ID | Versão | Descrição | Coberto por |
 |---|---|---|---|
+| B-08 | não lançado | CBERS/Amazônia-1 Nível 2 e CBERS-2/2B listavam cenas fora da faixa imageada ("até 100%", recorte 100% NoData): cobertura medida na imagem; e suíte ao vivo de todas as fontes com carga no QGIS e no ArcMap | `tests/backend/test_stac_core.py` (StacEnvelopeCoverageTest), `tests/qgis/test_ao_vivo.py`, `tests/arcmap/test_carga_ao_vivo.py` |
 | Q-00 | 2.4.3-nightly.20261002 | QMagery instalável e atualizável: `QMagery-<v>.zip` com backend embutido, repositório de plugins do QGIS, versão nightly que o QGIS ordena; SPOT com chave e filtro de satélite, composições do Landsat, XYZ, configurações compartilhadas, AOI vetorial, fila, substituir, miniaturas | `tests/qgis` (contrato, paridade, empacotamento, interface: 90 testes) e teste de ponta a ponta com a rede |
 | R-02 | 2.4.3-nightly.20261002 | Repositório renomeado para `ArcMagery` (o GitHub redireciona o nome antigo; atualizador conferido com a URL antiga em Py2 e Py3) | conferência manual (2026-10-01) |
 | U-02 | 2.4.2 | `.bat` do atualizador encerrava todos os `pythonw.exe`; agora espera/encerra só o PID da interface | `tests/arcmap/test_robustness_fixes.py` (execução real desanexada) |
