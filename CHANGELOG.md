@@ -6,6 +6,10 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 
 ## [Não lançado]
 
+## [2.4.3-nightly.20261003] - 2026-10-02
+
+> Versão experimental (nightly): correção do carregamento de cenas CBERS/Amazônia-1 de Nível 2 e testes ao vivo de todas as fontes.
+
 ### 🛡️ Corrigido
 - **CBERS/Amazônia-1 Nível 2 (e histórico CBERS-2/2B):** cenas que não passavam pela área apareciam na
   tabela com "até 100% da área" e o carregamento falhava com "recorte 100% NoData". O INPE publica para

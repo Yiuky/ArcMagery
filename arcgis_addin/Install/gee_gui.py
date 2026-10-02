@@ -1044,7 +1044,7 @@ class GEEUpdaterDialog(object):
             retry_fn=self._do_github_update, flags=flags)
 
 
-CURRENT_VERSION = "2.4.3-nightly.20261002"
+CURRENT_VERSION = "2.4.3-nightly.20261003"
 APP_NAME = u"ArcMagery"
 
 
