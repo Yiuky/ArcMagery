@@ -1087,6 +1087,18 @@ def is_experimental(version=None):
     return "-" in str(version or CURRENT_VERSION).lstrip("vV")
 
 
+def gee_tile_label(tile, coverage_pct):
+    """Coluna Tile / P-R do GEE: acrescenta a cobertura da AOI quando a cena cobre so parte dela
+    (borda da faixa imageada), como no INPE."""
+    if not isinstance(tile, unicode):
+        tile = unicode(str(tile or ''), 'utf-8', 'replace')
+    try:
+        cov = float(coverage_pct)
+    except (TypeError, ValueError):
+        return tile
+    return tile if cov >= 99.5 else u"%s · %.0f%% da AOI" % (tile or u'-', cov)
+
+
 def version_badge(version=None):
     """(texto, cor) do selo de versao da barra do topo: laranja + EXPERIMENTAL nas nightlies."""
     v = version or CURRENT_VERSION
@@ -2759,6 +2771,8 @@ class GEEPluginWindow(object):
 
                     for img in images:
                         tile_str = img.get('mgrs') or ("%s/%s" % (img.get('path', ''), img.get('row', '')) if img.get('path') else '')
+                        if not (use_inpe or use_spot or use_gehist):   # INPE e tiles ja mostram a cobertura
+                            tile_str = gee_tile_label(tile_str, img.get('coverage_pct'))
                         short_name = img.get('name') or img.get('id', '').split('/')[-1]
                         full_img_id = img.get('id', '')
 

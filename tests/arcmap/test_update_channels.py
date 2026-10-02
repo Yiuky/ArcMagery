@@ -271,5 +271,15 @@ class ExperimentalBadgeTest(unittest.TestCase):
             self.assertIn(u'[EXPERIMENTAL]', gee_gui.APP_WINDOW_TITLE)
 
 
+class GeeTileLabelTest(unittest.TestCase):
+    def test_partial_coverage_is_shown(self):
+        # B-11: a busca do GEE devolve coverage_pct; a cena cheia nao ganha sufixo
+        import gee_gui
+        self.assertEqual(gee_gui.gee_tile_label('21LVD', 21.0), u'21LVD · 21% da AOI')
+        self.assertEqual(gee_gui.gee_tile_label('21LVD', 100.0), u'21LVD')
+        self.assertEqual(gee_gui.gee_tile_label('227/070', None), u'227/070')
+        self.assertEqual(gee_gui.gee_tile_label('', 3.0), u'- · 3% da AOI')
+
+
 if __name__ == '__main__':
     unittest.main()

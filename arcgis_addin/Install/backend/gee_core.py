@@ -349,6 +349,26 @@ class RasterHealthCheckError(Exception):
         diag_str = json.dumps(self.diagnostics, indent=2, ensure_ascii=False) if self.diagnostics else ""
         return "%s\n[Health Check Diagnósticos]:\n%s" % (self.message, diag_str)
 
+
+def health_check_user_message(ex):
+    """Mensagem da janela de erro: a falha, o que fazer e uma linha tecnica curta (tamanho, canto e
+    bandas bastam para reproduzir). O JSON inteiro do diagnostico ocupava a tela: fica no stderr
+    (str(ex)) e no campo 'diagnostics' da resposta."""
+    d = ex.diagnostics or {}
+    failures = d.get('failures') or []
+    msg = ex.message
+    if any(u'NaN' in f or u'zero' in f for f in failures):
+        msg += (u"\n\nA cena escolhida não tem pixels nesta área: o contorno publicado dela toca a área, "
+                u"mas a imagem não chega até ela (por exemplo, a borda da faixa imageada pelo satélite). "
+                u"Escolha outra data ou amplie a área.")
+    try:
+        dims, gt = d.get('dimensions') or {}, d.get('geotransform') or []
+        msg += u"\n\nDetalhes: %s x %s px, canto superior esquerdo %.6f, %.6f, bandas %s." % (
+            dims.get('width'), dims.get('height'), gt[0], gt[3], u", ".join(d.get('expected_bands') or []))
+    except Exception:
+        pass
+    return msg
+
 def is_math_expr(text):
     """
     Verifica de forma robusta se a string de entrada representa uma expressao/formula
@@ -960,14 +980,21 @@ def search_collection(sensor, start_date, end_date, bbox=None, geometry=None, pa
     # Ordenar por data (mais recentes primeiro) e limitar
     coll = coll.sort('system:time_start', False).limit(max_images)
 
-    # Obter lista de imagens de forma direta e rapida (select([]) reduz tráfego e latência)
+    # Obter lista de imagens de forma direta e rapida (select([]) reduz tráfego e latência), com a
+    # cobertura real da AOI medida no servidor na mesma consulta (B-11)
     try:
-        data = coll.select([]).getInfo()
-    except Exception:
-        data = coll.getInfo()
+        data = with_aoi_coverage(coll, aoi).select([]).getInfo()
+    except Exception as e_cov:
+        sys.stderr.write("[ArcGEE] Cobertura da area nao medida (%s); listando as cenas sem ela.\n" % e_cov)
+        sys.stderr.flush()
+        try:
+            data = coll.select([]).getInfo()
+        except Exception:
+            data = coll.getInfo()
     features = data.get('features', [])
 
     results = []
+    skipped = 0
     import datetime
     for f in features:
         full_id = f.get('id', '')
@@ -990,6 +1017,12 @@ def search_collection(sensor, start_date, end_date, bbox=None, geometry=None, pa
         path_val = p.get('WRS_PATH') or ''
         row_val = p.get('WRS_ROW') or ''
 
+        coverage = p.get(AOI_COVERAGE_PROP)
+        coverage = None if coverage is None else round(float(coverage), 1)
+        if coverage is not None and coverage < MIN_AOI_COVERAGE_PCT:
+            skipped += 1
+            continue
+
         results.append({
             'id': full_id,
             'name': short_name,
@@ -997,10 +1030,38 @@ def search_collection(sensor, start_date, end_date, bbox=None, geometry=None, pa
             'cloud_pct': cloud,
             'mgrs': tile_val,
             'path': path_val,
-            'row': row_val
+            'row': row_val,
+            'coverage_pct': coverage,
         })
 
+    if skipped:
+        sys.stderr.write("[ArcGEE] %d cena(s) descartada(s): tocam a area mas nao tem nenhum pixel nela "
+                         "(borda da faixa imageada).\n" % skipped)
+        sys.stderr.flush()
     return results
+
+
+# Cobertura da AOI (B-11): o contorno publicado das cenas e aproximado e, na borda da faixa imageada
+# (Sentinel-2 com parte do tile sem dado; Landsat), a cena "toca" a area sem ter pixel nela - o download
+# saia todo NoData/zero e o health check recusava. Mesmo criterio do INPE (stac_core, min_coverage=0.5).
+AOI_COVERAGE_PROP = 'arcmagery_aoi_cov'
+MIN_AOI_COVERAGE_PCT = 0.5
+AOI_COVERAGE_SAMPLES = 64      # grade de ~64 x 64 amostras na AOI (nunca mais fina que 10 m)
+
+
+def with_aoi_coverage(coll, aoi):
+    """Grava em cada imagem AOI_COVERAGE_PROP = % dos pixels da AOI com dado na 1a banda. Razao de
+    CONTAGENS (validos / pixels da AOI na mesma grade): a media da mascara nao serve, porque fora do
+    contorno da cena a mascara nao vale 0 e a media sai alta (91% numa cena que cobria 26%). As duas
+    contagens na MESMA grade (EPSG:4326): sem o crs, a cena conta na UTM dela e a cheia dava 96%."""
+    scale = ee.Number(aoi.area(1)).sqrt().divide(AOI_COVERAGE_SAMPLES).max(10)
+    total = ee.Number(ee.Image.constant(1).reduceRegion(
+        ee.Reducer.count(), aoi, scale, crs='EPSG:4326', maxPixels=1e8).get('constant')).max(1)
+
+    def measure(im):
+        n = im.select(0).reduceRegion(ee.Reducer.count(), aoi, scale, crs='EPSG:4326', maxPixels=1e8).values().get(0)
+        return im.set(AOI_COVERAGE_PROP, ee.Number(n).divide(total).multiply(100).min(100))
+    return coll.map(measure)
 
 def get_thumbnail_url(image_id, sensor, composition_code, dimensions=350, bbox=None):
     coll_id = COLLECTIONS.get(sensor, '')

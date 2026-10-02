@@ -6,6 +6,16 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 
 ## [Não lançado]
 
+### 🛡️ Corrigido
+- **GEE (Sentinel-2 e Landsat): cenas sem nenhum pixel na área.** A busca listava cenas cujo contorno
+  publicado (aproximado) toca a área, mas que não têm imagem nela, como as da borda da faixa imageada
+  (ex.: Sentinel-2C de 30/09/2026 no tile 21LVD, com 66% do tile sem dado). O download saía todo zero/NoData
+  e o health check recusava. Agora a busca mede no servidor, na mesma consulta, a fração da área com
+  pixel válido em cada cena: descarta as que cobrem menos de 0,5% (mesmo critério do INPE) e mostra a
+  cobertura parcial na coluna Tile ("21LVD · 21% da AOI"). Vale para o ArcMagery e o QMagery.
+- A janela de erro do health check não mostra mais o JSON inteiro do diagnóstico (ele continua no log do
+  backend): mostra a falha, o que fazer e uma linha com tamanho, canto e bandas do recorte.
+
 ## [2.4.3-nightly.20261005] - 2026-10-02
 
 > Versão experimental (nightly): login no Google Earth Engine sem prazo curto e atualizador que mostra a

@@ -173,8 +173,13 @@ def _row(source, rid, date, cloud, detail, name, **extra):
 def gee_row(img):
     path, wrs_row = img.get('path'), img.get('row')
     detail = img.get('mgrs') or ((u"%s/%s" % (path, wrs_row)) if path and wrs_row else u'-')
+    cov = img.get('coverage_pct')
+    if cov is not None and cov < 99.5:
+        # cena na borda da faixa imageada: cobre só parte da área (o backend descarta as que não cobrem)
+        detail = u"%s · %.0f%% da área" % (detail, cov)
     return _row('gee', img.get('id'), img.get('date'), fmt_pct(img.get('cloud_pct'), 1), detail,
-                img.get('name') or (img.get('id') or u'').split('/')[-1], cloud_pct=img.get('cloud_pct'))
+                img.get('name') or (img.get('id') or u'').split('/')[-1], cloud_pct=img.get('cloud_pct'),
+                coverage_pct=cov)
 
 
 def inpe_row(item):

@@ -157,6 +157,14 @@ class LinhasDaTabela(unittest.TestCase):
         self.assertEqual(sources.layer_name('gee', 'S2', row, '432'), 'S2 2024-08-28 T21LWC (432)')
         self.assertEqual(sources.safe_name(u'a b/c:d'), 'a_b_c_d')
 
+    def test_cobertura_parcial_do_gee_na_coluna_tile(self):
+        # B-11: cena na borda da faixa imageada cobre só parte da área; a cheia não ganha sufixo
+        base = {'id': 'COPERNICUS/S2_SR_HARMONIZED/x', 'name': 'x', 'mgrs': '21LVD'}
+        self.assertEqual(sources.gee_row(dict(base, coverage_pct=21.0))['c_detail'], u'21LVD · 21% da área')
+        self.assertEqual(sources.gee_row(dict(base, coverage_pct=100.0))['c_detail'], u'21LVD')
+        self.assertEqual(sources.gee_row(base)['c_detail'], u'21LVD')
+        self.assertEqual(sources.gee_row(dict(base, coverage_pct=21.0))['coverage_pct'], 21.0)
+
 
 class Simbologia(unittest.TestCase):
 
