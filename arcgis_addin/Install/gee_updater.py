@@ -487,6 +487,10 @@ def fetch_latest_release(api_url=GITHUB_API_LATEST_RELEASE):
 def _release_info(data):
     assets = data.get("assets") or []
     zips = [a for a in assets if a.get("name", "").lower().endswith(".zip")]
+    # Desde a 2.4.3 a Release traz tambem o QMagery-<versao>.zip (plugin do QGIS): o pacote do
+    # ArcMagery e escolhido pelo nome; o primeiro .zip so vale para Releases antigas sem esse padrao.
+    named = [a for a in zips if a.get("name", "").lower().startswith("arcmagery-")]
+    zips = named or zips
     sums = [a for a in assets if a.get("name") == RELEASE_CHECKSUM_ASSET]
     tag = data.get("tag_name") or ""
     return {
@@ -1095,7 +1099,7 @@ def discard_snapshot(backup_meta):
             log_warning(u"Não foi possível descartar o snapshot %s: %s" % (d, _err(e_rm)))
 
 
-def create_snapshot_backup(current_version="2.4.3-nightly.20261001", backups_root=None, custom_sys_dirs=None):
+def create_snapshot_backup(current_version="2.4.3-nightly.20261002", backups_root=None, custom_sys_dirs=None):
     """
     Cria um backup completo e atômico do estado operacional atual do plugin.
     Copia o .esriaddin instalado e todo o AssemblyCache para uma pasta versionada:
@@ -1338,13 +1342,21 @@ def prepare_staging_environment(zip_path):
         if z_check.testzip():
             raise CorruptPackageError(u"O pacote .esriaddin compilado falhou na verificação de integridade.")
 
+    # 6. Plugin do QGIS (QMagery) do mesmo pacote: so para sincronizar o repositorio de desenvolvimento
+    qgis_plugin_dir = u""
+    for root, dirs, files in os.walk(staging_dir):
+        if os.path.basename(root) == "qmagery" and "metadata.txt" in files and "plugin.py" in files:
+            qgis_plugin_dir = os.path.dirname(root)
+            break
+
     log_info(u"Ambiente de staging pronto e verificado: %s" % staged_addin)
     return {
         "staging_dir": staging_dir,
         "config_file": config_file,
         "install_dir": install_dir,
         "inst_backend": inst_backend,
-        "staged_addin": staged_addin
+        "staged_addin": staged_addin,
+        "qgis_plugin_dir": qgis_plugin_dir,
     }
 
 # ==============================================================================
@@ -1516,6 +1528,7 @@ set "INSTALL_DIR={install_dir}"
 set "CONFIG_FILE={config_file}"
 set "INST_BACKEND={inst_backend}"
 set "DEV_REPO={dev_repo}"
+set "QGIS_PLUGIN={qgis_plugin}"
 set "GUI_PID={gui_pid}"
 set "GUI_NAME={gui_name}"
 
@@ -1608,6 +1621,9 @@ if defined DEV_REPO if exist "%DEV_REPO%\arcgis_addin" (
     copy /Y "%STAGED_ADDIN%" "%DEV_REPO%\arcgis_addin\GEE_Image_Selector.esriaddin" >> "%LOG_FILE%" 2>&1
     if exist "%DEV_REPO%\backend" (
         xcopy /s /e /y /i "%INST_BACKEND%\*" "%DEV_REPO%\backend\" >> "%LOG_FILE%" 2>&1
+    )
+    if defined QGIS_PLUGIN if exist "%DEV_REPO%\qgis_plugin" (
+        xcopy /s /e /y /i "%QGIS_PLUGIN%\*" "%DEV_REPO%\qgis_plugin\" >> "%LOG_FILE%" 2>&1
     )
 )
 
@@ -1713,6 +1729,7 @@ def build_runner_script(staging_info, backup_info, sys_dirs, log_file, sync_dev_
         config_file=bat_path_text(staging_info["config_file"]),
         inst_backend=bat_path_text(staging_info["inst_backend"]),
         dev_repo=bat_path_text(dev_repo),
+        qgis_plugin=bat_path_text(staging_info.get("qgis_plugin_dir") or u"") if dev_repo else u"",
         gui_pid=_bat_text(gui_pid),
         gui_name=os.path.splitext(_bat_text(gui_exe))[0],   # Get-Process: nome sem '.exe'
         success_text=ps_message_expr(success_text),
@@ -1782,7 +1799,7 @@ def generate_and_launch_detached_runner(staging_info, backup_info, sync_dev_repo
 # FLUXO ORQUESTRADO COMPLETO (ORCHESTRATOR)
 # ==============================================================================
 
-def execute_zip_update_flow(zip_path, current_version="2.4.3-nightly.20261001", progress_callback=None,
+def execute_zip_update_flow(zip_path, current_version="2.4.3-nightly.20261002", progress_callback=None,
                             expected_sha256=None, allow_downgrade=False):
     """
     Fluxo de atualização passo a passo via arquivo ZIP:
@@ -1835,7 +1852,7 @@ def execute_zip_update_flow(zip_path, current_version="2.4.3-nightly.20261001", 
         raise
     return True
 
-def execute_git_update_flow(repo_path, remote_branch="main", current_version="2.4.3-nightly.20261001", progress_callback=None):
+def execute_git_update_flow(repo_path, remote_branch="main", current_version="2.4.3-nightly.20261002", progress_callback=None):
     """
     Fluxo de atualização passo a passo via repositório Git local:
     Fase 1: Pre-flight checks Git (conectividade, working tree limpa, divergência).
@@ -1917,7 +1934,7 @@ def _git_update_after_snapshot(repo_path, remote_branch, git_meta, backup_meta, 
     generate_and_launch_detached_runner(staging_info, backup_meta)
     return True
 
-def execute_online_github_update_flow(current_version="2.4.3-nightly.20261001", progress_callback=None,
+def execute_online_github_update_flow(current_version="2.4.3-nightly.20261002", progress_callback=None,
                                       allow_unverified_main=False, allow_downgrade=False,
                                       channel=CHANNEL_STABLE):
     """
@@ -2082,7 +2099,7 @@ def find_previous_version_backup(backups_root=None, current_version=None):
     return None
 
 
-def execute_rollback_to_previous_flow(current_version="2.4.3-nightly.20261001", progress_callback=None, backup=None):
+def execute_rollback_to_previous_flow(current_version="2.4.3-nightly.20261002", progress_callback=None, backup=None):
     """Reinstala o snapshot da versao anterior pelo mesmo executor desacoplado da atualizacao:
     snapshot da versao ATUAL primeiro (se a restauracao falhar, o executor volta a ela), copia do
     backup escolhido para um staging descartavel e nada e copiado para o repositorio de desenvolvimento."""

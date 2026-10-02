@@ -1,1224 +1,1093 @@
 # -*- coding: utf-8 -*-
 """
-Janela Principal do QMagery (100% de paridade com o ArcMagery / janela_principal.png).
+Janela principal do QMagery (mesmo arranjo da janela do ArcMagery).
 
-Estrutura visual:
-  1. Barra de Topo Amarela (#fcf3cf):
-     [Ícone] [v1.0.0] [*] [Status Conexão GEE] [Escala QGIS: 1:xxx] | [Configurar Projeto GEE] [Verificar conexão] [Ajustar 1:500.000] [⚙ Configurações] [ℹ Sobre]
-  2. Barra 'Fonte de imagens' Azulada (#eaf2f8):
-     [Fonte de imagens:] (•) Google Earth Engine  ( ) CBERS / Amazônia-1  ( ) SPOT 1-5 (CNES)  ( ) Google Earth histórico  ( ) Esri Wayback  | [Google Earth / XYZ...]
-  3. Painel Central Dividido (Splitter):
-     - Esquerda: "1. Parâmetros e bandas"
-       * Satélite / Sensor
-       * Quadro Informativo do Sensor (📅 Período | 📡 Provedor/Res | 🌈 Bandas)
-       * Composição / multibanda
-       * Bandas Personalizadas (opcional)
-       * Modo de Carga no QGIS (Multibanda bruta vs RGB rápido)
-       * Tamanho do Pixel (m)
-       * Data Inicial e Final (DD/MM/AAAA) com atalhos [30d] [60d] [90d]
-       * Área de interesse: (•) Extensão da tela do QGIS (<= 1:500k)  ( ) Camada Vetorial (AOI)
-       * Botão Primário: [ Buscar Imagens no GEE ]
-     - Direita Superior: "2. Imagens disponíveis - selecione uma ou várias (Ctrl / Shift)"
-       * Tabela com colunas: Data / Hora | Nuvens (%) | Tile / P-R | Nome da Cena | Status
-     - Direita Inferior: "3. Carregamento de Imagens no QGIS"
-       * Título e info da imagem selecionada
-       * [x] Agrupar no Painel de Camadas (Grupo): [ Nome do Grupo ]
-       * Substituir camada existente: Alvo nas Camadas | [Atualizar] | [🔁 Substituir]
-       * Botões de ação: [ Carregar no QGIS ] | [ Miniatura ]
-  4. Barra Inferior de Status:
-     [Mensagem de status] | [■ Interromper] [Barra de Progresso] [0%]
+  Topo ........ versão, conexão com o Earth Engine, escala do mapa e configurações
+  Fontes ...... Google Earth Engine | CBERS / Amazônia-1 | SPOT 1-5 | Google Earth histórico | Esri Wayback
+  Esquerda .... 1. sensor, composição, período e área de interesse -> Buscar
+  Direita ..... 2. tabela de cenas (seleção múltipla) e 3. carregamento (grupo, substituir, miniatura)
+  Rodapé ...... progresso e Interromper
+
+As regras de cada fonte (parâmetros do backend e linhas da tabela) ficam em core/sources.py.
 """
-import os
-import sys
 import json
-import re
-import time
+import os
 import tempfile
 from datetime import date, timedelta
-from typing import Optional, List, Dict
 
-from qgis.PyQt.QtCore import Qt, QDate
-from qgis.PyQt.QtGui import QIcon, QPixmap, QColor
+from qgis.PyQt.QtCore import QDate, QTimer, Qt, QUrl
+from qgis.PyQt.QtGui import QColor, QDesktopServices, QPixmap
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QSplitter,
-    QLabel, QLineEdit, QComboBox, QPushButton, QRadioButton,
-    QButtonGroup, QCheckBox, QGroupBox, QTableWidget,
-    QTableWidgetItem, QHeaderView, QProgressBar, QFrame,
-    QMessageBox, QInputDialog, QWidget
+    QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDateEdit, QDialog, QFrame, QGroupBox,
+    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QRadioButton,
+    QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from ..core.backend_runner import BackendRunner
-from ..core.qgis_layer import add_raster_layer, add_xyz_tile_layer
-from ..core.catalog_constants import (
-    MAX_ALLOWED_SCALE,
-    GEE_SENSOR_DISPLAY, GEE_SENSOR_METADATA, GEE_COMPOSITIONS,
-    INPE_SENSOR_DISPLAY, INPE_SENSOR_METADATA, INPE_COLLECTION_MODES, INPE_PRODUCTS,
-    SPOT_SENSOR_DISPLAY, SPOT_SENSOR_METADATA,
-    GEHIST_SENSOR_DISPLAY, GEHIST_SENSOR_METADATA,
-    WAYBACK_SENSOR_DISPLAY, WAYBACK_SENSOR_METADATA,
-)
-from .support_dialogs import AboutDialog, SettingsDialog, ExtraSourcesDialog
+from ..core import config, sources
+from ..core import catalog_constants as cat
+from ..core.backend_runner import CANCELLED_MESSAGE, BackendRunner
+from ..core.qgis_layer import add_raster_layer, apply_style, raster_layers
+from .support_dialogs import AboutDialog, ExtraSourcesDialog, GeeProjectDialog, GeodesKeyDialog, SettingsDialog
+
+ICON_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'resources', 'icons')
+
+STATUS_COLORS = {'ok': '#1e8449', 'err': '#c0392b', 'run': '#1f618d', 'wait': '#7d6608'}
+
+TABLE_HEADERS = {
+    'gee': ("Data / hora", "Nuvens", "Tile / órbita-ponto", "Cena"),
+    'inpe': ("Data", "Nuvens", "Órbita/ponto · cobertura", "Cena"),
+    'spot': ("Data", "Nuvens", "Satélite · resolução · cobertura", "Cena"),
+    'gehist': ("Data", "Cobertura", "Provedor · zoom", "Identificador"),
+    'wayback': ("Captura", "Versão Wayback", "Satélite · resolução · zoom", "Identificador"),
+}
+
+SEARCH_LABELS = {
+    'gee': "Buscar imagens no GEE",
+    'inpe': "Buscar cenas no INPE",
+    'spot': "Buscar cenas SPOT (GEODES)",
+    'gehist': "Listar datas do Google Earth",
+    'wayback': "Listar versões do Esri Wayback",
+}
+
+BTN = ("QPushButton { background-color: #fdfefe; border: 1px solid #b2babb; border-radius: 2px; padding: 3px 8px; }"
+       " QPushButton:hover { background-color: #ebedef; }")
 
 
-def _get_icon_pixmap(name: str):
-    icon_dir = os.path.normpath(
-        os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons')
-    )
-    for ext in ['.png', '.gif']:
-        p = os.path.join(icon_dir, name + ext)
+def _icon_pixmap(name):
+    for ext in ('.png', '.gif'):
+        p = os.path.join(ICON_DIR, name + ext)
         if os.path.isfile(p):
             return QPixmap(p)
     return QPixmap()
 
 
 class MainDialog(QDialog):
-    """Janela principal do QMagery idêntica ao ArcMagery."""
 
-    def __init__(self, iface, parent=None, auto_check: bool = True):
+    def __init__(self, iface, parent=None, auto_check=True):
         super().__init__(parent)
         self.iface = iface
-        self.setWindowTitle("QMagery (QGIS 3.x) | v1.0.0")
-        self.resize(1060, 680)
-        self.setMinimumSize(920, 600)
-        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
+        self.setWindowTitle(u"QMagery — imagens de satélite no QGIS | %s" % config.version_label())
+        self.resize(1100, 700)
+        self.setMinimumSize(940, 600)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
 
-        # Estado interno
-        self._runner: Optional[BackendRunner] = None
-        self._check_runner: Optional[BackendRunner] = None
-        self._images_cache: List[Dict] = []
-        self._current_source = "gee"
-        self._gee_connected = False
-        self._gee_project = ""
+        self._runner = BackendRunner(self)
+        self._runner.progress.connect(self._on_progress)
+        self._check_runner = BackendRunner(self)
+        self._check_runner.finished.connect(self._on_check_finished)
+        self._check_runner.error.connect(self._on_check_error)
+
+        self._rows = []
+        self._source = 'gee'
+        self._gee_project = config.load_gee_project()
+        self._queue = []
+        self._task = None
+        self._load_errors = []
+        self._loaded = 0
+        self._busy = None            # 'search' | 'load' | 'thumb' | None
+        self._aoi_file = None
+        self._auth_proc = None
+        self._auth_timer = None
 
         self._setup_ui()
-        self._load_saved_project()
-        self._init_source_state()
+        self._on_source_toggled('gee', True)
+        self._refresh_vector_layers()
+        self._refresh_toc_rasters()
         self._update_map_scale()
+        self._connect_canvas()
         if auto_check:
             self.check_gee_connection()
 
-    # -------------------------------------------------------------------------
-    # Montagem da Interface
-    # -------------------------------------------------------------------------
-
+    # ===================================================================== montagem
     def _setup_ui(self):
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(6, 6, 6, 6)
-        root_layout.setSpacing(4)
-
-        # 1. Barra de Topo Amarela (#fcf3cf)
-        self._build_top_bar(root_layout)
-
-        # 2. Barra "Fonte de imagens" (#eaf2f8)
-        self._build_source_bar(root_layout)
-
-        # 3. Painel Central Dividido (Splitter)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(6, 6, 6, 6)
+        root.setSpacing(4)
+        self._build_top_bar(root)
+        self._build_source_bar(root)
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
-
-        left_widget = self._build_left_panel()
-        right_widget = self._build_right_panel()
-
-        splitter.addWidget(left_widget)
-        splitter.addWidget(right_widget)
+        splitter.addWidget(self._build_left_panel())
+        splitter.addWidget(self._build_right_panel())
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 5)
-        root_layout.addWidget(splitter, stretch=1)
+        root.addWidget(splitter, stretch=1)
+        self._build_bottom_bar(root)
 
-        # 4. Barra de Status Inferior
-        self._build_bottom_bar(root_layout)
-
-    def _build_top_bar(self, parent_layout):
+    def _build_top_bar(self, parent):
         bar = QFrame()
-        bar.setStyleSheet("background-color: #fcf3cf; border: 1px solid #d5dbdb; border-radius: 3px;")
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(6)
-
-        # Ícone da aplicação
-        ico_lbl = QLabel()
-        pm = _get_icon_pixmap("icon24") or _get_icon_pixmap("icon")
+        bar.setObjectName('topbar')
+        bar.setStyleSheet("#topbar { background-color: #fcf3cf; border: 1px solid #d5dbdb; border-radius: 3px; }")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(8, 4, 8, 4)
+        lay.setSpacing(6)
+        ico = QLabel()
+        pm = _icon_pixmap('icon24')
         if not pm.isNull():
-            ico_lbl.setPixmap(pm.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        layout.addWidget(ico_lbl)
-
-        # Badge de versão (azul petróleo)
-        v_badge = QLabel(" v1.0.0 ")
-        v_badge.setStyleSheet("background-color: #1b4f72; color: #ffffff; font-weight: bold; border-radius: 2px; padding: 2px 4px;")
-        layout.addWidget(v_badge)
-
-        # Status GEE
+            ico.setPixmap(pm.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        lay.addWidget(ico)
+        badge = QLabel(u" %s " % config.version_label())
+        badge.setStyleSheet("background-color: #1b4f72; color: white; font-weight: bold; border-radius: 2px; padding: 2px 4px;")
+        lay.addWidget(badge)
         self._lbl_status_icon = QLabel("[*]")
-        self._lbl_status_icon.setStyleSheet("color: #7d6608; font-weight: bold;")
-        layout.addWidget(self._lbl_status_icon)
+        lay.addWidget(self._lbl_status_icon)
+        self._lbl_status = QLabel(u"Earth Engine: não verificado")
+        lay.addWidget(self._lbl_status)
+        self._set_status('wait', u"Earth Engine: não verificado")
+        self._lbl_scale = QLabel(u"| Escala: -")
+        self._lbl_scale.setStyleSheet("color: #1b4f72;")
+        lay.addWidget(self._lbl_scale)
+        lay.addStretch()
+        for attr, text, slot in (('_btn_proj', u"Projeto GEE...", self._on_configure_project),
+                                 ('_btn_check', u"Verificar conexão", self.check_gee_connection),
+                                 ('_btn_fit', u"Ajustar 1:500.000", self._on_fit_scale),
+                                 ('_btn_settings', u"⚙ Configurações", self._on_settings),
+                                 ('_btn_about', u"ℹ Sobre", lambda: AboutDialog(self).exec_())):
+            b = QPushButton(text)
+            b.setStyleSheet(BTN)
+            b.clicked.connect(slot)
+            setattr(self, attr, b)
+            lay.addWidget(b)
+        parent.addWidget(bar)
 
-        self._lbl_status = QLabel("Verificando conexão com o Google Earth Engine...")
-        self._lbl_status.setStyleSheet("color: #7d6608; font-weight: bold;")
-        layout.addWidget(self._lbl_status)
-
-        # Escala QGIS
-        self._lbl_scale = QLabel("| Escala QGIS: Verificando...")
-        self._lbl_scale.setStyleSheet("color: #1b4f72; font-size: 8.5pt;")
-        layout.addWidget(self._lbl_scale)
-
-        layout.addStretch()
-
-        # Botões de controle do topo
-        btn_style = "QPushButton { background-color: #fdfefe; border: 1px solid #b2babb; border-radius: 2px; padding: 3px 8px; } QPushButton:hover { background-color: #ebedef; }"
-
-        btn_proj = QPushButton("Configurar Projeto GEE")
-        btn_proj.setStyleSheet(btn_style)
-        btn_proj.clicked.connect(self._on_configure_project)
-        self._btn_proj = btn_proj
-        layout.addWidget(btn_proj)
-
-        btn_check = QPushButton("Verificar conexão")
-        btn_check.setStyleSheet(btn_style)
-        btn_check.clicked.connect(self.check_gee_connection)
-        self._btn_check = btn_check
-        layout.addWidget(btn_check)
-
-        btn_fit = QPushButton("Ajustar 1:500.000")
-        btn_fit.setStyleSheet(btn_style)
-        btn_fit.clicked.connect(self._on_fit_scale)
-        self._btn_fit = btn_fit
-        layout.addWidget(btn_fit)
-
-        btn_sett = QPushButton("⚙ Configurações")
-        btn_sett.setStyleSheet(btn_style)
-        btn_sett.clicked.connect(lambda: SettingsDialog(self).exec_())
-        self._btn_settings = btn_sett
-        layout.addWidget(btn_sett)
-
-        btn_about = QPushButton("ℹ Sobre")
-        btn_about.setStyleSheet(btn_style)
-        btn_about.clicked.connect(lambda: AboutDialog(self).exec_())
-        self._btn_about = btn_about
-        layout.addWidget(btn_about)
-
-        parent_layout.addWidget(bar)
-
-    def _build_source_bar(self, parent_layout):
+    def _build_source_bar(self, parent):
         bar = QFrame()
-        bar.setStyleSheet("background-color: #eaf2f8; border: 1px solid #d4e6f1; border-radius: 3px;")
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(10, 5, 10, 5)
-        layout.setSpacing(6)
-
-        title = QLabel("Fonte de imagens:")
+        bar.setObjectName('srcbar')
+        bar.setStyleSheet("#srcbar { background-color: #eaf2f8; border: 1px solid #d4e6f1; border-radius: 3px; }")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(10, 5, 10, 5)
+        lay.setSpacing(6)
+        title = QLabel(u"Fonte de imagens:")
         title.setStyleSheet("font-weight: bold; color: #1b4f72;")
-        layout.addWidget(title)
-
+        lay.addWidget(title)
         self._source_group = QButtonGroup(self)
-        sources = [
-            ("gee", "Google Earth Engine"),
-            ("inpe", "CBERS / Amazônia-1"),
-            ("spot", "SPOT 1-5 (CNES)"),
-            ("gehist", "Google Earth histórico"),
-            ("wayback", "Esri Wayback"),
-        ]
-
-        for code, text in sources:
-            rb = QRadioButton(text)
-            rb.setStyleSheet("""
-                QRadioButton {
-                    background-color: #fdfefe;
-                    border: 1px solid #b0c4de;
-                    padding: 5px 12px;
-                    border-radius: 4px;
-                    font-size: 8.5pt;
-                    font-weight: 500;
-                    color: #2c3e50;
-                }
-                QRadioButton::indicator { width: 0px; height: 0px; }
-                QRadioButton:hover {
-                    background-color: #ebf5fb;
-                    border-color: #3498db;
-                }
-                QRadioButton:checked {
-                    background-color: #2980b9;
-                    border: 1px solid #1f618d;
-                    font-weight: bold;
-                    color: #ffffff;
-                }
-            """)
-            if code == "gee":
-                rb.setChecked(True)
+        self._source_buttons = {}
+        style = ("QRadioButton { background-color: #fdfefe; border: 1px solid #b0c4de; padding: 5px 12px;"
+                 " border-radius: 4px; color: #2c3e50; } QRadioButton::indicator { width: 0px; height: 0px; }"
+                 " QRadioButton:hover { background-color: #ebf5fb; border-color: #3498db; }"
+                 " QRadioButton:checked { background-color: #2980b9; border: 1px solid #1f618d; font-weight: bold;"
+                 " color: white; }")
+        for code in sources.SOURCES:
+            rb = QRadioButton(sources.SOURCE_LABELS[code])
+            rb.setStyleSheet(style)
+            rb.setChecked(code == 'gee')
+            rb.toggled.connect(lambda checked, c=code: self._on_source_toggled(c, checked))
             self._source_group.addButton(rb)
-            rb.toggled.connect(lambda chk, c=code: self._on_source_toggled(c, chk))
-            layout.addWidget(rb)
+            self._source_buttons[code] = rb
+            lay.addWidget(rb)
+        lay.addStretch()
+        self._btn_xyz = QPushButton(u"Google Earth / XYZ...")
+        self._btn_xyz.setStyleSheet("QPushButton { background-color: #fdfefe; border: 1px solid #3498db; color: #1b4f72;"
+                                    " font-weight: bold; padding: 4px 12px; border-radius: 3px; }")
+        self._btn_xyz.clicked.connect(self._on_xyz)
+        lay.addWidget(self._btn_xyz)
+        parent.addWidget(bar)
 
-        layout.addStretch()
-
-        # Botão Google Earth / XYZ...
-        btn_xyz = QPushButton("Google Earth / XYZ...")
-        btn_xyz.setStyleSheet("background-color: #fdfefe; border: 1px solid #3498db; color: #1b4f72; font-weight: bold; padding: 4px 12px; border-radius: 3px;")
-        btn_xyz.clicked.connect(lambda: ExtraSourcesDialog(self.iface, self).exec_())
-        self._btn_xyz = btn_xyz
-        layout.addWidget(btn_xyz)
-
-        parent_layout.addWidget(bar)
-
-    def _build_left_panel(self) -> QWidget:
+    def _build_left_panel(self):
         container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        gb = QGroupBox(" 1. Parâmetros e bandas ")
+        outer = QVBoxLayout(container)
+        outer.setContentsMargins(0, 0, 0, 0)
+        gb = QGroupBox(u" 1. Parâmetros ")
         gb.setStyleSheet("QGroupBox { font-weight: bold; }")
         form = QVBoxLayout(gb)
         form.setContentsMargins(8, 12, 8, 8)
-        form.setSpacing(6)
+        form.setSpacing(5)
 
-        # Satélite / Sensor
-        lbl_sat = QLabel("Satélite / Sensor:")
-        form.addWidget(lbl_sat)
-
+        form.addWidget(QLabel(u"Satélite / sensor:"))
         self._cbo_sensor = QComboBox()
         self._cbo_sensor.currentIndexChanged.connect(self._on_sensor_changed)
         form.addWidget(self._cbo_sensor)
 
-        # Quadro Informativo do Sensor Selecionado
-        self._info_frame = QFrame()
-        self._info_frame.setStyleSheet("background-color: #eaf2f8; border: 1px solid #aed6f1; border-radius: 3px;")
-        info_layout = QVBoxLayout(self._info_frame)
-        info_layout.setContentsMargins(6, 4, 6, 4)
-        info_layout.setSpacing(2)
+        info = QFrame()
+        info.setObjectName('info')
+        info.setStyleSheet("#info { background-color: #eaf2f8; border: 1px solid #aed6f1; border-radius: 3px; }")
+        il = QVBoxLayout(info)
+        il.setContentsMargins(6, 4, 6, 4)
+        il.setSpacing(2)
+        self._lbl_period = QLabel()
+        self._lbl_period.setStyleSheet("font-weight: bold; color: #1a5276;")
+        self._lbl_detail = QLabel()
+        self._lbl_bands = QLabel()
+        self._lbl_bands.setStyleSheet("color: #117864;")
+        self._lbl_notes = QLabel()
+        self._lbl_notes.setStyleSheet("color: #78281f; font-style: italic;")
+        for w in (self._lbl_period, self._lbl_detail, self._lbl_bands, self._lbl_notes):
+            w.setWordWrap(True)
+            il.addWidget(w)
+        form.addWidget(info)
 
-        self._lbl_period = QLabel("📅 Período: 28/03/2017 até o Presente (Ativo)")
-        self._lbl_period.setStyleSheet("font-weight: bold; color: #1a5276; font-size: 8.5pt;")
-        info_layout.addWidget(self._lbl_period)
-
-        self._lbl_detail = QLabel("📡 GEE: COPERNICUS/S2_SR_HARMONIZED (ESA | 10m / 20m)")
-        self._lbl_detail.setStyleSheet("color: #2c3e50; font-size: 8pt;")
-        info_layout.addWidget(self._lbl_detail)
-
-        self._lbl_bands = QLabel("🌈 Bandas: B1, B2, B3, B4, B5, B6, B7, B8, B8A, B9, B11, B12")
-        self._lbl_bands.setStyleSheet("font-weight: bold; color: #117864; font-size: 8pt;")
-        self._lbl_bands.setWordWrap(True)
-        info_layout.addWidget(self._lbl_bands)
-
-        self._lbl_notes = QLabel("")
-        self._lbl_notes.setStyleSheet("color: #78281f; font-size: 8pt; font-style: italic;")
-        self._lbl_notes.setWordWrap(True)
-        self._lbl_notes.setVisible(False)
-        info_layout.addWidget(self._lbl_notes)
-
-        form.addWidget(self._info_frame)
-
-        # Composição / multibanda
-        self._lbl_comp = QLabel("Composição / multibanda:")
+        self._lbl_comp = QLabel(u"Composição / produto:")
         form.addWidget(self._lbl_comp)
-
         self._cbo_comp = QComboBox()
         self._cbo_comp.currentIndexChanged.connect(self._on_composition_changed)
         form.addWidget(self._cbo_comp)
 
-        # Bandas personalizadas opcionais (apenas GEE)
-        self._lbl_custom = QLabel("Bandas Personalizadas (opcional, ex: B4,B3,B2):")
-        self._lbl_custom.setStyleSheet("font-size: 8pt;")
+        self._lbl_custom = QLabel(u"Bandas personalizadas (ex.: B8,B4,B3):")
         form.addWidget(self._lbl_custom)
-
         self._txt_custom = QLineEdit()
         form.addWidget(self._txt_custom)
 
-        # Modo de carga (apenas GEE)
-        self._mode_box = QGroupBox(" Modo de Carga no QGIS ")
-        mode_layout = QVBoxLayout(self._mode_box)
-        mode_layout.setContentsMargins(6, 6, 6, 6)
-        self._rb_multi = QRadioButton("Multibanda bruta (permite trocar as bandas)")
-        self._rb_multi.setChecked(True)
-        self._rb_rgb = QRadioButton("RGB rápido (3 bandas prontas para visualizar)")
-        mode_layout.addWidget(self._rb_multi)
-        mode_layout.addWidget(self._rb_rgb)
-        form.addWidget(self._mode_box)
-
-        # Resolução / Pixel (m)
-        row_res = QHBoxLayout()
-        row_res.addWidget(QLabel("Tamanho do Pixel (m):"))
+        self._row_pixel = QWidget()
+        rp = QHBoxLayout(self._row_pixel)
+        rp.setContentsMargins(0, 0, 0, 0)
+        rp.addWidget(QLabel(u"Tamanho do pixel (m):"))
         self._cbo_pixel = QComboBox()
         self._cbo_pixel.setEditable(True)
         self._cbo_pixel.addItems(["10", "15", "20", "30", "60", "100"])
-        row_res.addWidget(self._cbo_pixel)
-        form.addLayout(row_res)
+        rp.addWidget(self._cbo_pixel)
+        rp.addStretch()
+        form.addWidget(self._row_pixel)
 
-        # Datas
-        row_dates = QHBoxLayout()
-        row_dates.addWidget(QLabel("Data Inicial:"))
-        self._txt_start = QLineEdit()
-        row_dates.addWidget(self._txt_start)
+        rd = QHBoxLayout()
+        rd.addWidget(QLabel(u"De:"))
+        self._date_start = QDateEdit()
+        rd.addWidget(self._date_start)
+        rd.addWidget(QLabel(u"até:"))
+        self._date_end = QDateEdit()
+        rd.addWidget(self._date_end)
+        for w in (self._date_start, self._date_end):
+            w.setCalendarPopup(True)
+            w.setDisplayFormat("dd/MM/yyyy")
+            w.setMinimumDate(QDate(1972, 1, 1))
+        form.addLayout(rd)
 
-        row_dates.addWidget(QLabel("Data Final:"))
-        self._txt_end = QLineEdit()
-        row_dates.addWidget(self._txt_end)
-        form.addLayout(row_dates)
-
-        # Atalhos de data [30d] [60d] [90d]
-        row_shortcuts = QHBoxLayout()
+        rs = QHBoxLayout()
         self._quick_date_buttons = {}
-        for d in [30, 60, 90, 180]:
-            btn = QPushButton(f"{d}d")
-            btn.setMaximumWidth(60)
-            btn.clicked.connect(lambda _, days=d: self._set_quick_dates(days))
-            self._quick_date_buttons[d] = btn
-            row_shortcuts.addWidget(btn)
-        row_shortcuts.addStretch()
-        form.addLayout(row_shortcuts)
+        for d in (30, 60, 90, 180, 365):
+            b = QPushButton(u"%dd" % d if d < 365 else u"1 ano")
+            b.setMaximumWidth(60)
+            b.clicked.connect(lambda _=False, days=d: self._set_quick_dates(days))
+            self._quick_date_buttons[d] = b
+            rs.addWidget(b)
+        rs.addStretch()
+        form.addLayout(rs)
 
-        # Filtro espacial
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
         form.addWidget(line)
-
-        lbl_aoi = QLabel("Área de interesse (resolução nativa):")
+        lbl_aoi = QLabel(u"Área de interesse:")
         lbl_aoi.setStyleSheet("font-weight: bold;")
         form.addWidget(lbl_aoi)
-
-        self._rb_ext = QRadioButton("Extensão da tela do QGIS (<= 1:500k)")
+        self._rb_ext = QRadioButton(u"Extensão da tela do QGIS (até 1:500.000)")
         self._rb_ext.setChecked(True)
         form.addWidget(self._rb_ext)
-
-        row_lyr = QHBoxLayout()
-        self._rb_lyr = QRadioButton("Camada Vetorial (AOI):")
-        row_lyr.addWidget(self._rb_lyr)
-
+        rl = QHBoxLayout()
+        self._rb_lyr = QRadioButton(u"Camada vetorial:")
+        rl.addWidget(self._rb_lyr)
         self._cbo_layers = QComboBox()
-        self._cbo_layers.addItem("Nenhuma camada vetorial")
-        row_lyr.addWidget(self._cbo_layers, stretch=1)
-        form.addLayout(row_lyr)
+        self._cbo_layers.activated.connect(lambda _i: self._rb_lyr.setChecked(True))
+        rl.addWidget(self._cbo_layers, stretch=1)
+        b = QPushButton(u"↻")
+        b.setMaximumWidth(28)
+        b.setToolTip(u"Atualizar a lista de camadas")
+        b.clicked.connect(self._refresh_vector_layers)
+        rl.addWidget(b)
+        form.addLayout(rl)
+        self._chk_selected = QCheckBox(u"Só as feições selecionadas (se houver)")
+        self._chk_selected.setChecked(True)
+        form.addWidget(self._chk_selected)
 
-        # Botão principal de Busca
-        self._btn_search = QPushButton("[ Buscar Imagens no GEE ]")
-        self._btn_search.setStyleSheet("QPushButton { background-color: #1b4f72; color: #ffffff; font-weight: bold; font-size: 10pt; padding: 7px; border-radius: 3px; } QPushButton:hover { background-color: #2874a6; }")
+        self._btn_search = QPushButton(SEARCH_LABELS['gee'])
+        self._btn_search.setStyleSheet("QPushButton { background-color: #1b4f72; color: white; font-weight: bold;"
+                                       " padding: 7px; border-radius: 3px; } QPushButton:hover { background-color: #2874a6; }"
+                                       " QPushButton:disabled { background-color: #aab7b8; }")
         self._btn_search.clicked.connect(self._on_search_clicked)
         form.addWidget(self._btn_search)
-
-        layout.addWidget(gb)
+        form.addStretch()
+        outer.addWidget(gb)
         return container
 
-    def _build_right_panel(self) -> QWidget:
+    def _build_right_panel(self):
         container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
 
-        # 2. Tabela de Imagens
-        self._gb_table = QGroupBox(" 2. Imagens disponíveis - selecione uma ou várias (Ctrl / Shift) ")
+        self._gb_table = QGroupBox(u" 2. Cenas disponíveis — selecione uma ou várias (Ctrl / Shift) ")
         self._gb_table.setStyleSheet("QGroupBox { font-weight: bold; }")
-        tbl_layout = QVBoxLayout(self._gb_table)
-        tbl_layout.setContentsMargins(6, 12, 6, 6)
-
+        tl = QVBoxLayout(self._gb_table)
+        tl.setContentsMargins(6, 12, 6, 6)
         self._table = QTableWidget(0, 5)
-        self._table.setHorizontalHeaderLabels(["Data / Hora", "Nuvens (%)", "Tile / P-R", "Nome da Cena", "Status"])
-        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        self._table.setSelectionBehavior(QTableWidget.SelectRows)
-        self._table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._table.setAlternatingRowColors(True)
+        self._table.verticalHeader().setVisible(False)
+        hh = self._table.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.Stretch)
         self._table.itemSelectionChanged.connect(self._on_table_selection_changed)
-        tbl_layout.addWidget(self._table)
+        self._table.doubleClicked.connect(lambda _i: self._on_thumb_clicked())
+        tl.addWidget(self._table)
+        lay.addWidget(self._gb_table, stretch=1)
 
-        layout.addWidget(self._gb_table, stretch=1)
-
-        # 3. Carregamento de Imagens
-        gb_load = QGroupBox(" 3. Carregamento de Imagens no QGIS ")
-        gb_load.setStyleSheet("QGroupBox { font-weight: bold; }")
-        load_layout = QVBoxLayout(gb_load)
-        load_layout.setContentsMargins(8, 10, 8, 8)
-        load_layout.setSpacing(5)
-
-        self._lbl_sel_title = QLabel("Nenhuma imagem selecionada")
+        gb = QGroupBox(u" 3. Carregar no QGIS ")
+        gb.setStyleSheet("QGroupBox { font-weight: bold; }")
+        ll = QVBoxLayout(gb)
+        ll.setContentsMargins(8, 10, 8, 8)
+        ll.setSpacing(5)
+        self._lbl_sel_title = QLabel(u"Nenhuma cena selecionada")
         self._lbl_sel_title.setStyleSheet("font-weight: bold; color: #2c3e50;")
-        load_layout.addWidget(self._lbl_sel_title)
+        ll.addWidget(self._lbl_sel_title)
+        self._lbl_sel_info = QLabel(u"Selecione uma ou mais cenas na tabela (duplo clique: miniatura).")
+        self._lbl_sel_info.setStyleSheet("color: #566573;")
+        self._lbl_sel_info.setWordWrap(True)
+        ll.addWidget(self._lbl_sel_info)
 
-        self._lbl_sel_info = QLabel("Selecione uma ou mais cenas na tabela para carregar no QGIS.")
-        self._lbl_sel_info.setStyleSheet("color: #566573; font-size: 8.5pt;")
-        load_layout.addWidget(self._lbl_sel_info)
-
-        # Agrupar no Painel de Camadas
-        row_grp = QHBoxLayout()
-        self._chk_group = QCheckBox("Agrupar no Painel de Camadas (Grupo):")
+        rg = QHBoxLayout()
+        self._chk_group = QCheckBox(u"Agrupar no painel de camadas:")
         self._chk_group.setChecked(True)
-        row_grp.addWidget(self._chk_group)
+        rg.addWidget(self._chk_group)
+        self._txt_group = QLineEdit()
+        rg.addWidget(self._txt_group, stretch=1)
+        ll.addLayout(rg)
 
-        self._txt_group = QLineEdit("GEE_S2_432_20261001")
-        row_grp.addWidget(self._txt_group, stretch=1)
-        load_layout.addLayout(row_grp)
-
-        # Substituir camada existente
-        box_rep = QFrame()
-        box_rep.setStyleSheet("background-color: #f8f9f9; border: 1px solid #d5dbdb; border-radius: 3px; padding: 2px;")
-        rep_l = QVBoxLayout(box_rep)
-        rep_l.setSpacing(3)
-
-        row_rep_cbo = QHBoxLayout()
-        row_rep_cbo.addWidget(QLabel("Alvo nas Camadas:"))
+        rr = QHBoxLayout()
+        rr.addWidget(QLabel(u"Camada a substituir:"))
         self._cbo_toc = QComboBox()
-        self._cbo_toc.addItem("Nenhuma camada raster nas Camadas")
-        row_rep_cbo.addWidget(self._cbo_toc, stretch=1)
+        rr.addWidget(self._cbo_toc, stretch=1)
+        self._btn_ref_toc = QPushButton(u"↻")
+        self._btn_ref_toc.setMaximumWidth(28)
+        self._btn_ref_toc.setToolTip(u"Atualizar a lista de camadas raster")
+        self._btn_ref_toc.clicked.connect(self._refresh_toc_rasters)
+        rr.addWidget(self._btn_ref_toc)
+        ll.addLayout(rr)
 
-        btn_ref_toc = QPushButton("Atualizar")
-        btn_ref_toc.clicked.connect(self._refresh_toc_rasters)
-        self._btn_ref_toc = btn_ref_toc
-        row_rep_cbo.addWidget(btn_ref_toc)
-        rep_l.addLayout(row_rep_cbo)
+        ro = QHBoxLayout()
+        self._lbl_out = QLabel()
+        self._lbl_out.setStyleSheet("color: #566573;")
+        ro.addWidget(self._lbl_out, stretch=1)
+        b = QPushButton(u"Abrir pasta")
+        b.clicked.connect(self._open_output_dir)
+        ro.addWidget(b)
+        ll.addLayout(ro)
+        self._update_output_label()
 
-        row_rep_btns = QHBoxLayout()
-        self._btn_replace = QPushButton("[ Substituir nas Camadas ]")
-        self._btn_replace.setEnabled(False)
-        self._btn_replace.clicked.connect(self._on_replace_clicked)
-        row_rep_btns.addWidget(self._btn_replace)
-
-        lbl_rep_hint = QLabel("(bandas e stretch são aplicados e conferidos automaticamente na carga)")
-        lbl_rep_hint.setStyleSheet("color: #566573; font-size: 8pt;")
-        row_rep_btns.addWidget(lbl_rep_hint)
-        row_rep_btns.addStretch()
-        rep_l.addLayout(row_rep_btns)
-
-        load_layout.addWidget(box_rep)
-
-        # Botões de Ação (alinhados à direita)
-        row_act = QHBoxLayout()
-        row_act.setSpacing(10)
-        row_act.addStretch()
-
-        self._btn_thumb = QPushButton("🖼 Miniatura")
-        self._btn_thumb.setStyleSheet("""
-            QPushButton {
-                background-color: #ffffff;
-                color: #2c3e50;
-                font-weight: bold;
-                padding: 7px 16px;
-                border-radius: 4px;
-                border: 1px solid #bdc3c7;
-            }
-            QPushButton:hover {
-                background-color: #ebedef;
-            }
-            QPushButton:disabled {
-                background-color: #f8f9f9;
-                color: #bdc3c7;
-                border-color: #eaeded;
-            }
-        """)
-        self._btn_thumb.setEnabled(False)
-        self._btn_thumb.clicked.connect(self._on_thumb_clicked)
-        row_act.addWidget(self._btn_thumb)
-
-        self._btn_load = QPushButton("⬇ Carregar no QGIS")
-        self._btn_load.setStyleSheet("""
-            QPushButton {
-                background-color: #1e8449;
-                color: #ffffff;
-                font-weight: bold;
-                font-size: 9.5pt;
-                padding: 7px 20px;
-                border-radius: 4px;
-                border: 1px solid #196f3d;
-            }
-            QPushButton:hover {
-                background-color: #27ae60;
-            }
-            QPushButton:disabled {
-                background-color: #d5dbdb;
-                color: #7f8c8d;
-                border: 1px solid #bdc3c7;
-            }
-        """)
-        self._btn_load.setEnabled(False)
-        self._btn_load.clicked.connect(self._on_load_clicked)
-        row_act.addWidget(self._btn_load)
-
-        load_layout.addLayout(row_act)
-
-        layout.addWidget(gb_load)
+        ra = QHBoxLayout()
+        ra.addStretch()
+        self._btn_thumb = QPushButton(u"🖼 Miniatura")
+        self._btn_replace = QPushButton(u"🔁 Substituir camada")
+        self._btn_replace.setToolTip(u"Carrega UMA cena no lugar da camada escolhida acima (mesmo grupo e posição)")
+        self._btn_load = QPushButton(u"⬇ Carregar no QGIS")
+        self._btn_load.setStyleSheet("QPushButton { background-color: #1e8449; color: white; font-weight: bold;"
+                                     " padding: 6px 18px; border-radius: 4px; } QPushButton:hover { background-color: #27ae60; }"
+                                     " QPushButton:disabled { background-color: #d5dbdb; color: #7f8c8d; }")
+        for btn, slot in ((self._btn_thumb, self._on_thumb_clicked), (self._btn_replace, self._on_replace_clicked),
+                          (self._btn_load, self._on_load_clicked)):
+            btn.setEnabled(False)
+            btn.clicked.connect(slot)
+            ra.addWidget(btn)
+        ll.addLayout(ra)
+        lay.addWidget(gb)
         return container
 
-    def _build_bottom_bar(self, parent_layout):
+    def _build_bottom_bar(self, parent):
         bar = QFrame()
-        bar.setStyleSheet("background-color: #eaeded; border-top: 1px solid #bdc3c7;")
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(10, 4, 10, 4)
-        layout.setSpacing(8)
-
-        self._lbl_progress = QLabel("Pronto. (QMagery v1.0.0)")
-        self._lbl_progress.setStyleSheet("color: #2c3e50; font-size: 8.5pt;")
-        layout.addWidget(self._lbl_progress, stretch=1)
-
-        self._btn_cancel = QPushButton("■ Interromper")
-        self._btn_cancel.setStyleSheet("""
-            QPushButton {
-                background-color: #ffffff;
-                color: #c0392b;
-                font-weight: bold;
-                padding: 4px 10px;
-                border: 1px solid #e74c3c;
-                border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #fadbd8;
-            }
-            QPushButton:disabled {
-                background-color: #f2f3f4;
-                color: #bdc3c7;
-                border-color: #d5dbdb;
-            }
-        """)
+        bar.setObjectName('bottombar')
+        bar.setStyleSheet("#bottombar { background-color: #eaeded; border-top: 1px solid #bdc3c7; }")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(10, 4, 10, 4)
+        self._lbl_progress = QLabel(u"Pronto.")
+        lay.addWidget(self._lbl_progress, stretch=1)
+        self._btn_cancel = QPushButton(u"■ Interromper")
+        self._btn_cancel.setStyleSheet("QPushButton { color: #c0392b; font-weight: bold; padding: 3px 10px; }")
         self._btn_cancel.setEnabled(False)
         self._btn_cancel.clicked.connect(self._on_cancel_clicked)
-        layout.addWidget(self._btn_cancel)
-
-        # Barra de progresso com porcentagem integrada
+        lay.addWidget(self._btn_cancel)
         self._pbar = QProgressBar()
         self._pbar.setRange(0, 100)
         self._pbar.setValue(0)
-        self._pbar.setTextVisible(True)
-        self._pbar.setFormat("%p%")
-        self._pbar.setAlignment(Qt.AlignCenter)
         self._pbar.setFixedWidth(200)
-        self._pbar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #bdc3c7;
-                border-radius: 3px;
-                text-align: center;
-                background-color: #f8f9f9;
-                color: #2c3e50;
-                font-weight: bold;
-                font-size: 8pt;
-            }
-            QProgressBar::chunk {
-                background-color: #27ae60;
-                border-radius: 2px;
-            }
-        """)
-        layout.addWidget(self._pbar)
+        self._pbar.setAlignment(Qt.AlignCenter)
+        lay.addWidget(self._pbar)
+        parent.addWidget(bar)
 
-        self._lbl_pct = QLabel("")
-        self._lbl_pct.setVisible(False)
+    # ===================================================================== estado
+    def _set_status(self, kind, text):
+        color = STATUS_COLORS.get(kind, '#2c3e50')
+        icon = {'ok': '[OK]', 'err': '[!]', 'run': '[*]', 'wait': '[*]'}.get(kind, '[*]')
+        self._lbl_status_icon.setText(icon)
+        for w in (self._lbl_status_icon, self._lbl_status):
+            w.setStyleSheet("color: %s; font-weight: bold;" % color)
+        self._lbl_status.setText(text)
 
-        parent_layout.addWidget(bar)
+    def _set_busy(self, what):
+        self._busy = what
+        busy = what is not None
+        self._btn_search.setEnabled(not busy)
+        self._btn_cancel.setEnabled(busy)
+        for b in self._source_buttons.values():
+            b.setEnabled(not busy)
+        self._cbo_sensor.setEnabled(not busy)
+        if not busy:
+            self._pbar.setRange(0, 100)
+        self._update_action_buttons()
 
-    # -------------------------------------------------------------------------
-    # Lógica de Estado e Seleção de Fontes
-    # -------------------------------------------------------------------------
+    def _selected_rows(self):
+        return sorted({i.row() for i in self._table.selectedIndexes()})
 
-    def _load_saved_project(self):
-        cfg_file = os.path.normpath(os.path.join(
-            os.path.dirname(os.path.realpath(__file__)), '..', '..', '..', '..',
-            'arcgis_addin', 'Install', 'backend', 'gee_config.json'
-        ))
-        if os.path.isfile(cfg_file):
-            try:
-                with open(cfg_file, 'r', encoding='utf-8') as f:
-                    self._gee_project = json.load(f).get("project", "").strip()
-            except Exception:
-                pass
+    def _update_action_buttons(self):
+        count = len(self._selected_rows())
+        idle = self._busy is None
+        self._btn_load.setEnabled(idle and count > 0)
+        self._btn_thumb.setEnabled(idle and count == 1)
+        self._btn_replace.setEnabled(idle and count == 1 and self._cbo_toc.currentData() is not None)
 
-    def _init_source_state(self):
-        self._set_quick_dates(45)
-        self._on_source_toggled("gee", True)
-        self._refresh_vector_layers()
-        self._refresh_toc_rasters()
+    def _update_output_label(self):
+        self._lbl_out.setText(u"Arquivos em: %s" % config.output_dir())
 
-    def _on_source_toggled(self, code: str, checked: bool):
+    def _open_output_dir(self):
+        d = config.output_dir()
+        os.makedirs(d, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(d))
+
+    # ===================================================================== fontes e sensores
+    def _on_source_toggled(self, code, checked):
         if not checked:
             return
-        self._current_source = code
-
-        source_titles = {
-            'gee': ("[ Buscar Imagens no GEE ]", " 2. Imagens disponíveis - selecione uma ou várias (Ctrl / Shift) ", "Nuvens (%)", "Tile / P-R", "Nome da Cena"),
-            'inpe': ("[ Buscar Cenas no INPE ]", " 2. Cenas CBERS / Amazônia-1 (STAC INPE) - selecione uma ou várias ", "Nuvens (%)", "Órbita/Ponto · Cobertura", "Nome da Cena"),
-            'spot': ("[ Buscar Cenas SPOT (GEODES) ]", " 2. Cenas SPOT 1-5 do CNES (1986-2015) - selecione uma ou várias ", "Nuvens (%)", "Satélite · Resolução", "Cena"),
-            'gehist': ("[ Listar Datas do Google Earth ]", " 2. Datas do histórico do Google Earth nesta área ", "Cobertura", "Provedor / Satélite", "Identificador"),
-            'wayback': ("[ Listar Versões do Esri Wayback ]", " 2. Versões do Esri Wayback nesta área (data de captura) ", "Versão Wayback", "Satélite / Resolução", "Identificador"),
-        }
-        btn_txt, tbl_txt, c1, c2, c3 = source_titles.get(code, source_titles['gee'])
-        self._btn_search.setText(btn_txt)
-        self._gb_table.setTitle(tbl_txt)
-        self._table.setHorizontalHeaderLabels(["Data / Hora", c1, c2, c3, "Status"])
-
-        # Carrega sensores da fonte selecionada
+        self._source = code
+        self._btn_search.setText(SEARCH_LABELS[code])
+        heads = TABLE_HEADERS[code]
+        self._table.setHorizontalHeaderLabels(list(heads) + [u"Status"])
         self._cbo_sensor.blockSignals(True)
         self._cbo_sensor.clear()
-        if code == 'gee':
-            items = GEE_SENSOR_DISPLAY
-        elif code == 'inpe':
-            items = INPE_SENSOR_DISPLAY
-        elif code == 'spot':
-            items = SPOT_SENSOR_DISPLAY
-        elif code == 'gehist':
-            items = GEHIST_SENSOR_DISPLAY
-        elif code == 'wayback':
-            items = WAYBACK_SENSOR_DISPLAY
-        else:
-            items = GEE_SENSOR_DISPLAY
-
-        for label, val in items:
-            self._cbo_sensor.addItem(label, val)
+        for label, value in sources.sensors_for(code):
+            self._cbo_sensor.addItem(label, value)
         self._cbo_sensor.blockSignals(False)
-
-        # Ajusta datas típicas da fonte
-        if code == 'spot':
-            self._txt_start.setText("01/01/1986")
-            self._txt_end.setText("31/12/2015")
+        dates = sources.default_dates(code)
+        if dates:
+            self._date_start.setDate(QDate.fromString(dates[0], 'yyyy-MM-dd'))
+            self._date_end.setDate(QDate.fromString(dates[1], 'yyyy-MM-dd'))
         elif code in ('gehist', 'wayback'):
-            self._txt_start.setText("01/01/1985")
-            self._txt_end.setText(date.today().strftime("%d/%m/%Y"))
+            self._date_start.setDate(QDate(1985, 1, 1))
+            self._date_end.setDate(QDate.currentDate())
         else:
             self._set_quick_dates(45 if code == 'gee' else 90)
-
-        # Habilita ou desabilita widgets exclusivos do GEE
-        is_gee = (code == 'gee')
-        self._mode_box.setVisible(is_gee)
-        self._txt_custom.setVisible(is_gee)
-        self._lbl_custom.setVisible(is_gee)
-
-        # Para fontes XYZ (gehist / wayback), composição não se aplica
-        is_xyz_like = code in ('gehist', 'wayback')
-        self._lbl_comp.setVisible(not is_xyz_like)
-        self._cbo_comp.setVisible(not is_xyz_like)
-
+        is_gee = code == 'gee'
+        self._row_pixel.setVisible(is_gee)
+        tiles = code in ('gehist', 'wayback')
+        self._lbl_comp.setVisible(not tiles)
+        self._cbo_comp.setVisible(not tiles)
         self._on_sensor_changed()
 
-    def _on_sensor_changed(self):
-        sensor_code = self._cbo_sensor.currentData()
-        if not sensor_code:
+    def _on_sensor_changed(self, *_):
+        sensor = self._cbo_sensor.currentData()
+        if not sensor:
             return
-
-        # Busca metadados
-        meta = GEE_SENSOR_METADATA.get(sensor_code) or \
-               INPE_SENSOR_METADATA.get(sensor_code) or \
-               SPOT_SENSOR_METADATA.get(sensor_code) or \
-               GEHIST_SENSOR_METADATA.get(sensor_code) or \
-               WAYBACK_SENSOR_METADATA.get(sensor_code) or {}
-
-        # Atualiza box informativo
-        self._lbl_period.setText(f"📅 Período: {meta.get('period_display', '-')}")
-        agency = meta.get('agency', 'GEE')
-        coll = meta.get('collection', '')
-        res = meta.get('res', '')
-        self._lbl_detail.setText(f"📡 {agency}: {coll} ({res})")
-        self._lbl_bands.setText(f"🌈 Bandas: {meta.get('available_bands', '-')}")
-
+        meta = sources.sensor_metadata(self._source, sensor)
+        self._lbl_period.setText(u"📅 Período: %s" % meta.get('period_display', '-'))
+        self._lbl_detail.setText(u"📡 %s: %s (%s)" % (meta.get('agency', 'GEE'), meta.get('collection', ''),
+                                                      meta.get('res', '')))
+        self._lbl_bands.setText(u"🌈 Bandas: %s" % meta.get('available_bands', '-'))
         notes = meta.get('notes', '')
-        if notes:
-            self._lbl_notes.setText(f"ℹ️ {notes}")
-            self._lbl_notes.setVisible(True)
-        else:
-            self._lbl_notes.setText("")
-            self._lbl_notes.setVisible(False)
-
-        # Resolução
-        def_px = meta.get('default_pixel_size', '10')
-        self._cbo_pixel.setCurrentText(def_px)
-
-        # Atualiza composições
+        self._lbl_notes.setText(u"ℹ️ %s" % notes if notes else u"")
+        self._lbl_notes.setVisible(bool(notes))
+        if self._source == 'gee':
+            self._cbo_pixel.setEditText(u"%g" % cat.GEE_NATIVE_RES.get(sensor, 30.0))
         self._cbo_comp.blockSignals(True)
         self._cbo_comp.clear()
-        if self._current_source == 'gee':
-            comps = GEE_COMPOSITIONS.get(sensor_code, GEE_COMPOSITIONS['S2'])
-            for code, label in comps:
-                self._cbo_comp.addItem(f"{code} - {label}", code)
-        elif self._current_source == 'inpe':
-            cid = sensor_code.replace('INPE:', '')
-            allowed_modes = INPE_COLLECTION_MODES.get(cid, ['rgb', 'false', 'multi'])
-            mode_labels = dict(INPE_PRODUCTS)
-            for m in allowed_modes:
-                lbl = mode_labels.get(m, m.upper())
-                self._cbo_comp.addItem(f"{m.upper()} - {lbl}", m)
-        elif self._current_source == 'spot':
-            if 'PAN' in sensor_code:
-                self._cbo_comp.addItem("PAN - Pancromática (tons de cinza)", "pan")
-            else:
-                self._cbo_comp.addItem("RGB - Cor natural (3 bandas)", "rgb")
-                self._cbo_comp.addItem("FALSE - Falsa cor (NIR)", "false")
-                self._cbo_comp.addItem("MULTI - Multibanda bruta", "multi")
-        else:
-            self._cbo_comp.addItem("RGB - Cor natural (3 bandas)", "RGB")
+        for code, label in sources.compositions_for(self._source, sensor):
+            self._cbo_comp.addItem(u"%s - %s" % (code, label), code)
         self._cbo_comp.blockSignals(False)
-
         self._on_composition_changed()
         self._clear_results_table()
 
-    def _on_composition_changed(self):
-        comp_code = self._cbo_comp.currentData() or "432"
-        sensor_code = self._cbo_sensor.currentData() or "S2"
-        today_str = date.today().strftime("%Y%m%d")
-        default_grp = f"{self._current_source.upper()}_{sensor_code}_{comp_code}_{today_str}"
-        self._txt_group.setText(default_grp)
+    def _on_composition_changed(self, *_):
+        comp = self._cbo_comp.currentData() or 'rgb'
+        sensor = self._cbo_sensor.currentData() or ''
+        info = sources.gee_composition(sensor, comp) if self._source == 'gee' else None
+        custom = bool(info and info[3] in ('bands', 'math'))
+        self._lbl_custom.setVisible(custom)
+        self._txt_custom.setVisible(custom)
+        if custom:
+            if info[3] == 'math':
+                self._lbl_custom.setText(u"Fórmula do índice (ex.: (B8-B4)/(B8+B4)):")
+            else:
+                self._lbl_custom.setText(u"Bandas personalizadas, separadas por vírgula (ex.: B8,B4,B3):")
+        short = sensor.split(':')[-1] if sensor else self._source
+        self._txt_group.setText(u"%s_%s_%s" % (self._source.upper(), short, date.today().strftime('%Y%m%d')))
 
-    def _set_quick_dates(self, days: int):
+    def _set_quick_dates(self, days):
         end = date.today()
         start = end - timedelta(days=days)
-        self._txt_start.setText(start.strftime("%d/%m/%Y"))
-        self._txt_end.setText(end.strftime("%d/%m/%Y"))
+        self._date_start.setDate(QDate(start.year, start.month, start.day))
+        self._date_end.setDate(QDate(end.year, end.month, end.day))
 
     def _clear_results_table(self):
         self._table.setRowCount(0)
-        self._images_cache = []
-        self._update_action_buttons()
+        self._rows = []
+        self._on_table_selection_changed()
 
-    # -------------------------------------------------------------------------
-    # Verificação de Escala e Conexão GEE
-    # -------------------------------------------------------------------------
-
-    def _update_map_scale(self):
+    # ===================================================================== mapa e camadas
+    def _connect_canvas(self):
         try:
-            scale = self.iface.mapCanvas().scale()
-            scale_str = f"{scale:,.0f}".replace(",", ".")
-            if scale <= MAX_ALLOWED_SCALE:
-                self._lbl_scale.setText(f"| Escala QGIS: 1:{scale_str} (Válida <= 1:500k [OK])")
-                self._lbl_scale.setStyleSheet("color: #145a32; font-size: 8.5pt; font-weight: bold;")
-            else:
-                self._lbl_scale.setText(f"| Escala QGIS: 1:{scale_str} (Aviso: aproxime para <= 1:500k)")
-                self._lbl_scale.setStyleSheet("color: #c0392b; font-size: 8.5pt; font-weight: bold;")
+            self.iface.mapCanvas().scaleChanged.connect(self._update_map_scale)
+            self._canvas_connected = True
         except Exception:
-            pass
+            self._canvas_connected = False
+
+    def _update_map_scale(self, *_):
+        try:
+            scale = float(self.iface.mapCanvas().scale())
+        except Exception:
+            return
+        text = u"{:,.0f}".format(scale).replace(u",", u".")
+        ok = scale <= cat.MAX_ALLOWED_SCALE
+        self._lbl_scale.setText(u"| Escala 1:%s%s" % (text, u"" if ok else u" (aproxime até 1:500.000)"))
+        self._lbl_scale.setStyleSheet("color: %s; font-weight: bold;" % ('#145a32' if ok else '#c0392b'))
 
     def _on_fit_scale(self):
         try:
-            self.iface.mapCanvas().zoomScale(450000.0)
+            self.iface.mapCanvas().zoomScale(cat.MAX_ALLOWED_SCALE * 0.98)
             self._update_map_scale()
         except Exception as e:
-            QMessageBox.warning(self, "Aviso", f"Não foi possível ajustar a escala: {e}")
-
-    def check_gee_connection(self):
-        self._lbl_status_icon.setText("[*]")
-        self._lbl_status_icon.setStyleSheet("color: #7d6608; font-weight: bold;")
-        self._lbl_status.setText("Verificando conexão com o Google Earth Engine...")
-        self._lbl_status.setStyleSheet("color: #7d6608; font-weight: bold;")
-
-        self._check_runner = BackendRunner(self)
-        self._check_runner.finished.connect(self._on_check_finished)
-        self._check_runner.error.connect(self._on_check_error)
-        params = {"project": self._gee_project} if self._gee_project else {}
-        self._check_runner.run("check", params)
-
-    def _on_check_finished(self, res: dict):
-        if res.get("success"):
-            self._gee_connected = True
-            msg = res.get("message", "Conectado ao Google Earth Engine!")
-            self._lbl_status_icon.setText("[OK]")
-            self._lbl_status_icon.setStyleSheet("color: #117864; font-weight: bold;")
-            self._lbl_status.setText(msg)
-            self._lbl_status.setStyleSheet("color: #117864; font-weight: bold;")
-        else:
-            self._gee_connected = False
-            msg = res.get("message", "Não conectado")
-            self._lbl_status_icon.setText("[!]")
-            self._lbl_status_icon.setStyleSheet("color: #c0392b; font-weight: bold;")
-            self._lbl_status.setText(f"{msg} (Configure o ID do Projeto)")
-            self._lbl_status.setStyleSheet("color: #c0392b; font-weight: bold;")
-
-    def _on_check_error(self, err: str):
-        self._gee_connected = False
-        self._lbl_status_icon.setText("[!]")
-        self._lbl_status.setText("Falha na verificação de conexão")
-
-    def _on_configure_project(self):
-        proj, ok = QInputDialog.getText(
-            self, "Configurar Projeto GEE",
-            "Informe o Project ID do Google Cloud com a Earth Engine API habilitada:",
-            QLineEdit.Normal, self._gee_project
-        )
-        if ok and proj.strip():
-            self._gee_project = proj.strip()
-            cfg_file = os.path.normpath(os.path.join(
-                os.path.dirname(os.path.realpath(__file__)), '..', '..', '..', '..',
-                'arcgis_addin', 'Install', 'backend', 'gee_config.json'
-            ))
-            try:
-                with open(cfg_file, 'w', encoding='utf-8') as f:
-                    json.dump({"project": self._gee_project}, f, indent=2)
-            except Exception:
-                pass
-            self.check_gee_connection()
-
-    # -------------------------------------------------------------------------
-    # Contexto do Mapa e Camadas
-    # -------------------------------------------------------------------------
+            QMessageBox.warning(self, u"Escala", u"Não foi possível ajustar a escala: %s" % e)
 
     def _refresh_vector_layers(self):
+        from qgis.core import QgsProject, QgsVectorLayer, QgsWkbTypes
+        current = self._cbo_layers.currentData()
         self._cbo_layers.clear()
-        from qgis.core import QgsProject, QgsVectorLayer
-        layers = [l.name() for l in QgsProject.instance().mapLayers().values() if isinstance(l, QgsVectorLayer)]
-        if layers:
-            self._cbo_layers.addItems(layers)
-        else:
-            self._cbo_layers.addItem("Nenhuma camada vetorial no mapa")
+        for node in QgsProject.instance().layerTreeRoot().findLayers():
+            lyr = node.layer()
+            if isinstance(lyr, QgsVectorLayer) and lyr.geometryType() == QgsWkbTypes.PolygonGeometry:
+                self._cbo_layers.addItem(lyr.name(), lyr.id())
+        if self._cbo_layers.count() == 0:
+            self._cbo_layers.addItem(u"(nenhuma camada de polígonos no projeto)", None)
+        idx = self._cbo_layers.findData(current)
+        if idx >= 0:
+            self._cbo_layers.setCurrentIndex(idx)
 
     def _refresh_toc_rasters(self):
+        current = self._cbo_toc.currentData()
         self._cbo_toc.clear()
-        from qgis.core import QgsProject, QgsRasterLayer
-        rasters = [l.name() for l in QgsProject.instance().mapLayers().values() if isinstance(l, QgsRasterLayer)]
-        if rasters:
-            self._cbo_toc.addItems(rasters)
-        else:
-            self._cbo_toc.addItem("Nenhuma camada raster nas Camadas")
+        self._cbo_toc.addItem(u"(nenhuma: carregar como camada nova)", None)
+        for lid, name in raster_layers():
+            self._cbo_toc.addItem(name, lid)
+        idx = self._cbo_toc.findData(current)
+        if idx >= 0:
+            self._cbo_toc.setCurrentIndex(idx)
+        self._update_action_buttons()
 
-    def _get_current_bbox(self):
+    def _canvas_bbox(self):
+        from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
         canvas = self.iface.mapCanvas()
         ext = canvas.extent()
-        from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
-        src_crs = canvas.mapSettings().destinationCrs()
+        src = canvas.mapSettings().destinationCrs()
         wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
-        if src_crs != wgs84:
-            tr = QgsCoordinateTransform(src_crs, wgs84, QgsProject.instance())
-            ext = tr.transformBoundingBox(ext)
+        if src != wgs84:
+            ext = QgsCoordinateTransform(src, wgs84, QgsProject.instance()).transformBoundingBox(ext)
         return [ext.xMinimum(), ext.yMinimum(), ext.xMaximum(), ext.yMaximum()]
 
-    # -------------------------------------------------------------------------
-    # Busca de Imagens
-    # -------------------------------------------------------------------------
+    def _export_aoi(self, layer_id):
+        """Feições (selecionadas, se houver e a opção estiver marcada) -> GeoJSON EPSG:4326 + bbox."""
+        from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
+        layer = QgsProject.instance().mapLayer(layer_id)
+        if layer is None:
+            raise ValueError(u"A camada vetorial escolhida não está mais no projeto.")
+        feats = list(layer.selectedFeatures()) if (self._chk_selected.isChecked() and layer.selectedFeatureCount()) \
+            else list(layer.getFeatures())
+        tr = QgsCoordinateTransform(layer.crs(), QgsCoordinateReferenceSystem("EPSG:4326"), QgsProject.instance())
+        out, xs, ys = [], [], []
+        for f in feats:
+            g = f.geometry()
+            if g is None or g.isEmpty():
+                continue
+            g.transform(tr)
+            bb = g.boundingBox()
+            xs += [bb.xMinimum(), bb.xMaximum()]
+            ys += [bb.yMinimum(), bb.yMaximum()]
+            out.append({'type': 'Feature', 'properties': {}, 'geometry': json.loads(g.asJson(8))})
+        if not out:
+            raise ValueError(u"A camada '%s' não tem feições com geometria." % layer.name())
+        self._remove_aoi_file()
+        fd, path = tempfile.mkstemp(prefix='qmagery_aoi_', suffix='.geojson')
+        with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+            json.dump({'type': 'FeatureCollection', 'features': out}, fh)
+        self._aoi_file = path
+        return [min(xs), min(ys), max(xs), max(ys)], path
 
-    def _parse_date(self, s: str):
-        parts = s.strip().split('/')
-        if len(parts) == 3:
-            return f"{parts[2]}-{parts[1]}-{parts[0]}"
-        return s
+    def _remove_aoi_file(self):
+        if self._aoi_file:
+            try:
+                os.remove(self._aoi_file)
+            except OSError:
+                pass
+            self._aoi_file = None
+
+    def _resolve_area(self):
+        """(bbox WGS84, geojson ou None); None se o usuário desistir. Aplica o limite de escala."""
+        if self._rb_lyr.isChecked():
+            lid = self._cbo_layers.currentData()
+            if not lid:
+                QMessageBox.warning(self, u"Área de interesse", u"Escolha uma camada de polígonos ou use a extensão da tela.")
+                return None
+            try:
+                return self._export_aoi(lid)
+            except Exception as e:
+                QMessageBox.critical(self, u"Área de interesse", u"Não foi possível usar a camada: %s" % e)
+                return None
+        try:
+            scale = float(self.iface.mapCanvas().scale())
+        except Exception:
+            scale = None
+        if scale and scale > cat.MAX_ALLOWED_SCALE:
+            ask = QMessageBox.question(
+                self, u"Limite de escala (1:500.000)",
+                u"A escala do mapa é 1:{:,.0f}, maior que o limite de 1:500.000.\n\nAjustar o zoom para 1:500.000 e "
+                u"continuar?".format(scale).replace(u",", u"."), QMessageBox.Yes | QMessageBox.No)
+            if ask != QMessageBox.Yes:
+                return None
+            self._on_fit_scale()
+        return self._canvas_bbox(), None
+
+    # ===================================================================== busca
+    def _period(self):
+        start = self._date_start.date().toString('yyyy-MM-dd')
+        end = self._date_end.date().toString('yyyy-MM-dd')
+        return (start, end) if start <= end else (end, start)
 
     def _on_search_clicked(self):
-        self._update_map_scale()
-
+        if self._busy:
+            return
+        area = self._resolve_area()
+        if area is None:
+            return
+        bbox, geojson = area
+        start, end = self._period()
         sensor = self._cbo_sensor.currentData()
-        start = self._parse_date(self._txt_start.text())
-        end = self._parse_date(self._txt_end.text())
-        bbox = self._get_current_bbox()
-
-        self._btn_search.setEnabled(False)
-        self._btn_cancel.setEnabled(True)
-        self._pbar.setValue(0)
-        self._lbl_pct.setText("0%")
-        self._lbl_progress.setText(f"Buscando cenas ({self._current_source.upper()})... Aguarde.")
-
-        self._runner = BackendRunner(self)
-        self._runner.progress.connect(self._on_search_progress)
-        self._runner.finished.connect(self._on_search_finished)
-        self._runner.error.connect(self._on_search_error)
-
-        if self._current_source == 'gee':
-            params = {
-                "sensor": sensor, "start_date": start, "end_date": end,
-                "bbox": ",".join(str(v) for v in bbox), "max_images": 100
-            }
-            if self._gee_project:
-                params["project"] = self._gee_project
-            self._runner.run("search", params)
-
-        elif self._current_source == 'inpe':
-            self._runner.run("stac_search", {
-                "collection": sensor.replace("INPE:", ""),
-                "start_date": start, "end_date": end,
-                "bbox": ",".join(str(v) for v in bbox), "max_items": 100
-            })
-
-        elif self._current_source == 'spot':
-            self._runner.run("spot_search", {
-                "start_date": start, "end_date": end,
-                "bbox": ",".join(str(v) for v in bbox), "max_items": 100
-            })
-
-        elif self._current_source == 'gehist':
-            self._runner.run("gehist_dates", {
-                "bbox": ",".join(str(v) for v in bbox), "zoom": 18
-            })
-
-        elif self._current_source == 'wayback':
-            self._runner.run("esri_versions", {
-                "bbox": ",".join(str(v) for v in bbox), "zoom": 17
-            })
-
-    def _on_search_progress(self, line: str):
-        msg = line.replace("[ArcGEE]", "").strip()
-        self._lbl_progress.setText(msg)
-
-    def _on_search_finished(self, res: dict):
-        self._btn_search.setEnabled(True)
-        self._btn_cancel.setEnabled(False)
-
-        if not res.get("success"):
-            err = res.get("message", "Erro desconhecido")
-            self._lbl_progress.setText(f"Falha na busca: {err[:60]}")
-            QMessageBox.critical(self, "Erro de Busca", err)
+        try:
+            cmd, params, timeout = sources.search_request(
+                self._source, sensor, start, end, bbox=bbox, geojson_file=geojson, project=self._gee_project or None,
+                workers=config.tile_threads())
+        except ValueError as e:
+            QMessageBox.warning(self, u"Busca", str(e))
             return
+        self._clear_results_table()
+        self._search_ctx = (self._source, sensor, start, end)
+        self._lbl_progress.setText(u"Buscando (%s)..." % sources.SOURCE_LABELS[self._source])
+        self._pbar.setRange(0, 0)
+        self._set_busy('search')
+        self._connect_runner(self._on_search_finished, self._on_search_error)
+        self._runner.run(cmd, params, timeout)
 
-        # Normaliza lista de resultados entre diferentes backends
-        images = res.get("images") or res.get("items") or res.get("versions") or res.get("dates") or []
-        self._images_cache = images
+    def _connect_runner(self, on_finished, on_error):
+        for sig in (self._runner.finished, self._runner.error):
+            try:
+                sig.disconnect()
+            except TypeError:
+                pass
+        self._runner.finished.connect(on_finished)
+        self._runner.error.connect(on_error)
+
+    def _on_search_finished(self, res):
+        self._set_busy(None)
+        self._pbar.setValue(0)
+        if not res.get('success'):
+            msg = res.get('message') or u"Erro desconhecido."
+            self._lbl_progress.setText(u"Falha na busca.")
+            QMessageBox.critical(self, u"Busca", msg)
+            return
+        source, sensor, start, end = self._search_ctx
+        self._rows = sources.rows_from_result(source, sensor, res, start, end)
         self._table.setRowCount(0)
-
-        for img in images:
-            row = self._table.rowCount()
-            self._table.insertRow(row)
-
-            # Data
-            d_val = img.get("date") or img.get("capture_date") or "-"
-            self._table.setItem(row, 0, QTableWidgetItem(str(d_val)))
-
-            # Nuvens / Versão / Cobertura
-            cloud_val = img.get("cloud_cover") or img.get("cloud_pct") or img.get("version") or img.get("coverage_pct") or "-"
-            if isinstance(cloud_val, float):
-                cloud_val = f"{cloud_val:.1f}%"
-            self._table.setItem(row, 1, QTableWidgetItem(str(cloud_val)))
-
-            # Tile / Órbita / Satélite
-            tile_val = img.get("mgrs") or img.get("satellite") or img.get("sensor") or img.get("providers") or "-"
-            if isinstance(tile_val, list):
-                tile_val = ", ".join(tile_val)
-            self._table.setItem(row, 2, QTableWidgetItem(str(tile_val)))
-
-            # Nome da Cena / ID
-            name_val = img.get("name") or img.get("id") or img.get("title") or "-"
-            if "/" in str(name_val):
-                name_val = str(name_val).split("/")[-1]
-            self._table.setItem(row, 3, QTableWidgetItem(str(name_val)))
-
-            # Status
-            self._table.setItem(row, 4, QTableWidgetItem("Disponível"))
-
-        self._lbl_progress.setText(f"{len(images)} imagens encontradas.")
-        self._update_action_buttons()
-
-    def _on_search_error(self, err: str):
-        self._btn_search.setEnabled(True)
-        self._btn_cancel.setEnabled(False)
-        self._pbar.setValue(0)
-        self._lbl_pct.setText("0%")
-        if "cancelad" in err.lower() or "interrompid" in err.lower():
-            self._lbl_progress.setText("Busca interrompida pelo usuário.")
-            return
-        self._lbl_progress.setText(f"Erro: {err}")
-        QMessageBox.critical(self, "Erro de Comunicação", err)
-
-    # -------------------------------------------------------------------------
-    # Seleção de Imagens e Carregamento no QGIS
-    # -------------------------------------------------------------------------
-
-    def _on_table_selection_changed(self):
-        sel_rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
-        count = len(sel_rows)
-        if count == 0:
-            self._lbl_sel_title.setText("Nenhuma imagem selecionada")
-            self._lbl_sel_info.setText("Selecione uma ou mais cenas na tabela para carregar no QGIS.")
-        elif count == 1:
-            row = sel_rows[0]
-            item = self._images_cache[row]
-            scene_name = self._table.item(row, 3).text()
-            date_str = self._table.item(row, 0).text()
-            self._lbl_sel_title.setText(f"Cena Selecionada: {scene_name}")
-            self._lbl_sel_info.setText(f"Data: {date_str} | Pronto para carregar.")
+        for row in self._rows:
+            r = self._table.rowCount()
+            self._table.insertRow(r)
+            for col, key in enumerate(('c_date', 'c_cloud', 'c_detail', 'c_name')):
+                self._table.setItem(r, col, QTableWidgetItem(u"%s" % (row.get(key) if row.get(key) is not None else u'-')))
+            self._table.setItem(r, 4, QTableWidgetItem(u"Disponível"))
+        n = len(self._rows)
+        if n:
+            self._lbl_progress.setText(u"%d cena(s) encontrada(s)." % n)
         else:
-            self._lbl_sel_title.setText(f"{count} imagens selecionadas")
-            self._lbl_sel_info.setText("As cenas serão carregadas em mosaico/lote no Painel de Camadas.")
+            self._lbl_progress.setText(u"Nenhuma cena encontrada na área e no período.")
+            QMessageBox.information(self, u"Busca", u"Nenhuma cena encontrada na área e no período escolhidos.")
+        self._on_table_selection_changed()
 
+    def _on_search_error(self, msg):
+        self._set_busy(None)
+        self._pbar.setValue(0)
+        if msg == CANCELLED_MESSAGE:
+            self._lbl_progress.setText(u"Busca interrompida.")
+            return
+        self._lbl_progress.setText(u"Falha na busca.")
+        QMessageBox.critical(self, u"Busca", msg)
+
+    # ===================================================================== seleção
+    def _on_table_selection_changed(self):
+        rows = self._selected_rows()
+        if not rows:
+            self._lbl_sel_title.setText(u"Nenhuma cena selecionada")
+            self._lbl_sel_info.setText(u"Selecione uma ou mais cenas na tabela (duplo clique: miniatura).")
+        elif len(rows) == 1:
+            row = self._rows[rows[0]]
+            self._lbl_sel_title.setText(u"Cena: %s" % row.get('c_name'))
+            self._lbl_sel_info.setText(u"Data: %s · %s · %s" % (row.get('c_date'), row.get('c_cloud'), row.get('c_detail')))
+        else:
+            self._lbl_sel_title.setText(u"%d cenas selecionadas" % len(rows))
+            self._lbl_sel_info.setText(u"Cada cena vira uma camada, baixadas uma depois da outra.")
         self._update_action_buttons()
 
-    def _update_action_buttons(self):
-        selected_rows = {idx.row() for idx in self._table.selectedIndexes()}
-        count = len(selected_rows)
-        has_sel = (count > 0)
-        self._btn_load.setEnabled(has_sel)
-        self._btn_thumb.setEnabled(count == 1)
-        self._btn_replace.setEnabled(count == 1 and self._cbo_toc.count() > 0 and "Nenhuma" not in self._cbo_toc.currentText())
+    def _set_row_status(self, index, text, color=None, bold=False):
+        if index is None or index >= self._table.rowCount():
+            return
+        item = self._table.item(index, 4)
+        if item is None:
+            item = QTableWidgetItem()
+            self._table.setItem(index, 4, item)
+        item.setText(text)
+        item.setForeground(QColor(color or '#2c3e50'))
+        f = item.font()
+        f.setBold(bold)
+        item.setFont(f)
+
+    # ===================================================================== carregamento
+    def _download_options(self):
+        """Parâmetros comuns da fila; None se faltar algo (com mensagem ao usuário)."""
+        sensor = self._cbo_sensor.currentData()
+        comp = self._cbo_comp.currentData() or 'rgb'
+        opts = {'source': self._source, 'sensor': sensor, 'comp': comp, 'custom_bands': None, 'scale': None,
+                'api_key': None}
+        if self._source == 'gee':
+            info = sources.gee_composition(sensor, comp)
+            if info and info[3] in ('bands', 'math'):
+                text = self._txt_custom.text().strip()
+                if not text:
+                    QMessageBox.warning(self, u"Composição", u"Digite as bandas ou a fórmula da composição escolhida.")
+                    return None
+                opts['custom_bands'] = text
+            px = self._cbo_pixel.currentText().strip().replace(',', '.')
+            try:
+                opts['scale'] = float(px) if px else None
+            except ValueError:
+                QMessageBox.warning(self, u"Tamanho do pixel", u"Tamanho do pixel inválido: %s" % px)
+                return None
+        if self._source == 'spot':
+            opts['api_key'] = config.load_geodes_key()
+            if not opts['api_key']:
+                ask = QMessageBox.question(
+                    self, u"Chave do GEODES necessária",
+                    u"A busca de cenas SPOT é livre, mas o DOWNLOAD exige a chave de API gratuita do GEODES (CNES).\n\n"
+                    u"Configurar a chave agora?", QMessageBox.Yes | QMessageBox.No)
+                if ask == QMessageBox.Yes:
+                    GeodesKeyDialog(self).exec_()
+                opts['api_key'] = config.load_geodes_key()
+                if not opts['api_key']:
+                    return None
+        return opts
 
     def _on_load_clicked(self):
-        sel_rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
-        if not sel_rows:
-            return
-
-        row = sel_rows[0]
-        item = self._images_cache[row]
-        item_id = item.get("id") or item.get("name") or self._table.item(row, 3).text()
-        bbox = self._get_current_bbox()
-        group_name = self._txt_group.text().strip() if self._chk_group.isChecked() else None
-
-        self._btn_load.setEnabled(False)
-        self._btn_cancel.setEnabled(True)
-        self._pbar.setValue(0)
-        self._lbl_pct.setText("0%")
-        self._lbl_progress.setText("Iniciando download e processamento...")
-
-        clean_id = re.sub(r'[^a-zA-Z0-9_-]', '_', str(item_id).split('/')[-1])
-        ts = int(time.time())
-        out_tif = os.path.join(tempfile.gettempdir(), f"qmagery_{clean_id}_{ts}.tif")
-
-        self._runner = BackendRunner(self)
-        self._runner.progress.connect(self._on_load_progress)
-        self._runner.finished.connect(lambda res, r=row: self._on_load_finished(res, group_name, r))
-        self._runner.error.connect(self._on_load_error)
-
-        if self._current_source == 'gee':
-            comp = self._cbo_comp.currentData() or "432"
-            load_mode = "rgb" if self._rb_rgb.isChecked() else "multiband"
-            scale_val = float(self._cbo_pixel.currentText() or "10")
-            params = {
-                "ids": item.get("id", item_id),
-                "sensor": self._cbo_sensor.currentData(),
-                "comp": comp,
-                "load_mode": load_mode,
-                "bbox": ",".join(str(v) for v in bbox),
-                "scale": scale_val,
-                "out": out_tif
-            }
-            if self._gee_project:
-                params["project"] = self._gee_project
-            self._runner.run("download", params)
-
-        elif self._current_source == 'inpe':
-            mode = self._cbo_comp.currentData() or "rgb"
-            self._runner.run("stac_download", {
-                "collection": self._cbo_sensor.currentData().replace("INPE:", ""),
-                "item_id": item.get("id", item_id),
-                "bbox": ",".join(str(v) for v in bbox),
-                "mode": mode,
-                "out": out_tif
-            })
-
-        elif self._current_source == 'spot':
-            spot_mode = self._cbo_comp.currentData() or "rgb"
-            self._runner.run("spot_download", {
-                "item_id": item.get("id", item_id),
-                "bbox": ",".join(str(v) for v in bbox),
-                "mode": spot_mode,
-                "out": out_tif,
-                "align": True
-            })
-
-        elif self._current_source == 'gehist':
-            self._runner.run("gehist_download", {
-                "date": item.get("date"),
-                "zoom": 18,
-                "bbox": ",".join(str(v) for v in bbox),
-                "out": out_tif
-            })
-
-        elif self._current_source == 'wayback':
-            rel = item.get("release_num") or item.get("num")
-            self._runner.run("xyz_download", {
-                "wayback_release": rel,
-                "zoom": 17,
-                "bbox": ",".join(str(v) for v in bbox),
-                "out": out_tif
-            })
-
-    def _on_load_progress(self, line: str):
-        msg = line.replace("[ArcGEE]", "").strip()
-        self._lbl_progress.setText(msg)
-        # Tenta extrair percentual se houver "PROGRESS x/y"
-        import re
-        m = re.search(r'PROGRESS\s+(\d+)\s*/\s*(\d+)', line)
-        if m:
-            cur, tot = int(m.group(1)), int(m.group(2))
-            pct = int((cur / tot) * 100) if tot > 0 else 0
-            self._pbar.setValue(pct)
-            self._lbl_pct.setText(f"{pct}%")
-
-    def _on_load_finished(self, res: dict, group_name: Optional[str], loaded_row: Optional[int] = None):
-        self._btn_load.setEnabled(True)
-        self._btn_cancel.setEnabled(False)
-        self._pbar.setValue(100)
-        self._lbl_pct.setText("100%")
-
-        if not res.get("success"):
-            err = res.get("message", "Falha no download.")
-            self._lbl_progress.setText(f"Erro: {err[:60]}")
-            if loaded_row is not None and loaded_row < self._table.rowCount():
-                st_item = self._table.item(loaded_row, 4)
-                if st_item:
-                    st_item.setText("Erro")
-                    st_item.setForeground(QColor("#c0392b"))
-            QMessageBox.critical(self, "Erro de Carga", err)
-            return
-
-        tif_path = res.get("file")
-        if tif_path and os.path.isfile(tif_path):
-            try:
-                layer_name = os.path.splitext(os.path.basename(tif_path))[0]
-                add_raster_layer(tif_path, layer_name, group_name=group_name)
-                self._lbl_progress.setText(f"Carregado com sucesso: {layer_name}")
-                self._refresh_toc_rasters()
-
-                # Atualiza a linha da tabela para 'Carregado'
-                if loaded_row is not None and loaded_row < self._table.rowCount():
-                    st_item = self._table.item(loaded_row, 4)
-                    if st_item:
-                        st_item.setText("✓ Carregado")
-                        st_item.setForeground(QColor("#1e8449"))
-                        font = st_item.font()
-                        font.setBold(True)
-                        st_item.setFont(font)
-            except Exception as e:
-                QMessageBox.critical(self, "Erro no QGIS", f"GeoTIFF baixado mas não pôde ser adicionado ao mapa:\n{e}")
-
-    def _on_load_error(self, err: str):
-        self._update_action_buttons()
-        self._btn_cancel.setEnabled(False)
-        self._pbar.setValue(0)
-        self._lbl_pct.setText("0%")
-        if "cancelad" in err.lower() or "interrompid" in err.lower():
-            self._lbl_progress.setText("Carregamento interrompido pelo usuário.")
-            return
-        self._lbl_progress.setText(f"Erro: {err}")
-        QMessageBox.critical(self, "Erro no Processamento", err)
+        self._start_queue(self._selected_rows(), replace_id=None)
 
     def _on_replace_clicked(self):
-        QMessageBox.information(self, "Substituir Camada", "A camada selecionada no painel de camadas será substituída na conclusão da carga.")
-        self._on_load_clicked()
-
-    def _on_thumb_clicked(self):
-        sel_rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
-        if not sel_rows:
+        rows = self._selected_rows()
+        target = self._cbo_toc.currentData()
+        if len(rows) != 1 or not target:
             return
-        row = sel_rows[0]
-        item = self._images_cache[row]
-        item_id = item.get("id") or item.get("name")
+        self._start_queue(rows, replace_id=target)
 
-        self._lbl_progress.setText("Gerando miniatura da cena...")
-        self._btn_cancel.setEnabled(True)
-        out_png = os.path.join(tempfile.gettempdir(), f"thumb_{row}.png")
-        bbox = self._get_current_bbox()
+    def _start_queue(self, indexes, replace_id=None):
+        if self._busy or not indexes:
+            return
+        opts = self._download_options()
+        if opts is None:
+            return
+        area = self._resolve_area()
+        if area is None:
+            return
+        bbox, geojson = area
+        if self._source == 'gee':
+            msg = sources.gee_size_check(opts['sensor'], opts['comp'], bbox, opts['scale'], opts['custom_bands'])
+            if msg:
+                QMessageBox.critical(self, u"Área muito extensa", msg)
+                return
+        opts.update(bbox=bbox, geojson=geojson, replace_id=replace_id,
+                    group=(self._txt_group.text().strip() or None) if self._chk_group.isChecked() else None)
+        self._queue = [(i, self._rows[i], opts) for i in indexes]
+        self._queue_total = len(self._queue)
+        self._load_errors = []
+        self._loaded = 0
+        for i in indexes:
+            self._set_row_status(i, u"Na fila", STATUS_COLORS['wait'])
+        self._set_busy('load')
+        self._next_task()
 
-        self._runner = BackendRunner(self)
-        self._runner.finished.connect(lambda res: self._show_thumb_dialog(res, out_png))
-        self._runner.error.connect(self._on_load_error)
+    def _out_path(self, task_opts, row):
+        folder = os.path.join(config.output_dir(), task_opts['source'])
+        os.makedirs(folder, exist_ok=True)
+        stem = sources.output_stem(task_opts['source'], task_opts['sensor'], row, task_opts['comp'])
+        path = os.path.join(folder, stem + '.tif')
+        n = 2
+        while os.path.exists(path):
+            path = os.path.join(folder, u"%s_%d.tif" % (stem, n))
+            n += 1
+        return path
 
-        if self._current_source == 'gee':
-            self._runner.run("thumb", {
-                "image_id": item_id,
-                "sensor": self._cbo_sensor.currentData(),
-                "comp": "432",
-                "bbox": ",".join(str(v) for v in bbox),
-                "out": out_png
-            })
+    def _next_task(self):
+        if not self._queue:
+            self._finish_queue()
+            return
+        index, row, opts = self._queue.pop(0)
+        self._task = (index, row, opts)
+        done = self._queue_total - len(self._queue)
+        try:
+            out = self._out_path(opts, row)
+            cmd, params, timeout = sources.download_request(
+                opts['source'], opts['sensor'], row, opts['comp'], out, bbox=opts['bbox'], geojson_file=opts['geojson'],
+                project=self._gee_project or None, custom_bands=opts['custom_bands'], scale=opts['scale'],
+                api_key=opts['api_key'], workers=config.tile_threads())
+        except Exception as e:
+            self._on_load_error(u"%s" % e)
+            return
+        self._set_row_status(index, u"Baixando...", STATUS_COLORS['run'], True)
+        self._task_prefix = u"Cena %d de %d" % (done, self._queue_total) if self._queue_total > 1 else u"Baixando"
+        self._lbl_progress.setText(u"%s: %s..." % (self._task_prefix, row.get('c_name')))
+        self._pbar.setRange(0, 100)
+        self._pbar.setValue(0)
+        self._connect_runner(self._on_load_finished, self._on_load_error)
+        self._runner.run(cmd, params, timeout)
+
+    def _on_load_finished(self, res):
+        index, row, opts = self._task
+        if not res.get('success'):
+            self._on_load_error(res.get('message') or u"Falha no download.")
+            return
+        path = res.get('file')
+        if not path or not os.path.isfile(path):
+            self._on_load_error(u"O backend não gerou o GeoTIFF (%s)." % path)
+            return
+        name = sources.layer_name(opts['source'], opts['sensor'], row, opts['comp'])
+        try:
+            layer = add_raster_layer(path, name, group_name=opts['group'], replace_layer_id=opts['replace_id'])
+        except Exception as e:
+            self._on_load_error(u"GeoTIFF salvo em %s, mas o QGIS não conseguiu abri-lo: %s" % (path, e))
+            return
+        if opts['source'] == 'gee':
+            kind, bands = sources.gee_style(opts['sensor'], opts['comp'], opts['custom_bands'])
+        elif res.get('rgb_bands'):
+            kind, bands = 'rgb', res['rgb_bands']
         else:
-            self._btn_cancel.setEnabled(False)
-            QMessageBox.information(self, "Miniatura", "Geração de miniatura disponível para esta cena.")
+            kind, bands = (None, None)
+        apply_style(layer, kind, bands)
+        opts['replace_id'] = None   # só a primeira cena substitui
+        self._loaded += 1
+        notes = []
+        if res.get('valid_pct') is not None and float(res['valid_pct']) < 95:
+            notes.append(u"cobre %.0f%% da área" % float(res['valid_pct']))
+        align = res.get('alignment') or {}
+        if opts['source'] == 'spot':
+            notes.append(u"alinhada à Esri (desvio corrigido: %.0f m)" % (align.get('shift_m') or 0)
+                         if align.get('applied') else u"SEM alinhamento: posição com erro de até ~500 m")
+        self._set_row_status(index, u"✓ Carregada" + (u" (%s)" % u"; ".join(notes) if notes else u""),
+                             STATUS_COLORS['ok'], True)
+        self._refresh_toc_rasters()
+        self._next_task()
 
-    def _show_thumb_dialog(self, res: dict, out_png: str):
-        self._btn_cancel.setEnabled(False)
-        if res.get("success") and os.path.isfile(out_png):
-            dlg = QDialog(self)
-            dlg.setWindowTitle("Pré-visualização da Cena")
-            dlg.setFixedSize(512, 512)
-            l = QVBoxLayout(dlg)
-            lbl = QLabel()
-            lbl.setPixmap(QPixmap(out_png).scaled(500, 500, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-            l.addWidget(lbl)
-            dlg.exec_()
+    def _on_load_error(self, msg):
+        index, row, _opts = self._task if self._task else (None, {}, None)
+        if msg == CANCELLED_MESSAGE:
+            self._set_row_status(index, u"Interrompida", STATUS_COLORS['err'])
+            for i, _r, _o in self._queue:
+                self._set_row_status(i, u"Cancelada", STATUS_COLORS['err'])
+            self._queue = []
+            self._task = None
+            self._set_busy(None)
+            self._pbar.setValue(0)
+            self._lbl_progress.setText(CANCELLED_MESSAGE)
+            return
+        self._set_row_status(index, u"Erro", STATUS_COLORS['err'], True)
+        self._load_errors.append(u"• %s: %s" % (row.get('c_name', u'?'), msg))
+        self._next_task()
+
+    def _finish_queue(self):
+        self._task = None
+        self._set_busy(None)
+        self._pbar.setValue(100 if self._loaded else 0)
+        if self._load_errors:
+            self._lbl_progress.setText(u"%d carregada(s), %d com erro." % (self._loaded, len(self._load_errors)))
+            QMessageBox.critical(self, u"Carregamento", u"Algumas cenas não foram carregadas:\n\n" +
+                                 u"\n\n".join(self._load_errors[:8]))
         else:
-            QMessageBox.warning(self, "Aviso", "Não foi possível carregar a miniatura.")
+            self._lbl_progress.setText(u"%d cena(s) carregada(s) no QGIS." % self._loaded)
+
+    # ===================================================================== miniatura
+    def _on_thumb_clicked(self):
+        rows = self._selected_rows()
+        if self._busy or len(rows) != 1:
+            return
+        row = self._rows[rows[0]]
+        bbox, geojson = None, None
+        if self._source in ('gee', 'gehist', 'wayback'):
+            area = self._resolve_area()
+            if area is None:
+                return
+            bbox, geojson = area
+        out_png = os.path.join(tempfile.gettempdir(), u"qmagery_thumb_%s.png" % sources.safe_name(row['id'], 60))
+        try:
+            cmd, params, timeout = sources.thumb_request(self._source, self._cbo_sensor.currentData(), row,
+                                                         self._cbo_comp.currentData(), out_png, bbox=bbox,
+                                                         geojson_file=geojson, project=self._gee_project or None)
+        except ValueError as e:
+            QMessageBox.information(self, u"Miniatura", str(e))
+            return
+        self._thumb_title = row.get('c_name')
+        self._lbl_progress.setText(u"Gerando a miniatura...")
+        self._pbar.setRange(0, 0)
+        self._set_busy('thumb')
+        self._connect_runner(self._show_thumb, self._on_thumb_error)
+        self._runner.run(cmd, params, timeout)
+
+    def _show_thumb(self, res):
+        self._set_busy(None)
+        self._lbl_progress.setText(u"Pronto.")
+        path = res.get('file')
+        if not res.get('success') or not path or not os.path.isfile(path):
+            QMessageBox.warning(self, u"Miniatura", res.get('message') or u"Não foi possível gerar a miniatura.")
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle(u"Miniatura — %s" % self._thumb_title)
+        lay = QVBoxLayout(dlg)
+        lbl = QLabel()
+        lbl.setAlignment(Qt.AlignCenter)
+        lbl.setPixmap(QPixmap(path).scaled(560, 560, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        lay.addWidget(lbl)
+        btn = QPushButton(u"Fechar")
+        btn.clicked.connect(dlg.accept)
+        lay.addWidget(btn, alignment=Qt.AlignRight)
+        dlg.exec_()
+
+    def _on_thumb_error(self, msg):
+        self._set_busy(None)
+        self._lbl_progress.setText(u"Pronto." if msg == CANCELLED_MESSAGE else u"Falha na miniatura.")
+        if msg != CANCELLED_MESSAGE:
+            QMessageBox.warning(self, u"Miniatura", msg)
+
+    # ===================================================================== progresso e cancelamento
+    def _on_progress(self, line):
+        import re
+        text = line.replace('[ArcGEE]', '').strip()
+        m = re.search(r'PROGRESS\s+(\d+)\s*/\s*(\d+)', line)
+        if m and int(m.group(2)) > 0:
+            pct = int(100 * int(m.group(1)) / int(m.group(2)))
+            if self._pbar.maximum() == 0:
+                self._pbar.setRange(0, 100)
+            self._pbar.setValue(pct)
+            return
+        if not text or text.startswith(('Traceback', 'File "')):
+            return
+        prefix = getattr(self, '_task_prefix', None) if self._busy == 'load' else None
+        self._lbl_progress.setText((u"%s: %s" % (prefix, text) if prefix else text)[:160])
 
     def _on_cancel_clicked(self):
-        if self._runner:
+        if self._busy:
+            self._lbl_progress.setText(u"Interrompendo...")
             self._runner.cancel()
-        self._btn_cancel.setEnabled(False)
-        self._btn_search.setEnabled(True)
-        self._update_action_buttons()
-        self._pbar.setValue(0)
-        self._lbl_pct.setText("0%")
-        self._lbl_progress.setText("Operação interrompida pelo usuário.")
+
+    # ===================================================================== Earth Engine
+    def check_gee_connection(self):
+        if self._check_runner.is_running():
+            return
+        self._set_status('run', u"Verificando a conexão com o Earth Engine...")
+        params = {'project': self._gee_project} if self._gee_project else {}
+        self._check_runner.run('check', params)
+
+    def _on_check_finished(self, res):
+        if res.get('success'):
+            proj = u" · projeto %s" % self._gee_project if self._gee_project else u""
+            self._set_status('ok', u"Conectado ao Earth Engine%s" % proj)
+        elif res.get('ee_missing'):
+            self._set_status('err', u"Earth Engine: componentes não instalados (Configurações)")
+        else:
+            msg = (res.get('message') or u"").lower()
+            if 'authenticate' in msg or 'credential' in msg or 'token' in msg:
+                self._set_status('err', u"Earth Engine: autentique-se (Projeto GEE...)")
+            elif 'project' in msg:
+                self._set_status('err', u"Earth Engine: informe o projeto (Projeto GEE...)")
+            else:
+                self._set_status('err', u"Earth Engine indisponível (as outras fontes funcionam)")
+            self._lbl_status.setToolTip(res.get('message') or u"")
+
+    def _on_check_error(self, msg):
+        self._set_status('err', u"Earth Engine: falha na verificação")
+        self._lbl_status.setToolTip(msg)
+
+    def _on_configure_project(self):
+        dlg = GeeProjectDialog(self, self._gee_project)
+        accepted = dlg.exec_()
+        self._gee_project = config.load_gee_project()
+        if dlg.auth_process is not None:
+            self._watch_auth(dlg.auth_process)
+        elif accepted:
+            self.check_gee_connection()
+
+    def _watch_auth(self, proc):
+        """Autenticação numa janela de console: quando ela fecha, verifica a conexão de novo."""
+        self._auth_proc = proc
+        self._set_status('run', u"Autenticação aberta no console: conclua no navegador...")
+        if self._auth_timer is None:
+            self._auth_timer = QTimer(self)
+            self._auth_timer.timeout.connect(self._poll_auth)
+        self._auth_timer.start(1500)
+
+    def _poll_auth(self):
+        if self._auth_proc is not None and self._auth_proc.poll() is None:
+            return
+        self._auth_timer.stop()
+        self._auth_proc = None
+        self._gee_project = config.load_gee_project()
+        self.check_gee_connection()
+
+    # ===================================================================== diálogos
+    def _on_settings(self):
+        dlg = SettingsDialog(self)
+        dlg.exec_()
+        previous = self._gee_project
+        self._gee_project = config.load_gee_project()
+        self._update_output_label()
+        if dlg.auth_process is not None:
+            self._watch_auth(dlg.auth_process)
+        elif self._gee_project != previous:
+            self.check_gee_connection()
+
+    def _on_xyz(self):
+        ExtraSourcesDialog(self.iface, self, area_provider=self._resolve_area).exec_()
+        self._refresh_toc_rasters()
+
+    # ===================================================================== encerramento
+    def shutdown(self):
+        for runner in (self._runner, self._check_runner):
+            runner.shutdown()
+        if self._auth_timer is not None:
+            self._auth_timer.stop()
+        if getattr(self, '_canvas_connected', False):
+            try:
+                self.iface.mapCanvas().scaleChanged.disconnect(self._update_map_scale)
+            except Exception:
+                pass
+            self._canvas_connected = False
+        self._remove_aoi_file()
+
+    def _confirm_close(self):
+        if self._busy != 'load' or getattr(self, '_closing', False):
+            return True
+        ask = QMessageBox.question(self, u"Download em andamento",
+                                   u"Há um download em andamento. Interromper e fechar?",
+                                   QMessageBox.Yes | QMessageBox.No)
+        if ask == QMessageBox.Yes:
+            self._closing = True
+            return True
+        return False
 
     def closeEvent(self, event):
-        if self._runner:
-            self._runner.cancel()
-        if self._check_runner:
-            self._check_runner.cancel()
+        if not self._confirm_close():
+            event.ignore()
+            return
+        self.shutdown()
         super().closeEvent(event)
+
+    def reject(self):
+        # Esc e o "X" chegam aqui (o closeEvent do QDialog chama reject): mesma confirmação
+        if not self._confirm_close():
+            return
+        self.shutdown()
+        super().reject()

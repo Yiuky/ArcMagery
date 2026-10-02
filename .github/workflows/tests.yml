@@ -1,6 +1,7 @@
-# Testes automaticos do backend (Python 3) a cada push / pull request.
+# Testes automaticos a cada push / pull request.
 # A suite do lado ArcMap (Python 2.7 + arcpy/ArcObjects) exige ArcGIS Desktop e roda localmente
-# com run_tests.bat. Aqui, testes que dependem de GDAL/QGIS sao pulados automaticamente.
+# com run_tests.bat; os testes de interface do QMagery exigem o PyQGIS e rodam com o python-qgis do QGIS.
+# Aqui, testes que dependem de GDAL/QGIS sao pulados automaticamente.
 name: Testes
 
 on:
@@ -28,28 +29,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Consistencia de versao (config.xml x gee_gui.py x gee_updater.py)
-        shell: python
-        run: |
-          import re, io, xml.etree.ElementTree as ET
-          ns = {'e': 'http://schemas.esri.com/Desktop/AddIns'}
-          v = ET.parse('arcgis_addin/config.xml').getroot().find('e:Version', ns).text.strip()
-          gui = re.search(r'^CURRENT_VERSION = "([^"]+)"', io.open('arcgis_addin/Install/gee_gui.py', encoding='utf-8').read(), re.M).group(1)
-          upd = set(re.findall(r'current_version="([^"]+)"', io.open('arcgis_addin/Install/gee_updater.py', encoding='utf-8').read()))
-          badge = re.search(r'Versao-v(.+?)-[0-9A-Fa-f]{6}[.]svg', io.open('README.md', encoding='utf-8').read())
-          readme_v = badge.group(1).replace('--', '-') if badge else None
-          print('config.xml', v, '| gee_gui', gui, '| gee_updater', upd, '| README', readme_v)
-          assert gui == v and upd == {v}, 'versoes divergentes'
-          assert readme_v == v, 'selo de versao do README desatualizado'
+      - name: Consistencia de versao (config.xml, gee_gui, gee_updater, README e metadata do QMagery)
+        run: python tools/check_versions.py
 
       - name: Suite do backend
         run: python tests/backend/run_all.py -v
 
-  # ---------------------------------------------------------------------------
-  # Suite de confluencia QMagery
-  # Roda em PARALELO com o job 'backend'.
-  # Garante que toda alteracao no backend nao quebra o plugin QGIS.
-  # ---------------------------------------------------------------------------
+  # Plugin do QGIS (QMagery): contrato com o backend, paridade com o ArcMagery e empacotamento.
   qmagery:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -60,52 +46,15 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Dependencias do backend (QMagery usa o mesmo backend)
+      - name: Dependencias do backend (o QMagery usa o mesmo backend)
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Verifica estrutura do plugin QMagery
-        shell: python
-        run: |
-          import os, sys
-          plugin_dir = os.path.join('qgis_plugin', 'qmagery')
-          required = [
-              '__init__.py', 'plugin.py', 'metadata.txt',
-              os.path.join('core', 'backend_runner.py'),
-              os.path.join('core', 'qgis_layer.py'),
-              os.path.join('gui', 'main_dialog.py'),
-              os.path.join('gui', 'splash_dialog.py'),
-              os.path.join('gui', 'gee_tab.py'),
-          ]
-          missing = [f for f in required if not os.path.isfile(os.path.join(plugin_dir, f))]
-          if missing:
-              print('ERRO: Arquivos do plugin ausentes:')
-              for f in missing:
-                  print(f'  {f}')
-              sys.exit(1)
-          print(f'OK: {len(required)} arquivos do plugin encontrados.')
+      - name: Suite do QMagery
+        run: python tests/qgis/run_all.py
 
-      - name: Consistencia de versao (metadata.txt do QMagery)
-        shell: python
-        run: |
-          import configparser, sys
-          c = configparser.ConfigParser()
-          c.read('qgis_plugin/qmagery/metadata.txt', encoding='utf-8')
-          ver = c['general']['version']
-          parts = ver.split('.')
-          assert len(parts) == 3 and all(p.isdigit() for p in parts), f'Versao invalida: {ver}'
-          min_qgis = c['general']['qgisminimumversion'].split('.')
-          assert int(min_qgis[0]) >= 3 and int(min_qgis[1]) >= 18, 'qgisMinimumVersion < 3.18'
-          print(f'OK: QMagery v{ver}, QGIS >= {c["general"]["qgisminimumversion"]}')
-
-      - name: Suite de confluencia ArcMagery x QMagery
-        run: python tests/qgis/run_all.py -v
-
-  # ---------------------------------------------------------------------------
-  # Job sentinela: falha se qualquer job acima falhar.
-  # Configure a Branch Protection Rule sobre ESTE job (nao sobre os individuais).
-  # ---------------------------------------------------------------------------
+  # Job sentinela: falha se qualquer job acima falhar (use-o na regra de protecao do branch).
   all-green:
     runs-on: ubuntu-latest
     needs: [backend, qmagery]
@@ -113,12 +62,8 @@ jobs:
     steps:
       - name: Verifica se todos os jobs passaram
         run: |
-          if [[ "${{ needs.backend.result }}" != "success" ]]; then
-            echo "FALHA: job 'backend' nao passou."
-            exit 1
-          fi
-          if [[ "${{ needs.qmagery.result }}" != "success" ]]; then
-            echo "FALHA: job 'qmagery' nao passou."
+          if [[ "${{ needs.backend.result }}" != "success" || "${{ needs.qmagery.result }}" != "success" ]]; then
+            echo "FALHA: backend=${{ needs.backend.result }} qmagery=${{ needs.qmagery.result }}"
             exit 1
           fi
           echo "Todos os jobs passaram."

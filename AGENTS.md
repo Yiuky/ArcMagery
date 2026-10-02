@@ -64,7 +64,10 @@ Python 3 do QGIS + %LOCALAPPDATA%\ArcMagery\pylibs\py3XY  <- backend/gee_core.py
 | `backend/gehist_core.py` | 3 | Google Earth histórico por data (catálogo *Time Machine*, protocolo Keyhole: dbRoot + quadtree protobuf + XOR), porta de um projeto pessoal anterior (DOWNLOADER_EARTH). **A grade é geográfica EPSG:4326, não Web Mercator** (`tilemath.keyhole_*`) |
 | `backend/parallel.py` | 3 | `imap_bounded` (no máximo `workers × 4` tiles em andamento: memória constante), threads de rede padrão (48, teto 64) e núcleos do GDAL (CPU − 2, teto 16). Todo download de tiles passa por aqui |
 | `backend/qgis_env.py` | 3 | Registra `<QGIS>\\bin` como diretório de DLLs antes do import do GDAL (o `sitecustomize` do QGIS pula isso se `OSGEO4W_ROOT` já existir) |
-| `tests/backend/`, `tests/arcmap/` | 3 / 2.7 | Suítes automatizadas |
+| `qgis_plugin/qmagery/` | 3 (PyQGIS) | **QMagery**, o plugin do QGIS (seção 8). Usa o mesmo backend |
+| `tools/qgis_repo.py`, `qgis_plugin/plugins.xml` | 3 | Repositório de plugins do QGIS para o QMagery (gerado pelo workflow de Release) |
+| `tools/check_versions.py` | 3 | Confere a versão em todos os lugares (CI e Release) |
+| `tests/backend/`, `tests/arcmap/`, `tests/qgis/` | 3 / 2.7 / 3 | Suítes automatizadas |
 
 ## 4. Regras de código
 
@@ -126,14 +129,18 @@ set ARCMAGERY_GEE_PROJECT=<id>  :: + teste real no Earth Engine (requer autentic
 
 ## 6. Publicar uma versão
 
-1. Atualize `<Version>` em `arcgis_addin/config.xml`, `CURRENT_VERSION` em `gee_gui.py` e os
-   padrões `current_version=` em `gee_updater.py`. O teste `test_versions_are_consistent` falha
-   se divergirem.
-2. Escreva a entrada no `CHANGELOG.md` e rode `run_tests.bat` (idealmente com `ARCMAGERY_LIVE=1`).
-3. `git tag v<versão>` e `git push origin v<versão>`. O workflow `.github/workflows/release.yml` confere se a
-   tag bate com o `config.xml`, roda o `build_release.py` e publica a Release com o `.zip`, o
-   `SHA256SUMS.txt` e as notas da versão no CHANGELOG. Sem a Release, o atualizador dos usuários pede
-   confirmação para instalar do `main` sem verificação.
+1. Atualize `<Version>` em `arcgis_addin/config.xml`, `CURRENT_VERSION` em `gee_gui.py`, os
+   padrões `current_version=` em `gee_updater.py`, o selo do README e o `version=` do
+   `qgis_plugin/qmagery/metadata.txt` (mesma versão; na nightly, `-nightly.` vira `-beta.`, ver seção 8) e o
+   `experimental=` dele. `python tools/check_versions.py` confere tudo (o CI e a Release também).
+2. Escreva a entrada no `CHANGELOG.md` e rode `run_tests.bat` e `tests\qgis\run_all.py` (idealmente com
+   `ARCMAGERY_LIVE=1` e, para a interface do QMagery, com o `python-qgis-ltr.bat` do QGIS).
+3. `git tag v<versão>` e `git push origin v<versão>`. O workflow `.github/workflows/release.yml` roda as
+   suítes e `check_versions.py --release`, gera os pacotes com o `build_release.py`, publica a Release
+   (`ArcMagery-<v>.zip` + `SHA256SUMS.txt` primeiro e só depois `QMagery-<v>.zip`: os atualizadores até a
+   2.4.3-nightly.20261001 usam o PRIMEIRO `.zip` da Release) e grava `qgis_plugin/plugins.xml` no `main`
+   (commit do github-actions; faça `git pull` antes do próximo push). Sem a Release, o atualizador dos
+   usuários pede confirmação para instalar do `main` sem verificação.
 4. Localmente, `python build_release.py` gera os mesmos artefatos em `dist/`, para conferência.
 5. **Versão experimental (nightly):** use `X.Y.Z-nightly.AAAAMMDD`, em que **X.Y.Z é a PRÓXIMA versão**
    (depois da 2.4.1: `2.4.2-nightly.AAAAMMDD`; `2.4.1-nightly.*` ordena antes de `2.4.1` e nunca seria
@@ -145,12 +152,51 @@ set ARCMAGERY_GEE_PROJECT=<id>  :: + teste real no Earth Engine (requer autentic
 
 ## 7. Integração contínua
 
-- `.github/workflows/tests.yml` roda a suíte do backend (Python 3.12, Windows) e confere a consistência
-  de versão a cada push ou PR. Testes que exigem GDAL/QGIS, internet ou ArcGIS são pulados ali.
+- `.github/workflows/tests.yml` roda a suíte do backend e a do QMagery (Python 3.12, Windows) e confere a
+  consistência de versão a cada push ou PR. Testes que exigem GDAL/QGIS, internet ou ArcGIS são pulados ali.
 - Um teste novo que dependa de GDAL deve usar `@unittest.skipUnless(_paths.HAS_GDAL, ...)`; um que
   dependa de internet, `_paths.LIVE`.
-- O workflow `release.yml` roda a suíte do backend no commit da tag antes de publicar. O `build_release.py`
+- O workflow `release.yml` roda as suítes no commit da tag antes de publicar. O `build_release.py`
   é reprodutível (data das entradas do ZIP = data do último commit): o mesmo commit gera o mesmo SHA-256.
+  Ele empacota só arquivos versionados (`git ls-files`): arquivo novo fora do git não entra no pacote.
 - Ferramentas de desenvolvimento ficam em `tools/` (`build_icons.py`, `build_logo.py`,
   `build_pylibs_manifest.py`) e não entram no Add-In. `tools/find_python3.bat` é usado pelos `.bat` da raiz
   e segue a mesma regra de `gee_bridge.python3_candidates` (QGIS mais novo primeiro).
+
+## 8. QMagery (plugin do QGIS)
+
+```
+QGIS 3.18+ (Python 3, PyQt5)  <- qgis_plugin/qmagery: plugin.py, gui/ (janela, diálogos), core/
+   | core/backend_runner.py: QThread + subprocess run_gee.py <comando> --params-file (mesmo contrato)
+   v
+backend do ArcMagery: qmagery/backend/ no pacote QMagery-<v>.zip | arcgis_addin/Install/backend no repositório
+```
+
+- **Regras de cada fonte** (parâmetros enviados e linhas da tabela) ficam em `core/sources.py`, sem Qt:
+  testáveis no CI. Catálogos em `core/catalog_constants.py`. `tests/qgis/test_fontes.py` confere que todo
+  parâmetro enviado é LIDO pelo comando do backend; `test_paridade.py` compara catálogos e parâmetros com os
+  módulos do ArcMagery (`gee_bridge.COMPOSITIONS`, `arcmagery_inpe/spot/gehist/wayback`). Ao mudar um
+  catálogo ou parâmetro no ArcMagery, rode `tests/qgis` e atualize o QMagery.
+- **Configurações fora da pasta do plugin** (o Gerenciador de Complementos apaga a pasta ao atualizar):
+  `%APPDATA%\ArcGEE\gee_config.json` e `geodes_config.json` são os MESMOS do ArcMagery;
+  `qmagery_settings.json` é só do QMagery. Nunca grave nada dentro de `qgis_plugin/qmagery/`.
+- **Threads:** toda chamada ao backend passa pelo `BackendRunner` (um comando por vez; um novo pode
+  começar no slot de término do anterior). `shutdown()` cancela e espera as threads: chame ao fechar
+  janelas e no `unload` (QThread destruída em execução derruba o QGIS). Exceção dentro de slot também
+  derruba o Python fora do QGIS: trate antes de emitir.
+- **Versão do QMagery = versão do projeto.** Na nightly, `metadata.txt` usa `X.Y.Z-beta.AAAAMMDD` (a tag
+  continua `vX.Y.Z-nightly.AAAAMMDD`): para o `compareVersions` do QGIS, `2.4.3-nightly.X` é MAIOR que
+  `2.4.3` e a estável nunca seria oferecida; `beta` é menor. `experimental=True` se e só se for nightly.
+  A interface lê a versão do `metadata.txt` (`core/config.version_label`): não escreva versão no código.
+- **Repositório de plugins** (`qgis_plugin/plugins.xml`, URL raw do `main`): até duas entradas, a última
+  estável e a última experimental. O `file_name` precisa começar com `qmagery.` (o QGIS identifica o
+  plugin pelo texto antes do 1º ponto); o `download_url` aponta para o `QMagery-<v>.zip` da Release. O
+  workflow de Release grava o arquivo depois de publicar (`tools/qgis_repo.py`); não edite à mão.
+- **Pacote:** `build_release.py` monta `qmagery/` + `qmagery/backend/` (do `arcgis_addin/Install/backend`)
+  + `LICENSE`. Não versione uma cópia do backend dentro de `qgis_plugin/qmagery/` (está no `.gitignore`).
+- **Desenvolvimento:** junção da pasta `qmagery` do perfil do QGIS
+  (`%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\qmagery`) para o repositório. Desfaça a junção
+  (remova só o link, nunca o conteúdo) antes de instalar pelo repositório de plugins.
+- **Testes:** `python tests\qgis\run_all.py` no CI (sem PyQGIS, os de interface são pulados);
+  `"C:\Program Files\QGIS 3.xx\bin\python-qgis-ltr.bat" tests\qgis\run_all.py` roda todos (uma só
+  `QgsApplication` por processo: use `_paths.ensure_qgis_app()`).

@@ -40,6 +40,7 @@ não foram exercitados dentro de um ArcMap 10.8 real**. Faça antes de publicar 
 | V-17 | Download SPOT longo (cena SPOT 5 + alinhamento) passa de 2 min sem "Tempo limite"; fechar a janela no meio e reabrir pelo botão do ArcMap | `gee_bridge.backend_timeout`, `gee_gui.on_close` |
 | V-08 | Atualizador: com a Release v2.3.2 publicada, a descoberta, o hash SHA-256 e a validação do pacote foram conferidos fora do ArcMap (2026-09-29); falta atualizar por dentro do ArcMap a partir de uma versão anterior | `gee_updater.py`, `gee_gui.GEEUpdaterDialog` |
 | V-09 | Download GEE em mosaico (≥2 cenas) com nuvens: a máscara remove nuvens e o ST_B10 não satura | `gee_core.mask_clouds_and_shadows`, `cast_mosaic_to_native_type` |
+| V-18 | **QMagery no QGIS real**, depois da Release: cadastrar o repositório de plugins (`.../qgis_plugin/plugins.xml`) com experimentais ligados, instalar o QMagery pelo Gerenciador de Complementos (desfazer antes a junção de desenvolvimento), ver a verificação do ambiente, autenticar o GEE pelo console, carregar uma cena de cada fonte, camada XYZ ao vivo do Google desenhando no mapa, fechar a janela no meio de um download, e atualizar para a nightly seguinte pelo QGIS | `qgis_plugin/qmagery`, `tools/qgis_repo.py` |
 
 ---
 
@@ -123,6 +124,9 @@ Nenhum item aberto (o U-02 foi concluído; ver **Concluídos**).
 | R-05 | Proveniência da build: `actions/attest-build-provenance` e actions fixadas por SHA no `release.yml` | O `SHA256SUMS.txt` publicado na mesma Release não protege contra conta comprometida |
 | R-06 | Renomear `GEE_Image_Selector.esriaddin` para `ArcMagery.esriaddin` (mesmo `AddInID`) e migrar `%LOCALAPPDATA%\CGMA_ArcGEE` para `%LOCALAPPDATA%\ArcMagery`, lendo a pasta antiga | Exige migração no atualizador e no rollback; ver R-04 |
 | R-04 | Nomes internos legados (`gee_*`, tag `[ArcGEE]`, pastas `ArcGEE`/`CGMA_ArcGEE`) | Manter até haver migração de dados; a tag faz parte do protocolo de progresso |
+| Q-01 | QMagery no repositório oficial (plugins.qgis.org) | Exige conta OSGeo e revisão; o Google Earth histórico (protocolo não oficial) provavelmente não passa: publicar sem ele ou manter só o repositório próprio |
+| Q-02 | QMagery no QGIS 4 (Qt6) | Trocar enums do PyQt5 pelos qualificados, `exec_` por `exec`, testar e marcar `supportsQt6=True` no metadata |
+| Q-03 | QMagery: algoritmos no Processing (busca e download por fonte) | Permite usar em modelos e scripts; reaproveita `core/sources.py` |
 
 ---
 
@@ -130,7 +134,8 @@ Nenhum item aberto (o U-02 foi concluído; ver **Concluídos**).
 
 | ID | Versão | Descrição | Coberto por |
 |---|---|---|---|
-| R-02 | não lançado | Repositório renomeado para `ArcMagery` (o GitHub redireciona o nome antigo; atualizador conferido com a URL antiga em Py2 e Py3) | conferência manual (2026-10-01) |
+| Q-00 | 2.4.3-nightly.20261002 | QMagery instalável e atualizável: `QMagery-<v>.zip` com backend embutido, repositório de plugins do QGIS, versão nightly que o QGIS ordena; SPOT com chave e filtro de satélite, composições do Landsat, XYZ, configurações compartilhadas, AOI vetorial, fila, substituir, miniaturas | `tests/qgis` (contrato, paridade, empacotamento, interface: 90 testes) e teste de ponta a ponta com a rede |
+| R-02 | 2.4.3-nightly.20261002 | Repositório renomeado para `ArcMagery` (o GitHub redireciona o nome antigo; atualizador conferido com a URL antiga em Py2 e Py3) | conferência manual (2026-10-01) |
 | U-02 | 2.4.2 | `.bat` do atualizador encerrava todos os `pythonw.exe`; agora espera/encerra só o PID da interface | `tests/arcmap/test_robustness_fixes.py` (execução real desanexada) |
 | U-04 | 2.4.2 | Atualizador e `.bat` com caminhos acentuados (unicode + `.bat` em ANSI/8.3, sem `chcp`) | `test_robustness_fixes.py` |
 | G-01 | 2.4.2 | Atualizador usa a fila da GUI (`post_to_gui`) em vez de `top.after` nas threads | `test_robustness_fixes.py` |

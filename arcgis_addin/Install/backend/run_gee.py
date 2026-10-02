@@ -652,7 +652,8 @@ def hard_exit(code):
     os._exit(code)
 
 
-def main():
+def build_parser():
+    """Comandos do Earth Engine (argparse). Separado do main() para os testes de contrato do QMagery."""
     parser = argparse.ArgumentParser(description="GEE CLI Backend para ArcGIS")
     subparsers = parser.add_subparsers(dest="command")
 
@@ -710,7 +711,21 @@ def main():
 
     for p in [p_check, p_auth, p_comp, p_search, p_thumb, p_dl]:
         p.add_argument("--params-file", default=None, help="Caminho para arquivo JSON UTF-8 com argumentos")
+    return parser
 
+
+def params_to_cli(cmd_name, data):
+    """Parametros do --params-file -> argumentos do argparse ('start_date' -> '--start-date=...')."""
+    tokens = [cmd_name] if cmd_name else []
+    for k, v in data.items():
+        if k == "command" or v is None:
+            continue
+        tokens.append("%s=%s" % ("--" + k.replace("_", "-"), str(v)))
+    return tokens
+
+
+def main():
+    parser = build_parser()
     params_file = None
     for i, a in enumerate(sys.argv):
         if a.startswith("--params-file="):
@@ -743,14 +758,7 @@ def main():
         if cmd_name in SOURCE_COMMANDS:
             run_source_command(cmd_name, data)
             return
-        
-        cli_tokens = [cmd_name] if cmd_name else []
-        for k, v in data.items():
-            if k == "command" or v is None:
-                continue
-            flag = "--" + k.replace("_", "-")
-            cli_tokens.append("%s=%s" % (flag, str(v)))
-        args = parser.parse_args(cli_tokens)
+        args = parser.parse_args(params_to_cli(cmd_name, data))
     else:
         args = parser.parse_args()
 

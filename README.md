@@ -15,7 +15,7 @@
   <a href="https://data.inpe.br/stac/browser/"><img src="https://img.shields.io/badge/INPE-STAC%20CBERS-00843D.svg" alt="STAC INPE"></a>
   <a href="https://geodes-portal.cnes.fr/"><img src="https://img.shields.io/badge/CNES-SPOT%201--5-1B4F72.svg" alt="SPOT CNES"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-2.7%20%7C%203.8--3.14-3776AB.svg?logo=python&logoColor=white" alt="Python"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.4.3--nightly.20261001-28A745.svg" alt="Versão v2.4.3-nightly.20261001"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.4.3--nightly.20261002-E67E22.svg" alt="Versão v2.4.3-nightly.20261002"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License MIT"></a>
   <a href="https://github.com/Yiuky/ArcMagery/actions/workflows/tests.yml"><img src="https://github.com/Yiuky/ArcMagery/actions/workflows/tests.yml/badge.svg" alt="Testes"></a>
 </p>
@@ -23,6 +23,7 @@
 <p align="center">
   <a href="https://github.com/Yiuky/ArcMagery/releases/latest"><strong>⬇️ Baixar</strong></a> •
   <a href="docs/MANUAL_DE_USO_E_INSTALACAO.md"><strong>📖 Manual</strong></a> •
+  <a href="docs/QMAGERY.md"><strong>🧩 QGIS (QMagery)</strong></a> •
   <a href="CHANGELOG.md"><strong>📋 Novidades</strong></a> •
   <a href="https://github.com/Yiuky/ArcMagery/issues/new/choose"><strong>🐞 Relatar problema</strong></a> •
   <a href="#-english-abstract"><strong>🌐 English</strong></a> •
@@ -42,6 +43,15 @@ satélite direto no TOC, na **resolução nativa**, sem sair do ArcMap e sem dow
 quem trabalha com sensoriamento remoto, monitoramento ambiental e perícias.
 
 > Projeto **pessoal e independente** de Joberth Firmino Gambati: não é um produto oficial de nenhuma instituição nem fala em nome dela.
+
+### 🧩 Também no QGIS: QMagery (experimental)
+
+O **QMagery** é o plugin irmão para o **QGIS 3.18+**, com as mesmas fontes e o mesmo backend. Instale pelo
+repositório de plugins, que avisa as atualizações: em *Complementos › Gerenciar e instalar complementos ›
+Configurações*, marque *Mostrar também os complementos experimentais*, adicione o repositório
+`https://raw.githubusercontent.com/Yiuky/ArcMagery/main/qgis_plugin/plugins.xml` e instale o **QMagery**.
+Ou use *Instalar a partir do ZIP* com o `QMagery-<versão>.zip` da Release.
+Manual: [docs/QMAGERY.md](docs/QMAGERY.md).
 
 ## 🏁 Marco da versão 2.4
 
@@ -149,7 +159,10 @@ satélite/coleção, a composição, o período e a área, clique em **Buscar**,
 | `autenticar_gee.bat` | Usuário | Login no Google Earth Engine (uma vez) |
 | `atualizar.bat` | Usuário (clone git) | Atualiza pelo git e reinstala |
 | `desinstalar.bat` | Usuário | Remove o Add-In e, se quiser, os dados |
-| `run_tests.bat`, `build_release.py`, `deploy.ps1`, `tools\` | Desenvolvedor | Testes, pacote da Release e utilitários |
+| `run_tests.bat`, `build_release.py`, `deploy.ps1`, `tools\` | Desenvolvedor | Testes, pacotes da Release e utilitários |
+
+O plugin do QGIS não usa esses arquivos: instale-o pelo Gerenciador de Complementos do QGIS
+([docs/QMAGERY.md](docs/QMAGERY.md)).
 
 ## 🏗️ Arquitetura
 
@@ -162,6 +175,8 @@ ArcMap 10.8 (Python 2.7)  ── JSON por sessão (%TEMP%) ──  Interface Tk 
                   + %LOCALAPPDATA%\ArcMagery\pylibs\py3XY  (earthengine-api sem pip, SHA-256)
                   gee_core · stac_core (INPE) · spot_core (CNES + alinhamento) · xyz_core · gehist_core
                   esri_core · doctor (diagnóstico) · pylibs
+                                                             ▲
+QGIS 3.18+ ── QMagery (PyQt, qgis_plugin/qmagery) ── subprocess ┘  mesmo backend, embutido no QMagery-x.zip
 ```
 
 Detalhes técnicos, convenções e armadilhas conhecidas estão em [AGENTS.md](AGENTS.md).
@@ -169,24 +184,26 @@ Detalhes técnicos, convenções e armadilhas conhecidas estão em [AGENTS.md](A
 ## 🧪 Testes
 
 ```bat
-run_tests.bat                    :: backend (Python 3) + ArcMap/GUI (Python 2.7): ~280 testes
+run_tests.bat                    :: backend (Python 3) + ArcMap/GUI (Python 2.7): ~340 testes
+python tests\qgis\run_all.py     :: QMagery: contrato com o backend, paridade e pacote (interface: python-qgis)
 set ARCMAGERY_LIVE=1             :: inclui testes com internet (INPE, Esri, Google, GEODES)
 set ARCMAGERY_GEE_PROJECT=<id>   :: inclui teste real no Earth Engine
 ```
 
 ## 📦 Publicar uma versão (mantenedor)
 
-Com a versão atualizada em `config.xml`, `gee_gui.py` e `gee_updater.py`, o selo deste README e a
-entrada no `CHANGELOG.md`:
+Com a versão atualizada em `config.xml`, `gee_gui.py`, `gee_updater.py`, no selo deste README, no
+`metadata.txt` do QMagery e no `CHANGELOG.md` (`python tools\check_versions.py` confere):
 
 ```bat
-git tag v2.4.2
-git push origin v2.4.2
+git tag v2.4.3
+git push origin v2.4.3
 ```
 
-O workflow **Release** gera `ArcMagery-<versão>.zip` e `SHA256SUMS.txt` e publica a Release com as notas do
-CHANGELOG. Versões experimentais usam o sufixo `-nightly.AAAAMMDD` e saem como *pre-release*, que o canal
-estável nunca instala (detalhes no [AGENTS.md](AGENTS.md)).
+O workflow **Release** roda as suítes, gera `ArcMagery-<versão>.zip`, `QMagery-<versão>.zip` e
+`SHA256SUMS.txt`, publica a Release com as notas do CHANGELOG e atualiza o repositório de plugins do QGIS
+(`qgis_plugin/plugins.xml`). Versões experimentais usam o sufixo `-nightly.AAAAMMDD` e saem como
+*pre-release*, que o canal estável nunca instala (detalhes no [AGENTS.md](AGENTS.md)).
 
 ## 🤝 Contribuindo
 

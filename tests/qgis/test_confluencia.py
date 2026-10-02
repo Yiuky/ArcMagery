@@ -369,15 +369,11 @@ class TestQMageryStructure(unittest.TestCase):
                          msg='Erros de sintaxe no plugin:\n' + '\n'.join(errors))
 
     def test_backend_runner_referencia_backend_correto(self):
-        """BackendRunner deve apontar para arcgis_addin/Install/backend/run_gee.py."""
-        runner_path = os.path.join(PLUGIN_DIR, 'core', 'backend_runner.py')
-        self.assertTrue(os.path.isfile(runner_path))
-        with open(runner_path, 'r', encoding='utf-8') as f:
+        """O backend vem de qmagery/backend (pacote) ou de arcgis_addin/Install/backend (repositório)."""
+        with open(os.path.join(PLUGIN_DIR, 'core', 'config.py'), 'r', encoding='utf-8') as f:
             content = f.read()
-        self.assertIn('arcgis_addin', content,
-                      msg='BackendRunner não aponta para arcgis_addin/Install/backend')
-        self.assertIn('run_gee.py', content,
-                      msg='BackendRunner não referencia run_gee.py')
+        self.assertIn("'arcgis_addin', 'Install', 'backend'", content)
+        self.assertIn('run_gee.py', content)
 
     def test_plugin_nao_importa_arcpy(self):
         """O plugin QMagery nunca deve importar arcpy."""
@@ -421,12 +417,11 @@ class TestMetadataConsistency(unittest.TestCase):
                           msg=f'Campo obrigatório ausente no metadata.txt: {field}')
 
     def test_versao_semver(self):
+        """X.Y.Z (estável) ou X.Y.Z-beta.AAAAMMDD (nightly): a forma que o QGIS ordena antes da X.Y.Z."""
         version = self.config['general']['version']
-        parts = version.split('.')
-        self.assertEqual(len(parts), 3,
-                         msg=f'Versão deve ser SemVer (x.y.z), encontrado: {version}')
-        for p in parts:
-            self.assertTrue(p.isdigit(), msg=f'Versão inválida: {version}')
+        self.assertRegex(version, r'^\d+\.\d+\.\d+(-beta\.\d{8})?$')
+        self.assertEqual(self.config['general']['experimental'].lower() == 'true', '-' in version,
+                         msg='experimental=True se e somente se a versão for nightly (beta)')
 
     def test_qgis_minimo_valido(self):
         min_ver = self.config['general']['qgisminimumversion']

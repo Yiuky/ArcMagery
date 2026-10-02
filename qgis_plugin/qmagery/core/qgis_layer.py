@@ -1,94 +1,161 @@
 # -*- coding: utf-8 -*-
 """
-Carregamento de rasters no QGIS.
-
-Substitui as funções arcpy do gee_bridge.py: em vez de inserir no TOC do ArcMap,
-adiciona camadas ao Layers Panel do QGIS usando a API PyQGIS.
+Camadas no QGIS: inserção (com grupo ou no lugar de outra camada), simbologia e camadas XYZ.
 """
-from __future__ import annotations
-
-import os
-from typing import Optional
-
 from qgis.core import (
+    QgsColorRampShader,
+    QgsContrastEnhancement,
+    QgsDataSourceUri,
+    QgsLayerTreeGroup,
+    QgsMultiBandColorRenderer,
     QgsProject,
     QgsRasterLayer,
-    QgsLayerTree,
-    QgsLayerTreeGroup,
+    QgsRasterShader,
+    QgsSingleBandGrayRenderer,
+    QgsSingleBandPseudoColorRenderer,
+    QgsStyle,
 )
+from qgis.PyQt.QtGui import QColor
 
 
 class LayerLoaderError(RuntimeError):
     pass
 
 
-def add_raster_layer(
-    path: str,
-    name: str,
-    group_name: Optional[str] = None,
-) -> QgsRasterLayer:
-    """
-    Carrega um GeoTIFF (ou qualquer fonte raster) no QGIS.
-
-    :param path: Caminho do arquivo GeoTIFF (ou string de conexão raster).
-    :param name: Nome da camada no Layers Panel.
-    :param group_name: Grupo no Layers Panel. Se None, adiciona na raiz.
-    :returns: A instância de QgsRasterLayer criada.
-    :raises LayerLoaderError: Se o arquivo não for válido.
-    """
-    layer = QgsRasterLayer(path, name)
+# --------------------------------------------------------------------------- inserção
+def add_raster_layer(path, name, group_name=None, replace_layer_id=None, provider='gdal'):
+    """Carrega o raster. replace_layer_id: a nova camada ocupa a posição (grupo e ordem) da antiga, que
+    é removida do projeto. group_name: grupo na raiz do painel (criado se não existir)."""
+    layer = QgsRasterLayer(path, name, provider)
     if not layer.isValid():
-        raise LayerLoaderError(
-            f'Camada raster inválida: {path}\n'
-            f'Erro QGIS: {layer.error().message()}'
-        )
-
+        raise LayerLoaderError(u"Camada raster inválida: %s\n%s" % (path, layer.error().message()))
     project = QgsProject.instance()
     root = project.layerTreeRoot()
-
-    if group_name:
-        group = _get_or_create_group(root, group_name)
+    old_node = root.findLayer(replace_layer_id) if replace_layer_id else None
+    if old_node is not None:
+        parent = old_node.parent() or root
+        index = parent.children().index(old_node)
         project.addMapLayer(layer, False)
-        group.insertLayer(0, layer)
+        parent.insertLayer(index, layer)
+        project.removeMapLayer(replace_layer_id)
+    elif group_name:
+        project.addMapLayer(layer, False)
+        get_or_create_group(root, group_name).insertLayer(0, layer)
     else:
         project.addMapLayer(layer, True)
-
     return layer
 
 
-def add_xyz_tile_layer(
-    url_template: str,
-    name: str,
-    min_zoom: int = 0,
-    max_zoom: int = 21,
-    group_name: Optional[str] = None,
-) -> QgsRasterLayer:
-    """
-    Adiciona uma camada XYZ Tiles ao QGIS.
-
-    :param url_template: URL com {x}, {y}, {z} (ex: Google, Esri, Bing).
-    :param name: Nome da camada.
-    :param min_zoom: Zoom mínimo.
-    :param max_zoom: Zoom máximo.
-    :param group_name: Grupo no Layers Panel.
-    """
-    # Converte {x},{y},{z} para o formato zxy do QGIS
-    qgis_url = url_template.replace('{z}', 'z').replace('{x}', 'x').replace('{y}', 'y')
-    uri = (
-        f'type=xyz'
-        f'&url={qgis_url}'
-        f'&zmin={min_zoom}'
-        f'&zmax={max_zoom}'
-    )
-    return add_raster_layer(uri, name, group_name=group_name)
+def add_xyz_tile_layer(url_template, name, min_zoom=0, max_zoom=21, group_name=None):
+    """Camada XYZ "ao vivo" (sem download). A URL mantém {x}, {y} e {z}: o QgsDataSourceUri codifica o
+    '&' das URLs com parâmetros (ex.: Google) para não quebrar a lista de parâmetros do provedor."""
+    uri = QgsDataSourceUri()
+    uri.setParam('type', 'xyz')
+    uri.setParam('url', url_template)
+    uri.setParam('zmin', str(int(min_zoom)))
+    uri.setParam('zmax', str(int(max_zoom)))
+    encoded = bytes(uri.encodedUri()).decode('utf-8')
+    return add_raster_layer(encoded, name, group_name=group_name, provider='wms')
 
 
-def _get_or_create_group(
-    parent: QgsLayerTree,
-    name: str,
-) -> QgsLayerTreeGroup:
-    """Retorna (ou cria) um grupo de camadas no layer tree."""
+def get_or_create_group(parent, name):
     for child in parent.children():
         if isinstance(child, QgsLayerTreeGroup) and child.name() == name:
             return child
-    return parent.addGroup(name)
+    return parent.insertGroup(0, name)
+
+
+_get_or_create_group = get_or_create_group   # nome antigo
+
+
+def raster_layers():
+    """[(id, nome)] das camadas raster do projeto, na ordem do painel."""
+    out = []
+    for node in QgsProject.instance().layerTreeRoot().findLayers():
+        lyr = node.layer()
+        if isinstance(lyr, QgsRasterLayer):
+            out.append((lyr.id(), lyr.name()))
+    return out
+
+
+# --------------------------------------------------------------------------- simbologia
+def _cut(provider, band, lower=0.02, upper=0.98):
+    try:
+        vmin, vmax = provider.cumulativeCut(band, lower, upper, provider.extent(), 250000)
+    except Exception:
+        vmin = vmax = None
+    if vmin is None or vmax is None or vmax <= vmin:
+        stats = provider.bandStatistics(band)
+        vmin, vmax = stats.minimumValue, stats.maximumValue
+    return vmin, vmax
+
+
+def _enhancement(provider, band):
+    ce = QgsContrastEnhancement(provider.dataType(band))
+    vmin, vmax = _cut(provider, band)
+    ce.setContrastEnhancementAlgorithm(QgsContrastEnhancement.StretchToMinimumMaximum, True)
+    ce.setMinimumValue(vmin)
+    ce.setMaximumValue(vmax)
+    return ce
+
+
+def style_rgb(layer, bands0):
+    """bands0: índices 0-based (resposta do backend); o QGIS usa 1-based."""
+    provider = layer.dataProvider()
+    count = layer.bandCount()
+    bands = [b + 1 for b in bands0 if 0 <= b < count]
+    if len(bands) < 3:
+        return style_gray(layer)
+    r, g, b = bands[:3]
+    renderer = QgsMultiBandColorRenderer(provider, r, g, b)
+    renderer.setRedContrastEnhancement(_enhancement(provider, r))
+    renderer.setGreenContrastEnhancement(_enhancement(provider, g))
+    renderer.setBlueContrastEnhancement(_enhancement(provider, b))
+    layer.setRenderer(renderer)
+    layer.triggerRepaint()
+
+
+def style_gray(layer, band=1):
+    provider = layer.dataProvider()
+    renderer = QgsSingleBandGrayRenderer(provider, band)
+    renderer.setContrastEnhancement(_enhancement(provider, band))
+    layer.setRenderer(renderer)
+    layer.triggerRepaint()
+
+
+def style_index(layer, ramp_name='RdYlGn', band=1, stops=7):
+    """Índice espectral (NDVI, NDWI...): rampa de cores entre os percentis 2 e 98."""
+    provider = layer.dataProvider()
+    vmin, vmax = _cut(provider, band)
+    ramp = QgsStyle.defaultStyle().colorRamp(ramp_name)
+    items = []
+    for i in range(stops):
+        f = i / float(stops - 1)
+        color = ramp.color(f) if ramp is not None else QColor.fromHsvF(0.33 * f, 0.8, 0.8)
+        value = vmin + (vmax - vmin) * f
+        items.append(QgsColorRampShader.ColorRampItem(value, color, u"%.3g" % value))
+    fn = QgsColorRampShader(vmin, vmax)
+    fn.setColorRampType(QgsColorRampShader.Interpolated)
+    fn.setColorRampItemList(items)
+    shader = QgsRasterShader()
+    shader.setRasterShaderFunction(fn)
+    renderer = QgsSingleBandPseudoColorRenderer(provider, band, shader)
+    renderer.setClassificationMin(vmin)
+    renderer.setClassificationMax(vmax)
+    layer.setRenderer(renderer)
+    layer.triggerRepaint()
+
+
+def apply_style(layer, kind, bands0=None):
+    """kind: 'rgb' (com bands0), 'index', 'gray' ou None (padrão do QGIS). Nunca levanta exceção:
+    a camada já está no mapa; a simbologia é só conveniência."""
+    try:
+        if kind == 'rgb' and bands0 and layer.bandCount() >= 3:
+            style_rgb(layer, bands0)
+        elif kind == 'index' and layer.bandCount() == 1:
+            style_index(layer)
+        elif kind == 'gray' or layer.bandCount() == 1:
+            style_gray(layer)
+        return True
+    except Exception:
+        return False

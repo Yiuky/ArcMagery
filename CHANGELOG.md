@@ -6,6 +6,49 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 
 ## [Não lançado]
 
+## [2.4.3-nightly.20261002] - 2026-10-02
+
+> Versão experimental (nightly): o QMagery (plugin do QGIS) passa a ser instalável e atualizável por
+> qualquer usuário, com as fontes funcionando de ponta a ponta. A 2.4.3-nightly.20261001 só funcionava
+> numa cópia do repositório e tinha falhas no SPOT, no Landsat e nas camadas XYZ.
+
+### 🌟 Adicionado
+- **Distribuição do QMagery:** a Release traz o `QMagery-<versão>.zip` (pasta `qmagery/` com o backend
+  embutido), pronto para *Instalar a partir do ZIP*, e o **repositório de plugins do QGIS**
+  (`qgis_plugin/plugins.xml`, atualizado pelo workflow de Release): cadastrado uma vez, o Gerenciador de
+  Complementos avisa e instala as novas versões. Manual: [docs/QMAGERY.md](docs/QMAGERY.md).
+- QMagery: área de interesse por **camada vetorial** (só as feições selecionadas, se houver), **fila** de
+  várias cenas, **Substituir camada** (mesmo grupo e posição), **miniatura** em todas as fontes,
+  **chave do GEODES** com teste e cota, **projeto e autenticação do GEE**, **verificação do ambiente** com
+  instalação dos componentes do Earth Engine e **Configurações** que salvam de verdade (pasta de saída,
+  threads de tiles).
+- QMagery: simbologia automática (multibanda do GEE em cor natural, índices com rampa de cores, SPOT e
+  CBERS conforme a composição) e GeoTIFFs numa pasta permanente (Documentos\QMagery), não mais no `%TEMP%`.
+
+### 🛡️ Corrigido
+- QMagery: download do **SPOT** sempre falhava (a chave do GEODES não era enviada); a busca ignorava o
+  grupo escolhido (satélite e multiespectral/pancromático) e a opção "cor natural" virava falsa cor sem aviso.
+- QMagery: **Landsat 1–7** usavam as composições do Sentinel-2 (códigos inválidos para o backend).
+- QMagery: **camadas XYZ** inválidas (o endereço perdia `{x}`, `{y}` e `{z}`).
+- QMagery: o **ID do projeto do GEE** era lido e gravado num caminho errado; agora usa o mesmo
+  `%APPDATA%\ArcGEE\gee_config.json` do ArcMagery (a chave do GEODES também é compartilhada).
+- QMagery: o zoom escolhido no Google Earth histórico e no Wayback era ignorado; "todos os zooms" funciona.
+- QMagery: fechar a janela ou atualizar o plugin com uma operação em andamento podia derrubar o QGIS.
+- QMagery: versão "v1.0.0" fixa na interface; agora vem do `metadata.txt` (nightly aparece no QGIS como
+  `X.Y.Z-beta.AAAAMMDD`, que ele ordena antes da estável).
+- Atualizador do ArcMagery: escolhe o pacote da Release pelo nome (`ArcMagery-*.zip`), não pelo primeiro
+  `.zip` (a Release agora traz também o do QMagery); a sincronização do repositório de desenvolvimento
+  leva o `qgis_plugin`.
+- CI: a checagem do selo de versão do README falhava desde a nightly anterior; a Release agora roda também
+  a suíte do QMagery e a checagem de versões antes de publicar.
+
+### 🔧 Alterado
+- Repositório renomeado de `arcgis-google-earth-engine-explorer` para **`ArcMagery`**. O GitHub
+  redireciona o endereço antigo, então o atualizador das versões já instaladas continua encontrando as
+  novas versões.
+- QMagery: código morto removido (as antigas abas `gui/*_tab.py`) e testes refeitos: contrato com o
+  backend, paridade com o ArcMagery, empacotamento e interface (90 testes).
+
 ## [2.4.3-nightly.20261001] - 2026-10-01
 
 > Versão experimental (nightly): inclusão do plugin QMagery para QGIS (suporte completo a GEE,

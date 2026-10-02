@@ -40,3 +40,6 @@ dist/
 # Wrappers gerados em tempo de execucao pelo comtypes embutido
 arcgis_addin/Install/vendor/comtypes/gen/*
 !arcgis_addin/Install/vendor/comtypes/gen/__init__.py
+
+# Copia local do backend dentro do plugin do QGIS (o pacote QMagery-x.zip e gerado por build_release.py)
+qgis_plugin/qmagery/backend/

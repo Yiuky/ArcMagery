@@ -70,6 +70,14 @@ class NewestReleaseTest(unittest.TestCase):
         self.assertEqual((r['version'], r['prerelease']), ('2.4.1-nightly.20260930', True))
         self.assertEqual(r['zip_name'], 'ArcMagery-2.4.1-nightly.20260930.zip')
 
+    def test_release_with_qmagery_zip_still_picks_arcmagery_package(self):
+        # desde a 2.4.3 a Release traz tambem o plugin do QGIS; a ordem da API nao pode decidir o pacote
+        rel = release('v2.4.3')
+        rel['assets'].insert(0, {'name': 'QMagery-2.4.3.zip', 'browser_download_url': 'https://x/qm.zip'})
+        self.httpd.releases = [rel]
+        r = up.fetch_newest_release(self.url)
+        self.assertEqual((r['zip_name'], r['zip_url']), ('ArcMagery-2.4.3.zip', 'https://x/2.4.3.zip'))
+
     def test_stable_newer_than_nightly_wins_in_nightly_channel(self):
         self.httpd.releases = [release('v2.4.1-nightly.20260930', prerelease=True), release('v2.4.1')]
         self.assertEqual(up.fetch_newest_release(self.url)['version'], '2.4.1')

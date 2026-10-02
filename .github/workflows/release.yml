@@ -1,9 +1,13 @@
 # Publica a GitHub Release verificavel ao enviar uma tag vX.Y.Z:
-#   git tag v2.4.2 && git push origin v2.4.2
-# Experimental: o X.Y.Z da nightly e a PROXIMA versao (depois da 2.4.1: v2.4.2-nightly.AAAAMMDD),
-# porque 2.4.1-nightly.* ordena ANTES de 2.4.1 e nunca seria oferecida a quem esta na 2.4.1.
-# Gera ArcMagery-<versao>.zip + SHA256SUMS.txt (build_release.py) e usa as notas da versao no
-# CHANGELOG.md. O atualizador embutido so instala sem confirmacao Releases com SHA256SUMS.txt.
+#   git tag v2.4.3 && git push origin v2.4.3
+# Experimental: o X.Y.Z da nightly e a PROXIMA versao (depois da 2.4.2: v2.4.3-nightly.AAAAMMDD),
+# porque 2.4.2-nightly.* ordena ANTES de 2.4.2 e nunca seria oferecida a quem esta na 2.4.2.
+#
+# Publica: ArcMagery-<versao>.zip, SHA256SUMS.txt e QMagery-<versao>.zip (plugin do QGIS), com as notas
+# da versao no CHANGELOG.md. Depois atualiza qgis_plugin/plugins.xml no branch main: e o repositorio de
+# plugins que o QGIS consulta para oferecer a nova versao do QMagery.
+# O pacote do ArcMagery precisa ser o PRIMEIRO .zip da Release: os atualizadores ate a 2.4.3-nightly.20261001
+# usam o primeiro .zip que encontram (o passo "Conferir a ordem dos pacotes" garante isso).
 name: Release
 
 on:
@@ -12,21 +16,23 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag existente a publicar (ex.: v2.3.1)"
+        description: "Tag existente a publicar (ex.: v2.4.3)"
         required: true
 
 permissions:
   contents: write
 
 jobs:
-  # A suite do backend roda de novo no commit da tag: nada e publicado se ela falhar
+  # Nada e publicado se as versoes divergirem ou se uma suite falhar no commit da tag
   tests:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          ref: ${{ env.TAG }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -34,8 +40,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
+      - name: Consistencia de versao, tag e CHANGELOG
+        run: python tools/check_versions.py --tag ${{ env.TAG }} --release
       - name: Suite do backend
         run: python tests/backend/run_all.py -v
+      - name: Suite do QMagery
+        run: python tests/qgis/run_all.py
 
   release:
     needs: tests
@@ -53,35 +63,75 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Conferir tag x config.xml e extrair notas do CHANGELOG
+      - name: Extrair notas do CHANGELOG
         shell: python
         run: |
           import io, os, re, xml.etree.ElementTree as ET
-          tag = os.environ['TAG']
           ns = {'e': 'http://schemas.esri.com/Desktop/AddIns'}
           version = ET.parse('arcgis_addin/config.xml').getroot().find('e:Version', ns).text.strip()
-          assert tag == 'v' + version, 'Tag %s diverge da versao do config.xml (%s)' % (tag, version)
           log = io.open('CHANGELOG.md', encoding='utf-8').read()
           m = re.search(r'^## \[%s\].*?$(.*?)(?=^## \[|\Z)' % re.escape(version), log, re.M | re.S)
           notes = (m.group(1).strip() if m else 'ArcMagery %s' % version).rstrip('-').strip()
-          notes += '\n\n---\nInstale: baixe `ArcMagery-%s.zip`, extraia e execute `install.bat`. ' \
-                   'Integridade: `SHA256SUMS.txt`.' % version
+          notes += ('\n\n---\n**ArcMagery (ArcMap 10.8):** baixe `ArcMagery-%s.zip`, extraia e execute `install.bat`.\n\n'
+                    '**QMagery (QGIS 3.18+):** no QGIS, em *Complementos > Gerenciar e instalar complementos > '
+                    'Configurações*, adicione o repositório '
+                    '`https://raw.githubusercontent.com/Yiuky/ArcMagery/main/qgis_plugin/plugins.xml` '
+                    '(o QGIS passa a avisar as atualizações) ou use *Instalar a partir do ZIP* com `QMagery-%s.zip`. '
+                    'Manual: docs/QMAGERY.md.\n\n'
+                    'Integridade dos dois pacotes: `SHA256SUMS.txt`.' % (version, version))
           io.open('release_notes.md', 'w', encoding='utf-8').write(notes)
 
-      - name: Gerar pacote e SHA256SUMS
+      - name: Gerar pacotes e SHA256SUMS
         run: python build_release.py dist
 
       - name: Publicar Release
         shell: bash
         run: |
           VERSION="${TAG#v}"
-          # Versoes com sufixo (ex.: 2.4.1-nightly.20260930) sao EXPERIMENTAIS: pre-release, que o canal
+          # Versoes com sufixo (ex.: 2.4.3-nightly.20261002) sao EXPERIMENTAIS: pre-release, que o canal
           # estavel do atualizador (releases/latest) nunca instala.
           EXTRA=""
-          TITLE="ArcMagery $TAG"
+          TITLE="ArcMagery e QMagery $TAG"
           if [[ "$VERSION" == *-* ]]; then
             EXTRA="--prerelease"
-            TITLE="ArcMagery $TAG (experimental)"
+            TITLE="ArcMagery e QMagery $TAG (experimental)"
           fi
           gh release create "$TAG" "dist/ArcMagery-$VERSION.zip" "dist/SHA256SUMS.txt" \
             --title "$TITLE" --notes-file release_notes.md --verify-tag $EXTRA
+          # o QMagery sobe DEPOIS: o pacote do ArcMagery continua sendo o primeiro .zip da Release
+          gh release upload "$TAG" "dist/QMagery-$VERSION.zip"
+
+      - name: Conferir a ordem dos pacotes
+        shell: bash
+        run: |
+          VERSION="${TAG#v}"
+          FIRST=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" \
+                  --jq '[.assets[] | select(.name | endswith(".zip"))][0].name')
+          echo "Primeiro .zip da Release: $FIRST"
+          if [[ "$FIRST" != "ArcMagery-$VERSION.zip" ]]; then
+            echo "::error::O primeiro .zip deve ser ArcMagery-$VERSION.zip (atualizadores antigos usam o primeiro)."
+            exit 1
+          fi
+
+      - name: Atualizar o repositorio de plugins do QGIS (main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-branch
+
+      - name: Gravar plugins.xml no main
+        shell: bash
+        run: |
+          VERSION="${TAG#v}"
+          python tools/qgis_repo.py "$VERSION" --xml main-branch/qgis_plugin/plugins.xml \
+            --metadata qgis_plugin/qmagery/metadata.txt --date "$(date -u +%Y-%m-%d)"
+          cd main-branch
+          if [[ -n "$(git status --porcelain qgis_plugin/plugins.xml)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add qgis_plugin/plugins.xml
+            git commit -m "QGIS: publica o QMagery $VERSION no repositorio de plugins"
+            git push origin HEAD:main
+          else
+            echo "plugins.xml sem alteracao."
+          fi

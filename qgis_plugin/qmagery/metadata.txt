@@ -1,16 +1,19 @@
 [general]
 name=QMagery
 qgisMinimumVersion=3.18
-description=Imagens de satélite no QGIS: GEE, CBERS/Amazônia-1, SPOT 1-5, Google Earth histórico, Esri Wayback e XYZ
-version=1.0.0
+description=Imagens de satélite no QGIS: Google Earth Engine, CBERS/Amazônia-1 (INPE), SPOT 1-5 (CNES), Google Earth histórico, Esri Wayback e mosaicos XYZ.
+about=O QMagery busca e carrega imagens de satélite direto no painel de camadas do QGIS, recortadas na área de interesse e na resolução nativa: Sentinel-2 e Landsat 1-9 (Google Earth Engine), CBERS-2/2B/4/4A e Amazônia-1 (STAC do INPE), SPOT 1-5 (CNES, alinhado à Esri World Imagery), datas do Google Earth histórico e versões do Esri World Imagery Wayback. Usa o mesmo backend do ArcMagery (plugin do ArcMap 10.8). Projeto pessoal e independente, código aberto (MIT). O Earth Engine exige um projeto do Google Cloud; o download do SPOT exige a chave gratuita do GEODES.
+version=2.4.3-beta.20261002
 author=Joberth Firmino Gambati
 email=
-about=QMagery carrega imagens de satélite direto no painel de camadas do QGIS, na resolução nativa, sem downloads manuais. Porta o ArcMagery (ArcMap 10.8) para o QGIS 3.x reutilizando o mesmo backend Python 3.
+changelog=2.4.3-beta.20261002 (experimental): primeira versão distribuída. Instalação e atualização pelo repositório de plugins do QMagery; backend embutido; configurações compartilhadas com o ArcMagery; SPOT com chave do GEODES e filtro por satélite; composições corretas para Landsat 1-7; área por camada vetorial; fila de várias cenas; substituir camada; miniatura em todas as fontes; camadas XYZ corrigidas.
 tracker=https://github.com/Yiuky/ArcMagery/issues
 repository=https://github.com/Yiuky/ArcMagery
-tags=satellite,imagery,remote sensing,GEE,INPE,CBERS,SPOT,Landsat,Sentinel
-homepage=https://github.com/Yiuky/ArcMagery
+homepage=https://github.com/Yiuky/ArcMagery/blob/main/docs/QMAGERY.md
+tags=satellite,imagery,remote sensing,raster,earth engine,gee,sentinel-2,landsat,inpe,cbers,amazonia-1,spot,cnes,wayback,google earth,brazil
 category=Raster
-icon=resources/icons/icon.png
+icon=resources/icons/icon64.png
 experimental=True
 deprecated=False
+hasProcessingProvider=no
+server=False

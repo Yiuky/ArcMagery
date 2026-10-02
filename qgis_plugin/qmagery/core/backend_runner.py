@@ -1,102 +1,73 @@
 # -*- coding: utf-8 -*-
 """
-Substituto do gee_bridge.py para o QGIS.
+Execução do backend do ArcMagery (run_gee.py) a partir do QGIS: o equivalente ao gee_bridge.py.
 
-Chama arcgis_addin/Install/backend/run_gee.py como subprocess e entrega:
-  - progresso via sinal Qt (stderr com prefixo [ArcGEE])
-  - resultado via sinal Qt (última linha JSON no stdout)
+Contrato com o backend (o mesmo do ArcMagery):
+  - parâmetros num arquivo JSON UTF-8 (--params-file);
+  - progresso no stderr, linhas com o prefixo [ArcGEE] (PROGRESS <feito>/<total> quando houver);
+  - resultado: a ÚLTIMA linha do stdout que começa com '{' (JSON com 'success').
 
-Contrato com o backend (herdado do ArcMagery):
-  - UMA linha JSON no stdout (a última que começa com '{').
-  - Progresso no stderr com prefixo [ArcGEE] PROGRESS <n>/<total>.
-  - Exit code 0 = sucesso (verificar success no JSON), != 0 = falha.
-
-Nota: como o QGIS já é Python 3, poderíamos importar os módulos diretamente.
-O subprocess é mantido por dois motivos:
-  1. O backend chama os._exit() ao terminar (necessário para o GDAL/curl).
-  2. Isolamento: erros no backend não derrubam o QGIS.
+O backend roda num processo separado (e não importado no QGIS) porque encerra com os._exit() por
+causa do GDAL/curl e porque um erro nele não pode derrubar o QGIS.
 """
-import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Dict, Any, Optional, Callable
+import threading
+import time
 
 try:
     from qgis.PyQt.QtCore import QObject, QThread, pyqtSignal
-except ImportError:
+except ImportError:   # CI sem QGIS: as funções puras (parse_result, run_sync...) continuam testáveis
     try:
         from PyQt5.QtCore import QObject, QThread, pyqtSignal
     except ImportError:
-        class QObject:
-            def __init__(self, *args, **kwargs): pass
-        class QThread:
-            def __init__(self, *args, **kwargs): pass
-        class pyqtSignal:
-            def __init__(self, *args, **kwargs): pass
-            def emit(self, *args, **kwargs): pass
-            def connect(self, *args, **kwargs): pass
+        class QObject(object):
+            def __init__(self, *args, **kwargs):
+                pass
+
+        class QThread(QObject):
+            pass
+
+        def pyqtSignal(*args, **kwargs):
+            return None
+
+from . import config
+
+CANCELLED_MESSAGE = u"Operação interrompida pelo usuário."
 
 
-# os.path.realpath resolve junctions e symlinks do Windows.
-# Sem isso, quando o plugin está instalado via junction no diretório de plugins do QGIS,
-# o __file__ aponta para o alvo da junction e o caminho relativo (..'s) fica errado.
-# Hierarquia: core/ → qmagery/ → qgis_plugin/ → ArcMagery/ → arcgis_addin/Install/backend/
-_THIS_FILE = os.path.realpath(__file__)
-_BACKEND_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(_THIS_FILE), '..', '..', '..',
-                 'arcgis_addin', 'Install', 'backend')
-)
-_RUN_GEE = os.path.join(_BACKEND_DIR, 'run_gee.py')
-
-
-def get_python_executable() -> str:
-    """
-    Retorna o executável Python 3 correto.
-    No Windows dentro do QGIS Desktop, sys.executable aponta para qgis-ltr-bin.exe (ou qgis.exe).
-    Se passarmos argumentos como [sys.executable, script, ...], o QGIS tenta abrir o script
-    como uma camada de mapa/projeto, gerando o erro 'Fonte de dados inválida: --params-file=...'.
-    Esta função localiza o python.exe ou python3.exe no ambiente do QGIS/OSGeo4W.
-    """
-    # 1. Se sys.executable já terminar com python.exe ou python3.exe, verifica se existe
-    exe = sys.executable or ""
-    exe_name = os.path.basename(exe).lower()
-    if exe_name in ('python.exe', 'python3.exe', 'pythonw.exe') and os.path.isfile(exe):
+def get_python_executable():
+    """Python 3 do próprio QGIS. Dentro do QGIS, sys.executable é o qgis-bin.exe: passar argumentos a ele
+    abriria uma camada ("Fonte de dados inválida"). O python.exe fica em sys.base_prefix
+    (apps\\Python3xx) e herda do QGIS o PATH do GDAL."""
+    env_py = os.environ.get('QMAGERY_PYTHON') or os.environ.get('GEE_PYTHON3')
+    if env_py and os.path.isfile(env_py):
+        return env_py
+    exe = sys.executable or ''
+    if os.path.basename(exe).lower() in ('python.exe', 'python3.exe', 'python', 'python3') and os.path.isfile(exe):
         return exe
-
-    # 2. Procura em sys.prefix / base_prefix / apps/Python3xx
-    candidates = []
-    base = os.path.normpath(getattr(sys, 'base_prefix', sys.prefix))
-    candidates.append(os.path.join(base, 'python.exe'))
-    candidates.append(os.path.join(base, 'python3.exe'))
-
-    # Diretório bin do QGIS (ex: C:\Program Files\QGIS 3.44.10\bin\python.exe)
-    root = os.path.dirname(os.path.dirname(base))
-    candidates.append(os.path.join(root, 'bin', 'python.exe'))
-    candidates.append(os.path.join(root, 'bin', 'python3.exe'))
-
-    # Se exe estiver em <QGIS>\bin\qgis-ltr-bin.exe
-    if os.path.dirname(exe):
-        candidates.append(os.path.join(os.path.dirname(exe), 'python.exe'))
-        candidates.append(os.path.join(os.path.dirname(exe), 'python3.exe'))
-
-    # Variável de ambiente específica
-    env_py = os.environ.get('PYTHON_EXECUTABLE') or os.environ.get('GEE_PYTHON3')
-    if env_py:
-        candidates.insert(0, env_py)
-
-    for c in candidates:
-        if c and os.path.isfile(c):
-            return os.path.realpath(c)
-
-    return sys.executable
+    names = ('python.exe', 'python3.exe') if os.name == 'nt' else ('python3', 'python')
+    dirs = [os.path.normpath(getattr(sys, 'base_prefix', sys.prefix)), os.path.normpath(sys.prefix)]
+    if os.name != 'nt':
+        dirs = [os.path.join(d, 'bin') for d in dirs]
+    if exe:
+        dirs.append(os.path.dirname(exe))
+    for d in dirs:
+        for n in names:
+            c = os.path.join(d, n)
+            if os.path.isfile(c):
+                return c
+    found = shutil.which('python3') or shutil.which('python')
+    return found or exe
 
 
-def _get_subprocess_kwargs() -> Dict[str, Any]:
-    """Retorna flags para subprocess ocultando totalmente janelas de console no Windows."""
-    kwargs: Dict[str, Any] = {}
+def subprocess_kwargs():
+    """Sem janela preta de console no Windows."""
+    kwargs = {}
     if sys.platform == 'win32':
         kwargs['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
         si = subprocess.STARTUPINFO()
@@ -106,150 +77,183 @@ def _get_subprocess_kwargs() -> Dict[str, Any]:
     return kwargs
 
 
+_get_subprocess_kwargs = subprocess_kwargs   # nome antigo, usado pelos testes
+
+
+def backend_env():
+    env = dict(os.environ)
+    env['PYTHONIOENCODING'] = 'utf-8'
+    env['PYTHONUTF8'] = '1'
+    # O PYTHONPATH do QGIS aponta para os módulos dele; o backend usa só a biblioteca padrão,
+    # o GDAL do site-packages e as bibliotecas do Earth Engine instaladas sem pip (pylibs).
+    env.pop('PYTHONPATH', None)
+    return env
+
+
+def write_params(params):
+    fd, path = tempfile.mkstemp(suffix='.json', prefix='qmagery_params_')
+    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+        json.dump(params, f, ensure_ascii=False)
+    return path
+
+
+def parse_result(stdout_text):
+    """Última linha JSON do stdout (o contrato do backend); None se não houver."""
+    for line in reversed((stdout_text or '').splitlines()):
+        line = line.strip()
+        if line.startswith('{'):
+            try:
+                return json.loads(line)
+            except ValueError:
+                continue
+    return None
+
+
+def kill_tree(proc):
+    if proc is None or proc.poll() is not None:
+        return
+    if sys.platform == 'win32':
+        try:
+            subprocess.run(['taskkill', '/F', '/T', '/PID', str(proc.pid)], capture_output=True, timeout=15,
+                           **subprocess_kwargs())
+        except Exception:
+            pass
+    try:
+        proc.kill()
+    except Exception:
+        pass
+
+
 class BackendError(RuntimeError):
-    """Erro retornado pelo backend (success=false no JSON ou exit != 0)."""
-    def __init__(self, message: str, diagnostics: Optional[Dict] = None):
+    """Erro retornado pelo backend (success=false no JSON ou sem resposta)."""
+
+    def __init__(self, message, diagnostics=None):
         super().__init__(message)
         self.diagnostics = diagnostics or {}
 
 
 class _BackendWorker(QObject):
-    """Worker executado em QThread separada."""
+    """Executa UM comando numa QThread. Sinais: progress(linha), finished(dict), error(mensagem)."""
 
-    # Sinais emitidos durante a execução
-    progress = pyqtSignal(str)        # mensagem de progresso (linha stderr)
-    finished = pyqtSignal(dict)       # resultado (dict JSON final)
-    error = pyqtSignal(str)           # mensagem de erro (antes do JSON)
+    progress = pyqtSignal(str)
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
 
-    def __init__(self, command: str, params: Dict[str, Any]):
+    def __init__(self, command, params, timeout=None):
         super().__init__()
         self.command = command
-        self.params = params
+        self.params = dict(params)
+        self.params['command'] = command
+        self.timeout = timeout
+        self.done = False             # True logo antes de emitir finished/error
         self._cancelled = False
-        self._proc: Optional[subprocess.Popen] = None
+        self._timed_out = False
+        self._proc = None
+        self._last_activity = time.time()
 
     def cancel(self):
-        """Cancela imediatamente o processo em execução."""
         self._cancelled = True
-        proc = self._proc
-        if proc and proc.poll() is None:
-            if sys.platform == 'win32':
-                try:
-                    subprocess.run(
-                        ['taskkill', '/F', '/T', '/PID', str(proc.pid)],
-                        capture_output=True,
-                        **_get_subprocess_kwargs()
-                    )
-                except Exception:
-                    pass
-            try:
-                proc.kill()
-            except Exception:
-                pass
-            try:
-                proc.terminate()
-            except Exception:
-                pass
+        kill_tree(self._proc)
+
+    def _succeed(self, result):
+        self.done = True
+        self.finished.emit(result)
+
+    def _fail(self, message):
+        self.done = True
+        self.error.emit(message)
+
+    def _watchdog(self):
+        """Prazo de INATIVIDADE: zera a cada linha do backend (downloads longos com progresso não expiram)."""
+        while self._proc is not None and self._proc.poll() is None:
+            if self.timeout and time.time() - self._last_activity > self.timeout:
+                self._timed_out = True
+                kill_tree(self._proc)
+                return
+            time.sleep(0.5)
 
     def run(self):
-        """Executa o backend e emite sinais de progresso/resultado."""
         if self._cancelled:
-            self.error.emit('Operação cancelada.')
+            self._fail(CANCELLED_MESSAGE)
             return
-
-        fd, params_file = tempfile.mkstemp(suffix='.json', prefix='qmagery_params_')
+        params_file = None
+        stderr_tail = []
         try:
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                json.dump(self.params, f, ensure_ascii=False)
-
-            env = dict(os.environ)
-            env['PYTHONIOENCODING'] = 'utf-8'
-            env.pop('PYTHONPATH', None)
-
-            py_exe = get_python_executable()
+            run_gee = config.run_gee_path()
+            if not os.path.isfile(run_gee):
+                self._fail(u"Backend não encontrado: %s\nReinstale o QMagery." % run_gee)
+                return
+            params_file = write_params(self.params)
+            self._last_activity = time.time()
             self._proc = subprocess.Popen(
-                [py_exe, _RUN_GEE, self.command,
-                 '--params-file=' + params_file],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env,
-                **_get_subprocess_kwargs()
-            )
-
+                [get_python_executable(), run_gee, self.command, '--params-file=' + params_file],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                env=backend_env(), cwd=os.path.dirname(run_gee), **subprocess_kwargs())
             if self._cancelled:
-                self.cancel()
-                self.error.emit('Operação cancelada.')
+                kill_tree(self._proc)
+                self._fail(CANCELLED_MESSAGE)
                 return
 
-            # Lê stderr em thread separada para não bloquear stdout
-            import threading
-            stderr_lines = []
-
-            def _read_stderr():
+            def read_stderr():
                 try:
-                    if self._proc and self._proc.stderr:
-                        for raw in self._proc.stderr:
-                            if self._cancelled:
-                                break
-                            line = raw.decode('utf-8', 'replace').rstrip()
-                            stderr_lines.append(line)
+                    for raw in self._proc.stderr:
+                        self._last_activity = time.time()
+                        line = raw.decode('utf-8', 'replace').rstrip()
+                        if not line:
+                            continue
+                        stderr_tail.append(line)
+                        del stderr_tail[:-40]
+                        if not self._cancelled:
                             self.progress.emit(line)
                 except Exception:
                     pass
 
-            t = threading.Thread(target=_read_stderr, daemon=True)
-            t.start()
+            t_err = threading.Thread(target=read_stderr, daemon=True)
+            t_err.start()
+            threading.Thread(target=self._watchdog, daemon=True).start()
 
-            stdout_data = b''
-            try:
-                if self._proc and self._proc.stdout:
-                    stdout_data = self._proc.stdout.read()
-            except Exception:
-                pass
-
-            if self._proc:
-                self._proc.wait()
-            t.join(timeout=2)
+            stdout_data = self._proc.stdout.read()
+            self._proc.wait()
+            t_err.join(timeout=5)
 
             if self._cancelled:
-                self.error.emit('Operação cancelada.')
+                self._fail(CANCELLED_MESSAGE)
                 return
-
-            # Localiza a última linha JSON no stdout
-            lines = [
-                l for l in stdout_data.decode('utf-8', 'replace').splitlines()
-                if l.strip().startswith('{')
-            ]
-            if not lines:
-                stderr_text = '\n'.join(stderr_lines[-20:])
-                self.error.emit(
-                    f'Backend não retornou JSON válido.\nStderr:\n{stderr_text}'
-                )
+            if self._timed_out:
+                self._fail(u"O backend ficou %d s sem responder e foi encerrado (%s). Tente de novo; se "
+                           u"repetir, use uma área menor." % (self.timeout, self.command))
                 return
-
-            result = json.loads(lines[-1])
-            self.finished.emit(result)
-
+            result = parse_result(stdout_data.decode('utf-8', 'replace'))
+            if result is None:
+                self._fail(u"O backend não retornou uma resposta válida (%s).\n\n%s"
+                           % (self.command, u'\n'.join(stderr_tail[-15:]) or u'(sem mensagens)'))
+                return
+            self._succeed(result)
         except Exception as exc:
-            if not self._cancelled:
-                self.error.emit(str(exc))
+            self._fail(CANCELLED_MESSAGE if self._cancelled else u"%s: %s" % (type(exc).__name__, exc))
         finally:
-            try:
-                os.remove(params_file)
-            except OSError:
-                pass
+            for stream in ('stdout', 'stderr'):
+                try:
+                    getattr(self._proc, stream).close()
+                except Exception:
+                    pass
+            if params_file:
+                try:
+                    os.remove(params_file)
+                except OSError:
+                    pass
 
 
 class BackendRunner(QObject):
     """
-    Interface pública para executar comandos do backend.
+    Executa comandos do backend sem travar o QGIS.
 
-    Uso:
-        runner = BackendRunner()
-        runner.progress.connect(status_bar.showMessage)
-        runner.finished.connect(on_result)
-        runner.error.connect(on_error)
-        runner.run('sources_info', {})
+        runner = BackendRunner(parent)
+        runner.progress.connect(...); runner.finished.connect(...); runner.error.connect(...)
+        runner.run('stac_search', {...})
+
+    Um runner executa um comando por vez. shutdown() cancela e espera a thread terminar: chamar ao
+    fechar a janela e no unload do plugin (uma QThread destruída em execução derruba o QGIS).
     """
 
     progress = pyqtSignal(str)
@@ -258,108 +262,99 @@ class BackendRunner(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._thread: Optional[QThread] = None
-        self._worker: Optional[_BackendWorker] = None
-
-    @property
-    def backend_dir(self) -> str:
-        """Caminho do diretório backend (para testes e diagnóstico)."""
-        return _BACKEND_DIR
-
-    @property
-    def run_gee_path(self) -> str:
-        """Caminho do run_gee.py (para testes e diagnóstico)."""
-        return _RUN_GEE
-
-    def is_running(self) -> bool:
-        return self._thread is not None and self._thread.isRunning()
-
-    def cancel(self):
-        """Solicita cancelamento da operação em andamento."""
-        if self._worker:
-            self._worker.cancel()
-
-    def run(self, command: str, params: Dict[str, Any]):
-        """
-        Executa um comando do backend de forma assíncrona.
-
-        :param command: Nome do comando (ex: 'sources_info', 'stac_search').
-        :param params: Dicionário de parâmetros (serializado como JSON).
-        """
-        if self.is_running():
-            raise RuntimeError('BackendRunner já está executando um comando.')
-
-        params = dict(params)
-        params['command'] = command
-
-        self._thread = QThread()
-        self._worker = _BackendWorker(command, params)
-        self._worker.moveToThread(self._thread)
-
-        self._thread.started.connect(self._worker.run)
-        self._worker.progress.connect(self.progress)
-        self._worker.finished.connect(self._on_finished)
-        self._worker.error.connect(self._on_error)
-        self._worker.finished.connect(self._thread.quit)
-        self._worker.error.connect(self._thread.quit)
-        self._thread.finished.connect(self._cleanup)
-
-        self._thread.start()
-
-    def _on_finished(self, result: dict):
-        self.finished.emit(result)
-
-    def _on_error(self, msg: str):
-        self.error.emit(msg)
-
-    def _cleanup(self):
-        if self._thread:
-            self._thread.deleteLater()
         self._thread = None
         self._worker = None
+        self._retired = []   # threads que já entregaram o resultado e estão encerrando
 
-    def run_sync(self, command: str, params: Dict[str, Any], timeout: int = 120) -> dict:
-        """
-        Executa um comando de forma síncrona (para testes e diagnóstico).
-        Não deve ser chamado na thread principal do QGIS.
-        """
-        params = dict(params)
-        params['command'] = command
+    @property
+    def backend_dir(self):
+        return config.backend_dir()
 
-        fd, params_file = tempfile.mkstemp(suffix='.json', prefix='qmagery_params_')
+    @property
+    def run_gee_path(self):
+        return config.run_gee_path()
+
+    def is_running(self):
+        """True enquanto o comando atual não entregou o resultado. Um novo comando pode começar dentro do
+        slot de finished/error do anterior (fila de downloads): a thread antiga termina sozinha."""
+        return self._worker is not None and not self._worker.done
+
+    def cancel(self):
+        if self._worker is not None:
+            self._worker.cancel()
+
+    def shutdown(self, wait_ms=8000):
+        self.cancel()
+        for thread in [self._thread] + list(self._retired):
+            if thread is not None and thread.isRunning():
+                thread.quit()
+                thread.wait(wait_ms)
+
+    def run(self, command, params, timeout=None):
+        if self.is_running():
+            raise RuntimeError(u"Já existe uma operação em andamento.")
+        if self._thread is not None:
+            self._retired.append(self._thread)
+        from .sources import timeout_for
+        thread = QThread()
+        worker = _BackendWorker(command, params, timeout or timeout_for(command))
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.progress.connect(self.progress)
+        worker.finished.connect(self._on_finished)
+        worker.error.connect(self._on_error)
+        worker.finished.connect(thread.quit)
+        worker.error.connect(thread.quit)
+        thread.finished.connect(lambda t=thread, w=worker: self._cleanup(t, w))
+        self._thread, self._worker = thread, worker
+        thread.start()
+
+    def _on_finished(self, result):
+        self.finished.emit(result)
+
+    def _on_error(self, message):
+        self.error.emit(message)
+
+    def _cleanup(self, thread, worker):
+        if thread in self._retired:
+            self._retired.remove(thread)
+        if self._thread is thread:
+            self._thread = None
+            self._worker = None
+        worker.deleteLater()
+        thread.deleteLater()
+
+    def run_sync(self, command, params, timeout=120):
+        """Execução síncrona (testes, diagnóstico). Não chamar na thread principal do QGIS."""
+        return run_sync(command, params, timeout)
+
+
+def run_sync(command, params, timeout=120):
+    params = dict(params)
+    params['command'] = command
+    params_file = write_params(params)
+    try:
+        proc = subprocess.run([get_python_executable(), config.run_gee_path(), command, '--params-file=' + params_file],
+                              capture_output=True, timeout=timeout, env=backend_env(), stdin=subprocess.DEVNULL,
+                              cwd=config.backend_dir(), **subprocess_kwargs())
+        result = parse_result(proc.stdout.decode('utf-8', 'replace'))
+        if result is None:
+            raise BackendError(u"Backend sem resposta JSON.\n%s" % proc.stderr.decode('utf-8', 'replace')[-2000:])
+        if not result.get('success'):
+            raise BackendError(result.get('message', u"Erro desconhecido no backend."), result.get('diagnostics'))
+        return result
+    finally:
         try:
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                json.dump(params, f, ensure_ascii=False)
+            os.remove(params_file)
+        except OSError:
+            pass
 
-            env = dict(os.environ)
-            env['PYTHONIOENCODING'] = 'utf-8'
-            env.pop('PYTHONPATH', None)
 
-            py_exe = get_python_executable()
-            proc = subprocess.run(
-                [py_exe, _RUN_GEE, command,
-                 '--params-file=' + params_file],
-                capture_output=True,
-                timeout=timeout,
-                env=env,
-                **_get_subprocess_kwargs()
-            )
-            lines = [
-                l for l in proc.stdout.decode('utf-8', 'replace').splitlines()
-                if l.strip().startswith('{')
-            ]
-            if not lines:
-                stderr = proc.stderr.decode('utf-8', 'replace')
-                raise BackendError(f'Backend sem resposta JSON.\nStderr: {stderr}')
-            result = json.loads(lines[-1])
-            if not result.get('success'):
-                raise BackendError(
-                    result.get('message', 'Erro desconhecido no backend.'),
-                    result.get('diagnostics')
-                )
-            return result
-        finally:
-            try:
-                os.remove(params_file)
-            except OSError:
-                pass
+def open_console(script, args=()):
+    """Abre um script do backend numa janela de console VISÍVEL (autenticação interativa do Google)."""
+    script_path = os.path.join(config.backend_dir(), script)
+    kwargs = {}
+    if sys.platform == 'win32':
+        kwargs['creationflags'] = getattr(subprocess, 'CREATE_NEW_CONSOLE', 0x00000010)
+    return subprocess.Popen([get_python_executable(), script_path] + [a for a in args if a],
+                            env=backend_env(), cwd=config.backend_dir(), **kwargs)
