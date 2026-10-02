@@ -6,6 +6,10 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 
 ## [Não lançado]
 
+## [2.4.3-nightly.20261006] - 2026-10-02
+
+> Versão experimental (nightly): a busca do GEE não lista mais cenas sem nenhum pixel na área.
+
 ### 🛡️ Corrigido
 - **GEE (Sentinel-2 e Landsat): cenas sem nenhum pixel na área.** A busca listava cenas cujo contorno
   publicado (aproximado) toca a área, mas que não têm imagem nela, como as da borda da faixa imageada

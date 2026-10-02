@@ -1211,7 +1211,7 @@ def discard_snapshot(backup_meta):
             log_warning(u"Não foi possível descartar o snapshot %s: %s" % (d, _err(e_rm)))
 
 
-def create_snapshot_backup(current_version="2.4.3-nightly.20261005", backups_root=None, custom_sys_dirs=None):
+def create_snapshot_backup(current_version="2.4.3-nightly.20261006", backups_root=None, custom_sys_dirs=None):
     """
     Cria um backup completo e atômico do estado operacional atual do plugin.
     Copia o .esriaddin instalado e todo o AssemblyCache para uma pasta versionada:
@@ -1911,7 +1911,7 @@ def generate_and_launch_detached_runner(staging_info, backup_info, sync_dev_repo
 # FLUXO ORQUESTRADO COMPLETO (ORCHESTRATOR)
 # ==============================================================================
 
-def execute_zip_update_flow(zip_path, current_version="2.4.3-nightly.20261005", progress_callback=None,
+def execute_zip_update_flow(zip_path, current_version="2.4.3-nightly.20261006", progress_callback=None,
                             expected_sha256=None, allow_downgrade=False):
     """
     Fluxo de atualização passo a passo via arquivo ZIP:
@@ -1964,7 +1964,7 @@ def execute_zip_update_flow(zip_path, current_version="2.4.3-nightly.20261005", 
         raise
     return True
 
-def execute_git_update_flow(repo_path, remote_branch="main", current_version="2.4.3-nightly.20261005", progress_callback=None):
+def execute_git_update_flow(repo_path, remote_branch="main", current_version="2.4.3-nightly.20261006", progress_callback=None):
     """
     Fluxo de atualização passo a passo via repositório Git local:
     Fase 1: Pre-flight checks Git (conectividade, working tree limpa, divergência).
@@ -2046,7 +2046,7 @@ def _git_update_after_snapshot(repo_path, remote_branch, git_meta, backup_meta, 
     generate_and_launch_detached_runner(staging_info, backup_meta)
     return True
 
-def execute_online_github_update_flow(current_version="2.4.3-nightly.20261005", progress_callback=None,
+def execute_online_github_update_flow(current_version="2.4.3-nightly.20261006", progress_callback=None,
                                       allow_unverified_main=False, allow_downgrade=False,
                                       channel=CHANNEL_STABLE):
     """
@@ -2211,7 +2211,7 @@ def find_previous_version_backup(backups_root=None, current_version=None):
     return None
 
 
-def execute_rollback_to_previous_flow(current_version="2.4.3-nightly.20261005", progress_callback=None, backup=None):
+def execute_rollback_to_previous_flow(current_version="2.4.3-nightly.20261006", progress_callback=None, backup=None):
     """Reinstala o snapshot da versao anterior pelo mesmo executor desacoplado da atualizacao:
     snapshot da versao ATUAL primeiro (se a restauracao falhar, o executor volta a ela), copia do
     backup escolhido para um staging descartavel e nada e copiado para o repositorio de desenvolvimento."""
