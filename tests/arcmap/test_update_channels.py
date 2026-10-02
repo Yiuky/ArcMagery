@@ -153,6 +153,112 @@ class ChannelFlowTest(unittest.TestCase):
         self.assertEqual(up.check_for_update('2.4.0', up.CHANNEL_NIGHTLY), (False, None))
 
 
+FEED = u"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">%s</feed>"""
+FEED_ENTRY = u"""<entry><id>tag:github.com,2008:Repository/1/%(t)s</id>
+<link rel="alternate" type="text/html" href="https://github.com/Yiuky/ArcMagery/releases/tag/%(t)s"/>
+<title>%(t)s</title></entry>"""
+
+
+class _FeedHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+    """/api: API do GitHub recusando (HTTP 403 com o limite zerado); /releases.atom; /download/<tag>/SHA256SUMS.txt."""
+    def log_message(self, *a):
+        pass
+
+    def do_GET(self):
+        srv = self.server
+        if self.path.startswith('/api'):
+            self.send_response(403)
+            self.send_header('X-RateLimit-Remaining', '0')
+            self.end_headers()
+            return
+        if self.path == '/releases.atom' and srv.feed_ok:
+            body = (FEED % u''.join(FEED_ENTRY % {'t': t} for t in srv.tags)).encode('utf-8')
+        elif self.path.startswith('/download/') and self.path.endswith('/SHA256SUMS.txt'):
+            tag = self.path.split('/')[2]
+            if tag not in srv.sums:
+                self.send_response(404)
+                self.end_headers()
+                return
+            body = u''.join(u'%s  %s\n' % ('a' * 64, n) for n in srv.sums[tag]).encode('utf-8')
+        else:
+            self.send_response(404)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+class FeedFallbackTest(unittest.TestCase):
+    """A API do GitHub aceita 60 consultas/h por IP: numa rede que sai toda por um endereco ela recusa
+    (HTTP 403) e o atualizador dizia so "Falha ao Consultar Releases". Agora usa o feed de Releases."""
+
+    def setUp(self):
+        self.httpd = BaseHTTPServer.HTTPServer(('127.0.0.1', 0), _FeedHandler)
+        self.base = 'http://127.0.0.1:%d' % self.httpd.server_address[1]
+        self.httpd.feed_ok = True
+        self.httpd.tags = ['v2.4.3-nightly.20261004', 'v2.4.3-nightly.20261005', 'v2.4.2', 'v2.4.1']
+        self.httpd.sums = {
+            'v2.4.3-nightly.20261004': ['QMagery-2.4.3-nightly.20261004.zip', 'ArcMagery-2.4.3-nightly.20261004.zip'],
+            'v2.4.2': ['ArcMagery-2.4.2.zip'], 'v2.4.1': ['ArcMagery-2.4.1.zip']}   # 20261005: sem SHA256SUMS
+        t = threading.Thread(target=self.httpd.serve_forever)
+        t.daemon = True
+        t.start()
+        os.environ['NO_PROXY'] = '127.0.0.1'
+        self.kw = dict(feed_url=self.base + '/releases.atom', download_base=self.base + '/download')
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+    def test_nightly_channel_falls_back_to_feed(self):
+        r = up.fetch_newest_release(self.base + '/api/releases', **self.kw)
+        self.assertEqual((r['version'], r['prerelease']), ('2.4.3-nightly.20261004', True))   # 1005 nao tem hashes
+        self.assertEqual(r['zip_name'], 'ArcMagery-2.4.3-nightly.20261004.zip')
+        self.assertEqual(r['zip_url'], self.base + '/download/v2.4.3-nightly.20261004/ArcMagery-2.4.3-nightly.20261004.zip')
+        self.assertEqual(r['sums_url'], self.base + '/download/v2.4.3-nightly.20261004/SHA256SUMS.txt')
+
+    def test_stable_channel_falls_back_to_feed_without_nightlies(self):
+        r = up.fetch_latest_release(self.base + '/api/latest', **self.kw)
+        self.assertEqual((r['version'], r['prerelease'], r['zip_name']), ('2.4.2', False, 'ArcMagery-2.4.2.zip'))
+
+    def test_both_failing_explains_the_rate_limit(self):
+        self.httpd.feed_ok = False
+        with self.assertRaises(up.NetworkError) as ctx:
+            up.fetch_newest_release(self.base + '/api/releases', **self.kw)
+        self.assertIn(u'Motivo:', ctx.exception.user_message)
+        self.assertIn(u'limite de consultas', ctx.exception.user_message)
+        self.assertIn(u'limite de consultas', ctx.exception.reason)
+
+    def test_failure_reason_names_ssl_inspection(self):
+        self.assertIn(u'certificado SSL', up.failure_reason(IOError('[SSL: CERTIFICATE_VERIFY_FAILED] x')))
+
+
+class DescribeAvailableTest(unittest.TestCase):
+    def _desc(self, current, published, channel=up.CHANNEL_NIGHTLY):
+        return up.describe_available(current, channel, fetch=lambda ch: published and {'version': published})
+
+    def test_states(self):
+        state, text = self._desc('2.4.2', '2.4.3-nightly.20261005')
+        self.assertEqual(state, up.AVAIL_NEW)
+        self.assertIn(u'v2.4.3-nightly.20261005', text)
+        self.assertIn(u'instalada: v2.4.2', text)
+        self.assertEqual(self._desc('2.4.2', '2.4.2', up.CHANNEL_STABLE)[0], up.AVAIL_CURRENT)
+        self.assertEqual(self._desc('2.4.3-nightly.20261005', '2.4.2', up.CHANNEL_STABLE)[0], up.AVAIL_OLDER)
+        self.assertEqual(self._desc('2.4.2', None)[0], up.AVAIL_NONE)
+
+    def test_error_shows_the_reason_and_never_raises(self):
+        def boom(ch):
+            e = up.NetworkError('x', user_message=u'y')
+            e.reason = u'o GitHub respondeu HTTP 500'
+            raise e
+        state, text = up.describe_available('2.4.2', up.CHANNEL_NIGHTLY, fetch=boom)
+        self.assertEqual(state, up.AVAIL_ERROR)
+        self.assertIn(u'HTTP 500', text)
+
+
 class ExperimentalBadgeTest(unittest.TestCase):
     def test_badge_and_title(self):
         import gee_gui

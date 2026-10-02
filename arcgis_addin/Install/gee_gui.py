@@ -734,7 +734,7 @@ class GEEUpdaterDialog(object):
         self.parent = parent
         self.top = tk.Toplevel(parent.root if hasattr(parent, 'root') else parent)
         self.top.title(u"Atualização Segura - ArcMagery")
-        self.top.geometry("560x590")
+        self.top.geometry("560x630")
         self.top.resizable(False, False)
         setup_window_icon(self.top)
         self.top.transient(parent.root if hasattr(parent, 'root') else parent)
@@ -786,6 +786,11 @@ class GEEUpdaterDialog(object):
                             variable=self.var_channel, value=value, command=self._on_channel_changed).pack(side=tk.LEFT, padx=(0, 10))
         self.lbl_channel_hint = ttk.Label(box_git, text=u"", font=("Segoe UI", 8), foreground="#555", wraplength=500)
         self.lbl_channel_hint.pack(anchor=tk.W, pady=(0, 6))
+        # Versao publicada no canal x instalada (consultada em segundo plano; uma vez por canal)
+        self.lbl_available = tk.Label(box_git, text=u"", font=("Segoe UI", 9, "bold"), fg="#555",
+                                      wraplength=500, justify=tk.LEFT, anchor=tk.W)
+        self.lbl_available.pack(anchor=tk.W, fill=tk.X, pady=(0, 6))
+        self._avail_cache = {}
         self._on_channel_changed(save=False)
 
         self.btn_git_update = ttk.Button(box_git, text=u"⬇ Iniciar Atualização Online", command=self._do_github_update)
@@ -851,6 +856,7 @@ class GEEUpdaterDialog(object):
             u"Estável: só versões publicadas como estáveis." + (
                 u" Você está numa versão experimental: a atualização oferece voltar para a última estável."
                 if is_experimental() else u"")))
+        self._refresh_available(ch)
         if save:
             try:
                 settings = dict(gee_bridge.load_plugin_settings(), update_channel=ch)
@@ -859,6 +865,34 @@ class GEEUpdaterDialog(object):
                     self.parent.settings['update_channel'] = ch
             except Exception:
                 pass
+
+    _AVAIL_COLORS = {'new': '#1e8449', 'current': '#1b4f72', 'older': '#555555', 'none': '#555555',
+                     'error': '#922b21'}
+
+    def _refresh_available(self, channel):
+        cached = self._avail_cache.get(channel)
+        if cached:
+            self._show_available(channel, cached)
+            return
+        self.lbl_available.config(text=u"Consultando a versão disponível no GitHub...", fg="#555555")
+
+        def worker():
+            import gee_updater as _gu
+            res = _gu.describe_available(CURRENT_VERSION, channel)
+
+            def apply():
+                if res[0] != _gu.AVAIL_ERROR:      # falha nao fica em cache: trocar o canal tenta de novo
+                    self._avail_cache[channel] = res
+                self._show_available(channel, res)
+            self._post(apply)
+        start_daemon(worker)
+
+    def _show_available(self, channel, res):
+        try:
+            if self.var_channel.get() == channel:
+                self.lbl_available.config(text=res[1], fg=self._AVAIL_COLORS.get(res[0], '#555555'))
+        except tk.TclError:
+            pass   # janela ja fechada
 
     def _open_log_file(self):
         try:

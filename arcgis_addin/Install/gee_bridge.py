@@ -617,7 +617,8 @@ def parse_backend_output(out):
 
 # Prazo (s) de cada comando do backend SEM progresso (cada linha [ArcGEE] reinicia a contagem)
 BACKEND_TIMEOUTS = {
-    'check': 30, 'auth': 30, 'compositions': 30,
+    'check': 30, 'compositions': 30,
+    'auth': 300,                        # login no navegador: a pessoa pode levar minutos para entrar na conta
     'search': 90,                       # busca no catalogo GEE
     'thumb': 60,                        # miniaturas do GEE
     'download': 600,                    # download e processamento de grandes rasters

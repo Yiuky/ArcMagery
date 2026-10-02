@@ -54,6 +54,10 @@ GITHUB_ZIP_URL = "https://github.com/Yiuky/ArcMagery/archive/refs/heads/main.zip
 GITHUB_API_LATEST_RELEASE = "https://api.github.com/repos/Yiuky/ArcMagery/releases/latest"
 # Lista de Releases (inclui pre-releases/nightly; /latest so devolve a ultima ESTAVEL)
 GITHUB_API_RELEASES = "https://api.github.com/repos/Yiuky/ArcMagery/releases?per_page=40"
+# Reserva sem a API (que aceita 60 consultas/h por IP SEM login, somando toda a rede da empresa): o feed
+# Atom das Releases (estaveis e nightlies) e o SHA256SUMS.txt de cada uma, que lista o pacote
+GITHUB_RELEASES_FEED = "https://github.com/Yiuky/ArcMagery/releases.atom"
+GITHUB_RELEASE_DOWNLOAD = "https://github.com/Yiuky/ArcMagery/releases/download"
 # Canais de atualizacao: estavel (Releases normais) e experimental (pre-releases "-nightly.AAAAMMDD")
 CHANNEL_STABLE, CHANNEL_NIGHTLY = "stable", "nightly"
 CHANNEL_LABELS = {CHANNEL_STABLE: u"Estável", CHANNEL_NIGHTLY: u"Experimental (nightly)"}
@@ -465,23 +469,109 @@ def parse_sha256sums(text):
     return out
 
 
-def fetch_latest_release(api_url=GITHUB_API_LATEST_RELEASE):
+def _net_text(e):
+    """Texto de um erro de rede sem o repr do Py2 ("error(10061, 'conex\\xe3o...')"): a mensagem do socket
+    (URLError.reason) decodificada na pagina de codigo do Windows, com o numero do erro."""
+    inner = getattr(e, "reason", None)
+    if inner is not None and not isinstance(inner, (str, type(u""))):
+        e = inner
+    args = getattr(e, "args", ())
+    if len(args) >= 2 and isinstance(args[0], int):
+        msg = args[1]
+        if isinstance(msg, bytes):
+            msg = msg.decode("mbcs" if os.name == "nt" else "utf-8", "replace")
+        return u"%s (erro %d)" % (msg, args[0])
+    return _err(e)
+
+
+def failure_reason(e):
+    """Motivo da falha de consulta ao GitHub em portugues, para a mensagem ao usuario."""
+    code = getattr(e, "code", None)
+    headers = getattr(e, "headers", None) or getattr(e, "hdrs", None)
+    remaining = None
+    try:
+        remaining = headers.get("X-RateLimit-Remaining") if headers is not None else None
+    except Exception:
+        pass
+    if code in (403, 429) and (remaining == "0" or code == 429):
+        return (u"o GitHub recusou a consulta (HTTP %d): a rede atingiu o limite de consultas por hora da API do "
+                u"GitHub, que soma todos os computadores que saem pelo mesmo endereço" % code)
+    text = _net_text(e)
+    low = text.lower()
+    if "certificate" in low or "ssl" in low:
+        return u"falha de certificado SSL (inspeção do proxy da rede): %s" % text
+    if code:
+        return u"o GitHub respondeu HTTP %d" % code
+    return text
+
+
+def _release_query_error(what, e, feed_error=None):
+    reason = failure_reason(e)
+    err = NetworkError(
+        u"Falha ao consultar %s do GitHub: %s%s" % (what, _err(e), (u" | feed: %s" % _err(feed_error)) if feed_error else u""),
+        title=u"Falha ao Consultar Releases",
+        user_message=u"Não foi possível consultar as versões publicadas no GitHub.\n\nMotivo: %s." % reason,
+        remediation=[u"Tente de novo em alguns minutos (o limite do GitHub zera a cada hora).",
+                     u"Verifique a conexão/proxy.",
+                     u"Ou baixe o ArcMagery-<versão>.zip em %s/releases e use a atualização via arquivo ZIP."
+                     % GITHUB_REPO_URL],
+        technical_details=traceback.format_exc())
+    err.reason = reason
+    return err
+
+
+def fetch_release_from_feed(channel=CHANNEL_STABLE, feed_url=GITHUB_RELEASES_FEED, download_base=GITHUB_RELEASE_DOWNLOAD):
+    """Reserva da API: a Release mais nova do canal pelo feed Atom e pelo SHA256SUMS.txt dela (nenhum dos
+    dois conta no limite da API). Mesmo dict de _release_info, ou None se nao houver Release com hashes."""
+    import re
+    try:
+        from urllib import unquote
+    except ImportError:
+        from urllib.parse import unquote
+    text = _http_get(feed_url, timeout=20).decode("utf-8", "replace")
+    tags = []
+    for t in re.findall(r'/releases/tag/([^"<>\s]+)', text):
+        t = unquote(t)
+        if t not in tags and version_key(t) is not None and (channel == CHANNEL_NIGHTLY or not is_prerelease(t)):
+            tags.append(t)
+    tags.sort(key=version_key, reverse=True)
+    for tag in tags[:5]:
+        sums_url = "%s/%s/%s" % (download_base, tag, RELEASE_CHECKSUM_ASSET)
+        try:
+            names = sorted(n for n in parse_sha256sums(_http_get(sums_url, timeout=20)) if n.lower().endswith(".zip"))
+        except Exception as e_sums:
+            log_warning(u"Feed de Releases: %s sem %s (%s)." % (tag, RELEASE_CHECKSUM_ASSET, _err(e_sums)))
+            continue
+        zips = [n for n in names if n.lower().startswith("arcmagery-")] or names
+        if zips:
+            return {"version": tag.lstrip("vV"), "tag": tag, "prerelease": is_prerelease(tag), "zip_name": zips[0],
+                    "zip_url": "%s/%s/%s" % (download_base, tag, zips[0]), "sums_url": sums_url}
+    return None
+
+
+def _api_or_feed(what, api_call, channel, feed_url, download_base):
+    """A API primeiro; se ela falhar (limite por hora, proxy), o feed. Erro so se os dois falharem."""
+    try:
+        return api_call()
+    except Exception as e_api:
+        if getattr(e_api, "code", None) == 404:
+            return None
+        log_warning(u"API do GitHub falhou ao consultar %s (%s); tentando o feed de Releases." % (what, failure_reason(e_api)))
+        try:
+            return fetch_release_from_feed(channel, feed_url, download_base)
+        except Exception as e_feed:
+            raise _release_query_error(what, e_api, e_feed)
+
+
+def fetch_latest_release(api_url=GITHUB_API_LATEST_RELEASE, feed_url=GITHUB_RELEASES_FEED,
+                         download_base=GITHUB_RELEASE_DOWNLOAD):
     """Consulta a ultima Release publicada. Retorna None se o repositorio ainda nao tem Releases.
     Retorna dict: version, tag, zip_name, zip_url, sums_url."""
     import json
-    try:
-        data = json.loads(_http_get(api_url, timeout=20, accept="application/vnd.github+json").decode("utf-8"))
-    except Exception as e:
-        code = getattr(e, "code", None)
-        if code == 404:
-            return None
-        raise NetworkError(
-            u"Falha ao consultar a última Release do GitHub: %s" % _err(e),
-            title=u"Falha ao Consultar Releases",
-            user_message=u"Não foi possível consultar a versão publicada no GitHub.",
-            remediation=[u"Verifique a conexão/proxy.", u"Tente a atualização via arquivo ZIP."],
-            technical_details=traceback.format_exc())
-    return _release_info(data)
+
+    def api():
+        return _release_info(json.loads(_http_get(api_url, timeout=20, accept="application/vnd.github+json").decode("utf-8")))
+    return _api_or_feed(u"a última Release", api, CHANNEL_STABLE, feed_url, download_base)
 
 
 def _release_info(data):
@@ -503,21 +593,18 @@ def _release_info(data):
     }
 
 
-def fetch_newest_release(api_url=GITHUB_API_RELEASES):
+def fetch_newest_release(api_url=GITHUB_API_RELEASES, feed_url=GITHUB_RELEASES_FEED,
+                         download_base=GITHUB_RELEASE_DOWNLOAD):
     """Canal experimental: a Release mais nova da lista (estavel OU nightly), so as publicadas com
     pacote e SHA256SUMS. Retorna None se nao houver."""
     import json
-    try:
-        data = json.loads(_http_get(api_url, timeout=20, accept="application/vnd.github+json").decode("utf-8"))
-    except Exception as e:
-        if getattr(e, "code", None) == 404:
-            return None
-        raise NetworkError(
-            u"Falha ao consultar as Releases do GitHub: %s" % _err(e),
-            title=u"Falha ao Consultar Releases",
-            user_message=u"Não foi possível consultar as versões publicadas no GitHub.",
-            remediation=[u"Verifique a conexão/proxy.", u"Tente a atualização via arquivo ZIP."],
-            technical_details=traceback.format_exc())
+
+    def api():
+        return _newest_of(json.loads(_http_get(api_url, timeout=20, accept="application/vnd.github+json").decode("utf-8")))
+    return _api_or_feed(u"as Releases", api, CHANNEL_NIGHTLY, feed_url, download_base)
+
+
+def _newest_of(data):
     best = None
     for item in data or []:
         if item.get("draft"):
@@ -532,6 +619,31 @@ def fetch_newest_release(api_url=GITHUB_API_RELEASES):
 
 def fetch_release_for_channel(channel=CHANNEL_STABLE):
     return fetch_newest_release() if channel == CHANNEL_NIGHTLY else fetch_latest_release()
+
+
+AVAIL_NEW, AVAIL_CURRENT, AVAIL_OLDER, AVAIL_NONE, AVAIL_ERROR = "new", "current", "older", "none", "error"
+
+
+def describe_available(current_version, channel=CHANNEL_STABLE, fetch=None):
+    """(estado, texto) da versao publicada no canal comparada a instalada, para a janela de atualizacao.
+    Nunca levanta: uma falha vira AVAIL_ERROR com o motivo."""
+    label = CHANNEL_LABELS.get(channel, u"")
+    try:
+        rel = (fetch or fetch_release_for_channel)(channel)
+    except Exception as e:
+        reason = getattr(e, "reason", None)      # NetworkError: motivo pronto; URLError: o erro do socket
+        if not isinstance(reason, type(u"")):
+            reason = failure_reason(e)
+        return AVAIL_ERROR, u"Não foi possível consultar a versão disponível: %s." % reason
+    if not rel or not rel.get("version"):
+        return AVAIL_NONE, u"Nenhuma versão publicada no canal %s." % label
+    new_k, cur_k = version_key(rel["version"]), version_key(current_version)
+    if new_k and cur_k and new_k > cur_k:
+        return AVAIL_NEW, u"Disponível no canal %s: v%s (instalada: v%s). Clique em Iniciar Atualização Online." % (
+            label, rel["version"], current_version)
+    if new_k and cur_k and new_k == cur_k:
+        return AVAIL_CURRENT, u"Você já está na versão mais recente do canal %s: v%s." % (label, current_version)
+    return AVAIL_OLDER, u"Última versão do canal %s: v%s (instalada: v%s, mais nova)." % (label, rel["version"], current_version)
 
 
 def check_for_update(current_version, channel=CHANNEL_STABLE):

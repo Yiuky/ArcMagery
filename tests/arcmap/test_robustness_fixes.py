@@ -365,6 +365,7 @@ class BackendCommandTest(unittest.TestCase):
         self.assertGreaterEqual(gee_bridge.backend_timeout('spot_thumb'), 60)
         self.assertEqual(gee_bridge.backend_timeout('xyz_download'), 4 * 3600)
         self.assertEqual(gee_bridge.backend_timeout('nao_existe'), 120)
+        self.assertEqual(gee_bridge.backend_timeout('auth'), 300)   # login no navegador (era 30 s)
 
     def test_progress_resets_inactivity_timeout(self):
         self._script(SLOW_WITH_PROGRESS)

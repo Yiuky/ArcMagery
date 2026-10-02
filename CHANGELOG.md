@@ -6,6 +6,25 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 
 ## [Não lançado]
 
+## [2.4.3-nightly.20261005] - 2026-10-02
+
+> Versão experimental (nightly): login no Google Earth Engine sem prazo curto e atualizador que mostra a
+> versão disponível e funciona quando a API do GitHub recusa a consulta.
+
+### 🌟 Adicionado
+- **Janela de atualização:** mostra a versão publicada no canal escolhido comparada à instalada
+  ("Disponível no canal Experimental (nightly): v… (instalada: v…)" ou "Você já está na versão mais
+  recente"), consultada em segundo plano ao abrir a janela e ao trocar de canal.
+
+### 🛡️ Corrigido
+- **Login no Google Earth Engine (ArcMagery):** o comando de autenticação era encerrado depois de 30 s sem
+  atividade, enquanto a pessoa ainda entrava com a conta Google no navegador. O prazo passou a 300 s.
+- **"Falha ao Consultar Releases":** a API do GitHub aceita só 60 consultas por hora por endereço sem
+  login, e numa rede corporativa todos os computadores saem pelo mesmo endereço. Quando a API recusa ou
+  falha, o atualizador agora consulta o feed de Releases e o `SHA256SUMS.txt` da Release, que não contam
+  nesse limite (o pacote continua conferido pelo SHA-256). Se os dois falharem, a mensagem diz o motivo
+  (limite do GitHub, certificado SSL do proxy, conexão recusada) e onde baixar o ZIP.
+
 ## [2.4.3-nightly.20261004] - 2026-10-02
 
 > Versão experimental (nightly): autenticação do Google Earth Engine e diagnóstico no QGIS 3.26 (Python 3.9).
