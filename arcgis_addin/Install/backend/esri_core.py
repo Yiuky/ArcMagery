@@ -13,6 +13,7 @@ Servicos PUBLICOS e documentados da Esri:
     esta o tile de fato ("select") -> permite listar so as versoes com imagem diferente num local
     (mesmo algoritmo do aplicativo Esri World Imagery Wayback).
 """
+import qgis_env  # noqa: F401  (primeiro: <QGIS>in para o GDAL e, no QGIS 3.26/Python 3.9, para o libssl do _ssl)
 import datetime as _dt
 import json
 import os

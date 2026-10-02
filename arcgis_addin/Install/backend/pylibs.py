@@ -10,6 +10,7 @@ traz GDAL, numpy e Pillow) passa a importar o 'ee' - sem venv, sem pip, sem comp
 
 activate() so acrescenta a pasta ao sys.path (barato: chamado no inicio do run_gee.py).
 """
+import qgis_env  # noqa: F401  (primeiro: <QGIS>in para o GDAL e, no QGIS 3.26/Python 3.9, para o libssl do _ssl)
 import hashlib
 import io
 import json
@@ -55,6 +56,11 @@ def target_dir(version_info=None):
 def activate(force=False):
     """Poe a pasta de bibliotecas no inicio do sys.path se este Python nao tiver o 'ee' proprio
     (um venv que ja funciona nao muda). Retorna o caminho ativado ou None."""
+    if sys.version_info < (3, 10):
+        # QGIS 3.26 e anteriores: o google-auth/api_core avisam em ingles, a cada import, que o Python 3.9
+        # saiu do suporte. As versoes fixadas funcionam; o diagnostico avisa em portugues (doctor.check_python)
+        import warnings
+        warnings.filterwarnings('ignore', category=FutureWarning, module=r'google\.')
     d = target_dir()
     if not os.path.isdir(d):
         return None

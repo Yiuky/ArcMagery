@@ -17,6 +17,7 @@ Porta do motor Keyhole do C:/DOWNLOADER_EARTH (historical_engine.py), adaptada a
 
 Tiles sem imagem na data escolhida ficam pretos (nodata), como os tiles ausentes do xyz_core.
 """
+import qgis_env  # noqa: F401  (primeiro: <QGIS>in para o GDAL e, no QGIS 3.26/Python 3.9, para o libssl do _ssl)
 import math
 import os
 import random

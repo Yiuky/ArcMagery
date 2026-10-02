@@ -16,6 +16,7 @@ Fatos verificados em cenas reais (Cuiaba, 2026-09-30):
   * sem alinhamento o erro contra a Esri e uma translacao quase uniforme: ~470 m (SPOT 2) e
     ~150 m (SPOT 5).
 """
+import qgis_env  # noqa: F401  (primeiro: <QGIS>in para o GDAL e, no QGIS 3.26/Python 3.9, para o libssl do _ssl)
 import hashlib
 import json
 import math
@@ -32,7 +33,6 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import qgis_env  # noqa: E402,F401  (DLLs do GDAL do QGIS antes do import do osgeo)
 
 try:
     from osgeo import gdal, osr

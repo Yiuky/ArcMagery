@@ -83,12 +83,13 @@ class SelectTest(unittest.TestCase):
             pylibs.select_files(self.M, (3, 8))       # abi3:3.9 nao serve
 
     def test_real_manifest_covers_supported_pythons(self):
-        m = pylibs.load_manifest()
-        self.assertTrue(m['earthengine_api'])
-        names = set(p['name'] for p in m['packages'])
-        for required in ('earthengine-api', 'google-auth', 'cryptography', 'cffi', 'protobuf'):
-            self.assertIn(required, names)
-        for minor in (10, 11, 12, 13, 14):
+        # Cada versao contra o SEU manifesto (3.8/3.9 tem um proprio): independe do Python que roda o teste
+        for minor in (8, 9, 10, 11, 12, 13, 14):
+            m = pylibs.load_manifest(version_info=(3, minor))
+            self.assertTrue(m['earthengine_api'])
+            names = set(p['name'] for p in m['packages'])
+            for required in ('earthengine-api', 'google-auth', 'cryptography', 'cffi', 'protobuf'):
+                self.assertIn(required, names, (minor, required))
             files = pylibs.select_files(m, (3, minor))
             self.assertEqual(len(files), len(m['packages']))
             for f in files:
@@ -190,3 +191,34 @@ class RunGeeMissingEeTest(unittest.TestCase):
         import run_gee
         for name in ('pylibs_install', 'pylibs_status', 'selfcheck'):
             self.assertIn(name, run_gee.SOURCE_COMMANDS)
+
+
+class QgisDllOrderTest(unittest.TestCase):
+    """B-09: no QGIS 3.26 (Python 3.9) o _ssl usa o libssl de <QGIS>\\bin; os scripts que o Python do
+    QGIS executa direto precisam importar o qgis_env antes do ssl/urllib.request (e do pylibs, que
+    importa o ssl), senao: "DLL load failed while importing _ssl"."""
+    NEED_DLLS = ('ssl', 'urllib.request', 'pylibs')
+
+    def _first_lines(self, name):
+        import ast
+        with io.open(os.path.join(_paths.BACKEND, name), encoding='utf-8') as f:
+            tree = ast.parse(f.read())
+        first = {}
+        for node in tree.body:  # so o nivel do modulo: e o que roda no import
+            if isinstance(node, ast.Import):
+                mods = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                mods = [node.module or '']
+            else:
+                continue
+            for m in mods:
+                first.setdefault(m, node.lineno)
+        return first
+
+    def test_qgis_env_comes_before_ssl(self):
+        for name in ('pylibs.py', 'ee_auth.py', 'doctor.py', 'run_gee.py'):
+            first = self._first_lines(name)
+            self.assertIn('qgis_env', first, name)
+            for mod in self.NEED_DLLS:
+                if mod in first:
+                    self.assertLess(first['qgis_env'], first[mod], '%s: %s antes do qgis_env' % (name, mod))

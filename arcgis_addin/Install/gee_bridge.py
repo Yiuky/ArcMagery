@@ -352,10 +352,12 @@ def python_has_modules(py_exe, modules, timeout=40):
     return ok
 
 def probe_code(modules):
-    """Codigo do teste de modulos: ativa antes as bibliotecas instaladas sem pip (backend/pylibs.py),
-    para que o Python do QGIS sem 'ee' proprio conte como apto ao GEE."""
+    """Codigo do teste de modulos: registra o <QGIS>\\bin (backend/qgis_env.py; no QGIS 3.26 o _ssl e o
+    GDAL dependem dele) e ativa as bibliotecas instaladas sem pip (backend/pylibs.py), para que o
+    Python do QGIS sem 'ee' proprio conte como apto ao GEE."""
     backend = os.path.dirname(get_backend_script())
     return ("import sys; sys.path.insert(0, %r)\n"
+            "try:\n    import qgis_env\nexcept Exception:\n    pass\n"
             "try:\n    import pylibs; pylibs.activate()\nexcept Exception:\n    pass\n"
             "import %s; sys.exit(0 if sys.version_info[0] == 3 else 1)" % (str(backend), ", ".join(modules)))
 

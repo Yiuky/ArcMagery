@@ -8,6 +8,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import qgis_env  # noqa: E402,F401  (<QGIS>\bin antes do ssl - QGIS 3.26: "DLL load failed while importing _ssl")
 import pylibs  # noqa: E402
 
 pylibs.activate()

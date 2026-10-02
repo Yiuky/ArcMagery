@@ -14,14 +14,17 @@ import io
 import json
 import os
 import shutil
-import ssl
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# <QGIS>\bin antes do ssl/urllib: no QGIS 3.26 (Python 3.9) o _ssl usa o libssl de la ("DLL load failed")
+import qgis_env  # noqa: E402,F401
+import ssl  # noqa: E402
+import urllib.error  # noqa: E402
+import urllib.request  # noqa: E402
+
 import pylibs  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -57,6 +60,11 @@ def check_python():
     if (v[0], v[1]) < (3, 8):
         return check('python', u"Python 3 do backend", FAIL, detail,
                      remediation=[u"Python antigo demais para o Earth Engine: instale o QGIS 3.28 ou mais novo."])
+    if (v[0], v[1]) < (3, 10):
+        return check('python', u"Python 3 do backend", WARN, detail,
+                     remediation=[u"Funciona, mas o Google não atualiza mais as bibliotecas do Earth Engine para o "
+                                  u"Python %d.%d (QGIS 3.26 ou anterior): atualize o QGIS (3.40 LTR ou mais novo)."
+                                  % (v[0], v[1])])
     return check('python', u"Python 3 do backend", OK, detail)
 
 

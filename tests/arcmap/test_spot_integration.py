@@ -167,6 +167,7 @@ class StartupRulesTest(unittest.TestCase):
     def test_probe_activates_pylibs(self):
         code = gee_bridge.probe_code(['ee'])
         self.assertIn('pylibs.activate()', code)
+        self.assertLess(code.index('import qgis_env'), code.index('import pylibs'))  # B-09: QGIS 3.26
         self.assertIn('import ee', code)
         compile(code, '<probe>', 'exec')
 

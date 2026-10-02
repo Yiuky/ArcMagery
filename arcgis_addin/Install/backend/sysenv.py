@@ -12,6 +12,7 @@ Ambiente do processo do backend (Python 3, sem GDAL): certificados e pastas temp
 
 Nenhuma funcao daqui levanta excecao: falhas sao ignoradas (o fluxo normal segue como antes).
 """
+import qgis_env  # noqa: F401  (primeiro: <QGIS>in para o GDAL e, no QGIS 3.26/Python 3.9, para o libssl do _ssl)
 import os
 import shutil
 import ssl

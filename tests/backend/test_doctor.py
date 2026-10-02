@@ -42,8 +42,17 @@ class ChecksTest(unittest.TestCase):
 
     def test_python_is_64_bits_and_recent(self):
         c = doctor.check_python()
-        self.assertEqual(c['status'], doctor.OK)
+        self.assertEqual(c['status'], doctor.OK if sys.version_info >= (3, 10) else doctor.WARN)
         self.assertIn('64 bits', c['detail'])
+
+    def test_python_39_of_qgis_326_works_but_warns(self):
+        from unittest import mock
+        with mock.patch.object(sys, 'version_info', (3, 9, 13, 'final', 0)):
+            c = doctor.check_python()
+        self.assertEqual(c['status'], doctor.WARN)
+        self.assertIn(u'3.40 LTR', c['remediation'][0])
+        with mock.patch.object(sys, 'version_info', (3, 12, 0, 'final', 0)):
+            self.assertEqual(doctor.check_python()['status'], doctor.OK)
 
     def test_broken_venv_is_taken_out_of_use(self):
         venv = os.path.join(self.tmp, 'ArcMagery', 'venv')
@@ -162,6 +171,18 @@ class ManifestPerPythonTest(unittest.TestCase):
             self.assertEqual(len(files), len(m['packages']))
             cffi = [f for f in files if f['package'] == 'cffi'][0]
             self.assertIn('cp3%d' % minor, cffi['filename'])
+
+    def test_python_39_hides_google_end_of_life_warnings(self):
+        import warnings
+        from unittest import mock
+        with warnings.catch_warnings(record=True) as seen:
+            warnings.simplefilter('always')
+            with mock.patch.object(sys, 'version_info', (3, 9, 13, 'final', 0)), \
+                    mock.patch.object(pylibs, 'target_dir', lambda *a: os.path.join(tempfile.gettempdir(), 'arcmagery_sem_pylibs')):
+                pylibs.activate()  # sem pasta: so instala o filtro, nao mexe no sys.path
+            warnings.warn_explicit('Python 3.9 past its end of life', FutureWarning, 'x.py', 1, module='google.auth')
+            warnings.warn_explicit('outro aviso', FutureWarning, 'x.py', 1, module='numpy')
+        self.assertEqual([str(w.message) for w in seen], ['outro aviso'])
 
     def test_python_37_is_rejected_with_guidance(self):
         with self.assertRaises(pylibs.PylibsError) as ctx:

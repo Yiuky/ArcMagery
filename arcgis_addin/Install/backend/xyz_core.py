@@ -13,6 +13,7 @@ ATENCAO (Termos de Uso): o download em massa de tiles do Google/Bing fora das AP
 viola os Termos de Servico desses provedores. A Esri World Imagery exige atribuicao.
 O usuario e responsavel pelo uso; a GUI exibe este aviso antes do download.
 """
+import qgis_env  # noqa: F401  (primeiro: <QGIS>in para o GDAL e, no QGIS 3.26/Python 3.9, para o libssl do _ssl)
 import io
 import os
 import random
@@ -27,7 +28,6 @@ import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import qgis_env  # noqa: E402,F401  (DLLs do GDAL do QGIS antes do import do osgeo)
 import parallel  # noqa: E402
 import tilemath  # noqa: E402
 

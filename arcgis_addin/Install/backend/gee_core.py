@@ -5,6 +5,7 @@ Compatível com earthengine-api.
 Baseado no script de seleção e mosaico GEE para Mato Grosso / Brasil.
 """
 
+import qgis_env  # noqa: F401  (primeiro: <QGIS>\bin para o GDAL e, no QGIS 3.26/Python 3.9, para o libssl do _ssl)
 import os
 import sys
 import json
@@ -33,6 +34,24 @@ except Exception:
 import ee
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gee_config.json")
+
+# Prefixo dos scripts rodados num Python do QGIS a parte: registra o <QGIS>\bin dele antes do osgeo
+# (sem isso o QGIS 3.26 falha com "DLL load failed" quando o ambiente ja traz OSGEO4W_ROOT)
+_QGIS_DLLS_CODE = "import sys; sys.path.insert(0, %r); import qgis_env\n" % os.path.dirname(os.path.abspath(__file__))
+
+
+def _qgis_roots():
+    """Pastas raiz dos QGIS/OSGeo4W instalados (qualquer versao)."""
+    import glob
+    roots = []
+    for pat in (r"C:\Program Files\QGIS *", r"C:\Program Files (x86)\QGIS *", r"C:\OSGeo4W*"):
+        roots += sorted(glob.glob(pat), reverse=True)
+    return roots
+
+
+def _qgis_pythons():
+    import glob
+    return [p for r in _qgis_roots() for p in sorted(glob.glob(os.path.join(r, 'apps', 'Python3*', 'python.exe')))]
 
 COLLECTIONS = {
     'S2': 'COPERNICUS/S2_SR_HARMONIZED',
@@ -591,14 +610,10 @@ def validate_geotiff_health(tif_path, expected_bands=None, sensor=None, strict_s
 
     # 2. Fallback: Subprocesso Python QGIS com GDAL (busca dinâmica)
     if not info:
-        import glob
-        qgis_py_candidates = glob.glob(r"C:\Program Files\QGIS *\apps\Python3*\python.exe")
-        qgis_py_candidates += glob.glob(r"C:\Program Files (x86)\QGIS *\apps\Python3*\python.exe")
-        qgis_py_candidates += glob.glob(r"C:\OSGeo4W*\apps\Python3*\python.exe")
-        for qpy in qgis_py_candidates:
+        for qpy in _qgis_pythons():
             if os.path.exists(qpy):
                 try:
-                    inspect_script = (
+                    inspect_script = _QGIS_DLLS_CODE + (
                         "import sys, json, math\n"
                         "from osgeo import gdal\n"
                         "ds = gdal.Open(%r, gdal.GA_ReadOnly)\n"
@@ -1155,16 +1170,11 @@ def merge_geotiff_tiles(tile_paths, out_tif_path, expected_bands_count=None):
         sys.stderr.write("[ArcGEE] GDAL nativo: %s. Tentando alternativas...\n" % str(e))
 
     # 2. Subprocesso Python do QGIS (que possui GDAL nativo C++)
-    qgis_py_candidates = [
-        r"C:\Program Files\QGIS 3.44.10\apps\Python312\python.exe",
-        r"C:\Program Files\QGIS 3.34.10\apps\Python312\python.exe",
-        r"C:\Program Files\QGIS 3.28\apps\Python39\python.exe",
-    ]
-    for qpy in qgis_py_candidates:
+    for qpy in _qgis_pythons():
         if os.path.exists(qpy):
             try:
                 b_list_repr = repr(band_list_arg)
-                merge_code = (
+                merge_code = _QGIS_DLLS_CODE + (
                     "import sys\n"
                     "from osgeo import gdal\n"
                     "tiles = %r\n"
@@ -1186,13 +1196,7 @@ def merge_geotiff_tiles(tile_paths, out_tif_path, expected_bands_count=None):
                 sys.stderr.write("[ArcGEE] QGIS Python subprocess: %s\n" % str(e2))
 
     # 3. Executaveis GDAL do sistema
-    gdal_bin_dirs = [
-        r"C:\Program Files\QGIS 3.44.10\bin",
-        r"C:\Program Files\QGIS 3.34.10\bin",
-        r"C:\OSGeo4W\bin",
-        r"C:\OSGeo4W64\bin",
-    ]
-    for bdir in gdal_bin_dirs:
+    for bdir in [os.path.join(r, 'bin') for r in _qgis_roots()]:
         bvrt_exe = os.path.join(bdir, "gdalbuildvrt.exe")
         trans_exe = os.path.join(bdir, "gdal_translate.exe")
         if os.path.exists(bvrt_exe) and os.path.exists(trans_exe):

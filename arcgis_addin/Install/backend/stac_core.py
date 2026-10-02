@@ -7,6 +7,7 @@ Os arquivos sao GeoTIFF publicos (sem token). O recorte e feito por leitura parc
 (/vsicurl/ do GDAL): apenas a janela de pixels da area de interesse e transferida, na grade
 e resolucao NATIVAS da cena (srcWin em pixels inteiros, sem reamostragem).
 """
+import qgis_env  # noqa: F401  (primeiro: <QGIS>in para o GDAL e, no QGIS 3.26/Python 3.9, para o libssl do _ssl)
 import datetime as _dt
 import json
 import math
@@ -21,7 +22,6 @@ import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import qgis_env  # noqa: E402,F401  (DLLs do GDAL do QGIS antes do import do osgeo)
 
 try:
     from osgeo import gdal, osr

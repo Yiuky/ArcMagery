@@ -6,6 +6,31 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 
 ## [Não lançado]
 
+## [2.4.3-nightly.20261004] - 2026-10-02
+
+> Versão experimental (nightly): autenticação do Google Earth Engine e diagnóstico no QGIS 3.26 (Python 3.9).
+
+### 🛡️ Corrigido
+- **QGIS 3.26 e anteriores (Python 3.9):** o `autenticar_gee.bat` (e o botão de autenticação do ArcMagery
+  e do QMagery) falhava com `ImportError: DLL load failed while importing _ssl`. O `_ssl` desse Python
+  usa o `libssl` de `<QGIS>\bin`, e o `ee_auth.py`, o `doctor.py` (diagnóstico do `install.bat`) e o
+  `pylibs.py` importavam o `ssl` antes de registrar essa pasta (`qgis_env`). O mesmo erro fazia o teste
+  de Python do ArcMagery descartar o Python do QGIS 3.26 para o GEE. No QGIS 3.28+ o Python já traz o
+  `libssl` e não era afetado.
+- Todos os módulos do backend registram o `<QGIS>\bin` antes de qualquer import (antes, `esri_core`,
+  `gehist_core`, `spot_core`, `stac_core`, `sysenv`, `xyz_core` e `gee_core` só funcionavam no QGIS 3.26
+  quando importados depois do `run_gee`; o `urllib` desligava o HTTPS em silêncio).
+- GEE: os mosaicos e a inspeção de reserva por outro Python do QGIS registram as DLLs dele e acham
+  qualquer versão instalada (a lista fixa só tinha QGIS 3.44.10, 3.34.10 e 3.28).
+- Python 3.9: os avisos em inglês do Google sobre o fim do suporte ao Python 3.9 não aparecem mais na
+  janela de autenticação; o diagnóstico mostra um alerta em português recomendando atualizar o QGIS.
+
+### 🧪 Testes
+- `tests/backend/test_qgis_dlls.py`: monta uma cópia do Python com o layout do QGIS 3.26 (`libssl` só em
+  `<raiz>\bin`), confirma que ela reproduz o erro relatado e importa cada módulo do backend num processo
+  novo. A suíte do backend passou inteira no Python 3.9 (com GDAL, numpy, Pillow e o earthengine-api
+  instalado pelo `pylibs`), inclusive os testes ao vivo.
+
 ## [2.4.3-nightly.20261003] - 2026-10-02
 
 > Versão experimental (nightly): correção do carregamento de cenas CBERS/Amazônia-1 de Nível 2 e testes ao vivo de todas as fontes.
