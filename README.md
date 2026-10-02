@@ -15,7 +15,7 @@
   <a href="https://data.inpe.br/stac/browser/"><img src="https://img.shields.io/badge/INPE-STAC%20CBERS-00843D.svg" alt="STAC INPE"></a>
   <a href="https://geodes-portal.cnes.fr/"><img src="https://img.shields.io/badge/CNES-SPOT%201--5-1B4F72.svg" alt="SPOT CNES"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-2.7%20%7C%203.8--3.14-3776AB.svg?logo=python&logoColor=white" alt="Python"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.4.3--nightly.20261004-E67E22.svg" alt="Versão v2.4.3-nightly.20261004"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.4.3--nightly.20261005-E67E22.svg" alt="Versão v2.4.3-nightly.20261005"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License MIT"></a>
   <a href="https://github.com/Yiuky/ArcMagery/actions/workflows/tests.yml"><img src="https://github.com/Yiuky/ArcMagery/actions/workflows/tests.yml/badge.svg" alt="Testes"></a>
 </p>
