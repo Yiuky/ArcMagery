@@ -5,7 +5,7 @@ title: "[Bug] "
 labels: bug
 ---
 
-**Versão do ArcMagery** (ArcMagery › ℹ Sobre, ex.: 2.4.2):
+**Versão do ArcMagery** (ArcMagery › ℹ Sobre, ex.: 2.4.3):
 
 **Fonte de imagens:** Google Earth Engine / CBERS-Amazônia-1 (INPE) / SPOT (CNES) / Google Earth histórico / Esri Wayback / Google Earth-XYZ
 

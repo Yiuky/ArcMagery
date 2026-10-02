@@ -9,8 +9,8 @@ abstract: >-
 authors:
   - family-names: Gambati
     given-names: Joberth Firmino
-version: 2.4.2
-date-released: 2026-10-01
+version: 2.4.3
+date-released: 2026-10-02
 license: MIT
 repository-code: "https://github.com/Yiuky/ArcMagery"
 url: "https://github.com/Yiuky/ArcMagery"

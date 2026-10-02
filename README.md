@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Imagens de satélite no ArcGIS Desktop (ArcMap 10.8 / 10.8.2), direto no TOC e na resolução nativa</strong><br>
-  <em>Google Earth Engine · Google Earth (atual e histórico) · Esri Wayback · CBERS-4/4A e Amazônia-1 (INPE) · SPOT 1–5 (CNES)</em>
+  <em>Google Earth Engine · Google Earth (atual e histórico) · Esri Wayback · CBERS-2/2B, CBERS-4/4A e Amazônia-1 (INPE) · SPOT 1–5 (CNES)</em>
 </p>
 
 <p align="center">
@@ -15,7 +15,8 @@
   <a href="https://data.inpe.br/stac/browser/"><img src="https://img.shields.io/badge/INPE-STAC%20CBERS-00843D.svg" alt="STAC INPE"></a>
   <a href="https://geodes-portal.cnes.fr/"><img src="https://img.shields.io/badge/CNES-SPOT%201--5-1B4F72.svg" alt="SPOT CNES"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-2.7%20%7C%203.8--3.14-3776AB.svg?logo=python&logoColor=white" alt="Python"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Versão-v2.4.3--nightly.20261006-E67E22.svg" alt="Versão v2.4.3-nightly.20261006"></a>
+  <a href="https://github.com/Yiuky/ArcMagery/releases/latest"><img src="https://img.shields.io/github/v/release/Yiuky/ArcMagery?label=Est%C3%A1vel&color=2E8B57" alt="Versão estável"></a>
+  <a href="https://github.com/Yiuky/ArcMagery/releases"><img src="https://img.shields.io/github/v/release/Yiuky/ArcMagery?include_prereleases&sort=semver&label=Nightly&color=E67E22" alt="Versão experimental (nightly)"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License MIT"></a>
   <a href="https://github.com/Yiuky/ArcMagery/actions/workflows/tests.yml"><img src="https://github.com/Yiuky/ArcMagery/actions/workflows/tests.yml/badge.svg" alt="Testes"></a>
 </p>
@@ -44,12 +45,13 @@ quem trabalha com sensoriamento remoto, monitoramento ambiental e perícias.
 
 > Projeto **pessoal e independente** de Joberth Firmino Gambati: não é um produto oficial de nenhuma instituição nem fala em nome dela.
 
-### 🧩 Também no QGIS: QMagery (experimental)
+### 🧩 Também no QGIS: QMagery
 
-O **QMagery** é o plugin irmão para o **QGIS 3.18+**, com as mesmas fontes e o mesmo backend. Instale pelo
-repositório de plugins, que avisa as atualizações: em *Complementos › Gerenciar e instalar complementos ›
-Configurações*, marque *Mostrar também os complementos experimentais*, adicione o repositório
-`https://raw.githubusercontent.com/Yiuky/ArcMagery/main/qgis_plugin/plugins.xml` e instale o **QMagery**.
+O **QMagery** é o plugin irmão para o **QGIS 3.18+**, com as mesmas fontes e o mesmo backend (estável desde
+a 2.4.3). Instale pelo repositório de plugins, que avisa as atualizações: em *Complementos › Gerenciar e
+instalar complementos › Configurações*, adicione o repositório
+`https://raw.githubusercontent.com/Yiuky/ArcMagery/main/qgis_plugin/plugins.xml` e instale o **QMagery**
+(para receber também as nightlies, marque *Mostrar também os complementos experimentais*).
 Ou use *Instalar a partir do ZIP* com o `QMagery-<versão>.zip` da Release.
 Manual: [docs/QMAGERY.md](docs/QMAGERY.md).
 
@@ -66,6 +68,7 @@ plugin que **se diagnostica e se recupera sozinho**.
 | 🚦 | **Tela de abertura**: confere Python, GDAL, internet, login do GEE, chave do GEODES e ArcMap antes de abrir |
 | 🔀 | **Canais Estável e Experimental (nightly)**, com o selo **EXPERIMENTAL** na interface |
 | ↩️ | **Rollback para a versão anterior** com um clique, a partir do backup de cada atualização |
+| 🧩 | **QMagery**, o mesmo ArcMagery no **QGIS 3.18+**, instalável e atualizável pelo repositório de plugins (2.4.3) |
 
 ## 🗺️ Fontes de imagens
 
@@ -140,6 +143,9 @@ satélite/coleção, a composição, o período e a área, clique em **Buscar**,
 
 ## 🔄 Atualizar, canais e rollback
 
+Os selos do topo mostram a versão que cada canal instala hoje: **Estável** (última Release estável) e
+**Nightly** (a mais nova entre estáveis e experimentais, que é o que o canal experimental oferece).
+
 - **Assistente de Atualização** (⚙ Configurações):
   - **Método 1 – Online:** baixa a Release do GitHub e confere o SHA-256. **Canal:** *Estável
     (recomendado)* ou *Experimental (nightly)*, que recebe antes as novidades (versões
@@ -159,6 +165,7 @@ satélite/coleção, a composição, o período e a área, clique em **Buscar**,
 | `autenticar_gee.bat` | Usuário | Login no Google Earth Engine (uma vez) |
 | `atualizar.bat` | Usuário (clone git) | Atualiza pelo git e reinstala |
 | `desinstalar.bat` | Usuário | Remove o Add-In e, se quiser, os dados |
+| `install_plugin.bat`, `uninstall.bat` | Usuário | Atalhos para `install.bat` e `desinstalar.bat` (nomes antigos) |
 | `run_tests.bat`, `build_release.py`, `deploy.ps1`, `tools\` | Desenvolvedor | Testes, pacotes da Release e utilitários |
 
 O plugin do QGIS não usa esses arquivos: instale-o pelo Gerenciador de Complementos do QGIS
@@ -184,7 +191,7 @@ Detalhes técnicos, convenções e armadilhas conhecidas estão em [AGENTS.md](A
 ## 🧪 Testes
 
 ```bat
-run_tests.bat                    :: backend (Python 3) + ArcMap/GUI (Python 2.7): ~340 testes
+run_tests.bat                    :: backend (Python 3) + ArcMap/GUI (Python 2.7): ~360 testes
 python tests\qgis\run_all.py     :: QMagery: contrato com o backend, paridade e pacote (interface: python-qgis)
 set ARCMAGERY_LIVE=1             :: inclui testes com internet (INPE, Esri, Google, GEODES)
 set ARCMAGERY_GEE_PROJECT=<id>   :: inclui teste real no Earth Engine
@@ -201,18 +208,20 @@ C:\Python27\ArcGIS10.8\python.exe tests\arcmap\test_carga_ao_vivo.py
 
 ## 📦 Publicar uma versão (mantenedor)
 
-Com a versão atualizada em `config.xml`, `gee_gui.py`, `gee_updater.py`, no selo deste README, no
-`metadata.txt` do QMagery e no `CHANGELOG.md` (`python tools\check_versions.py` confere):
+Com a versão atualizada em `config.xml`, `gee_gui.py`, `gee_updater.py`, no `metadata.txt` do QMagery, no
+`CHANGELOG.md` e, nas estáveis, no `CITATION.cff` (`python tools\check_versions.py` confere; os selos
+deste README se atualizam sozinhos a partir das Releases):
 
 ```bat
-git tag v2.4.3
-git push origin v2.4.3
+git tag v2.4.4
+git push origin v2.4.4
 ```
 
 O workflow **Release** roda as suítes, gera `ArcMagery-<versão>.zip`, `QMagery-<versão>.zip` e
 `SHA256SUMS.txt`, publica a Release com as notas do CHANGELOG e atualiza o repositório de plugins do QGIS
-(`qgis_plugin/plugins.xml`). Versões experimentais usam o sufixo `-nightly.AAAAMMDD` e saem como
-*pre-release*, que o canal estável nunca instala (detalhes no [AGENTS.md](AGENTS.md)).
+(`qgis_plugin/plugins.xml`). Versões experimentais usam o sufixo `-nightly.AAAAMMDD` (a data real da
+publicação, uma por dia; depois da 2.4.3, `2.4.4-nightly.AAAAMMDD`) e saem como *pre-release*, que o canal
+estável nunca instala (detalhes no [AGENTS.md](AGENTS.md)).
 
 ## 🤝 Contribuindo
 

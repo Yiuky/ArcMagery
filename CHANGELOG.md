@@ -4,7 +4,53 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto segue o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+- **Versões estáveis** (`X.Y.Z`) e **experimentais** (`X.Y.Z-nightly.AAAAMMDD`, com a data da publicação;
+  X.Y.Z é a próxima versão estável). As experimentais saem como *pre-release* no GitHub.
+- A primeira versão com Release no GitHub é a 2.3.2. As versões anteriores ficaram só no histórico do git
+  (as tags `v1.7`, `v1.8`, `v1.10`, `v1.11` e `v1.12` correspondem às seções 1.7.0 a 1.12.0; não há
+  registro de uma 1.9.0).
+
 ## [Não lançado]
+
+## [2.4.3] - 2026-10-02
+
+> Versão estável que reúne as experimentais 2.4.3-nightly.20261001 a 2.4.3-nightly.20261006 (detalhes nas
+> seções delas, abaixo). É a primeira versão estável do **QMagery**, o plugin do QGIS.
+
+### 🌟 Adicionado
+- **QMagery (QGIS 3.18+):** plugin do QGIS com as mesmas fontes e o mesmo backend do ArcMagery. Instale pelo
+  repositório de plugins (`https://raw.githubusercontent.com/Yiuky/ArcMagery/main/qgis_plugin/plugins.xml`),
+  que avisa as atualizações, ou pelo `QMagery-<versão>.zip` da Release. Manual: [docs/QMAGERY.md](docs/QMAGERY.md).
+- **Janela de atualização:** mostra a versão publicada no canal escolhido comparada à instalada.
+- **Suíte ao vivo de todas as fontes** (`tests/qgis/test_ao_vivo.py` e `tests/arcmap/test_carga_ao_vivo.py`):
+  busca, download e carga de cada produto no QGIS e no ArcMap.
+
+### 🛡️ Corrigido
+- **Google Earth Engine:** a busca não lista mais cenas sem nenhum pixel na área (borda da faixa imageada),
+  que davam download todo NoData; a cobertura parcial aparece na coluna Tile.
+- **CBERS/Amazônia-1 Nível 2 e CBERS-2/2B:** a cobertura é medida na própria imagem; cenas fora da faixa
+  imageada não aparecem mais com "até 100% da área".
+- **QGIS 3.26 e anteriores (Python 3.9):** autenticação do GEE, diagnóstico e componentes do Earth Engine sem
+  `DLL load failed while importing _ssl`.
+- **Login no Google Earth Engine:** o prazo passou de 30 s para 300 s (a pessoa ainda estava no navegador).
+- **"Falha ao Consultar Releases":** quando a API do GitHub recusa a consulta (60 por hora por endereço, o
+  que se esgota numa rede em que todos saem pelo mesmo IP), o atualizador usa o feed de Releases e o
+  `SHA256SUMS.txt`; se tudo falhar, a mensagem diz o motivo.
+- **Atualizador:** escolhe o pacote `ArcMagery-*.zip` pelo nome (a Release traz também o do QMagery).
+- A janela de erro do health check não mostra mais o JSON inteiro do diagnóstico.
+
+### 🔧 Alterado
+- Repositório renomeado para **`Yiuky/ArcMagery`** (o GitHub redireciona o endereço antigo; o atualizador
+  das versões instaladas continua funcionando).
+- README com os selos das versões **estável** e **experimental (nightly)**, lidos das Releases do GitHub
+  (não precisam mais ser editados a cada versão).
+- Experimentais seguintes: `2.4.4-nightly.AAAAMMDD`, com a data real da publicação (as 2.4.3-nightly
+  .20261003 a .20261006 usaram a data como número de sequência, todas publicadas em 02/10/2026).
+
+### 📝 Documentação
+- Manual, manual do QMagery, BACKLOG, AGENTS e CONTRIBUTING revisados: coerentes entre si e com o código
+  (cobertura medida no GEE e no INPE, atualizador, endereços de rede, QMagery estável). `CITATION.cff`
+  atualizado e conferido pelo `tools/check_versions.py` nas versões estáveis.
 
 ## [2.4.3-nightly.20261006] - 2026-10-02
 
@@ -134,6 +180,10 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 > Versão experimental (nightly): inclusão do plugin QMagery para QGIS (suporte completo a GEE,
 > INPE STAC com CBERS-2/2B/4/4A e Amazônia-1, SPOT 1-5, Google Earth Histórico, Esri Wayback e XYZ),
 > integração de status de carga e paridade monorepo com ArcMagery.
+>
+> **Nota (revisão de 2026-10-02):** esta versão só funcionava numa cópia do repositório e tinha falhas no
+> SPOT, no Landsat e nas camadas XYZ, corrigidas na 2.4.3-nightly.20261002. O catálogo do INPE tem 32
+> coleções (não 30).
 
 ### 🌟 Adicionado
 - **Plugin QMagery para QGIS:**
@@ -211,7 +261,7 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 > Versão estável com o mesmo conteúdo da prévia experimental `v2.4.1-nightly.20260930`. É por ela que
 > quem está na v2.4.0 passa a ter o seletor de canal (a 2.4.0 ainda não o tinha).
 
-### ✨ Adicionado
+### 🌟 Adicionado
 - **Canais de atualização estável × experimental:** seletor *Canal* no Assistente de Atualização (salvo nas
   Configurações). O experimental recebe as Releases nightly (`X.Y.Z-nightly.AAAAMMDD`, publicadas como
   pre-release); o estável nunca as instala. Quem está numa nightly e escolhe *Estável* recebe a oferta de
@@ -238,7 +288,7 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 
 ## [2.4.0] - 2026-09-30
 
-### ✨ Adicionado
+### 🌟 Adicionado
 - **SPOT 1–5 (CNES SPOT World Heritage, 1986–2015):** quinta fonte da janela principal
   (*Fonte de imagens* › *SPOT 1-5 (CNES)*), pela API STAC do GEODES, com o mesmo fluxo do CBERS:
   grupos por satélite (multiespectral/pancromática), busca livre, miniatura, fila, grupo e
@@ -257,11 +307,10 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 - **Tela de abertura:** confere em paralelo o Python 3, GDAL/numpy, internet (GEODES, INPE, Esri),
   login do GEE, chave do GEODES e ArcMap enquanto a janela principal é montada; ela abre já com o
   estado do GEE aplicado. Novo comando de backend `selfcheck` (~3 s).
-
 - **Earth Engine sem pip (menos requisitos na máquina):** o `earthengine-api` e suas 25 dependências
   são baixados pelo próprio ArcMagery com `urllib` e os **certificados do Windows** (funciona com o
   proxy de inspeção SSL, onde o `pip` falhava), com versões fixas e SHA-256 conferido
-  (`backend/pylibs_manifest.json`), para `%LOCALAPPDATA%\ArcMagery\pylibs\py3XY` (~26 MB, ~15 s).
+  (`backend/pylibs_manifest.json`), para `%LOCALAPPDATA%\ArcMagery\pylibs\py3XY` (~25 MB, ~15 s).
   Basta o **Python do QGIS**: não é mais preciso venv, pip nem compilador. Um venv existente continua
   sendo usado sem mudança (a pasta só é ativada se o Python não tiver o `ee` próprio).
   - A tela de abertura ganhou a linha *Componentes do Earth Engine* e o botão **Instalar componentes
@@ -269,15 +318,14 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
   - `install.bat` e `autenticar_gee.bat` usam o mesmo mecanismo; a autenticação passou a usar
     `backend/ee_auth.py` (não depende mais do `earthengine.exe` do venv).
   - Manutenção: `tools/build_pylibs_manifest.py` regenera o manifesto (pura > abi3 > uma roda por CPython 3.10–3.14).
-
-### 🛡️ Corrigido
-- `No module named 'ee'` aparecia como traceback cru na barra do topo e na autenticação (visto na máquina de
-  um colega com a v2.3.2): agora é uma mensagem clara com a ação a tomar.
-
 - **Rollback para a versão anterior:** *Assistente de Atualização › Método 3* reinstala o backup
   salvo antes da última atualização, pelo mesmo executor transacional (a versão atual é salva antes;
   se a restauração falhar, o executor volta a ela). Nunca copia a versão antiga para o repositório de
   desenvolvimento, e o mesmo botão desfaz o rollback.
+
+### 🛡️ Corrigido
+- `No module named 'ee'` aparecia como traceback cru na barra do topo e na autenticação (visto na máquina de
+  um colega com a v2.3.2): agora é uma mensagem clara com a ação a tomar.
 
 ### 🔧 Alterado
 - O botão *Google Earth / Mosaicos XYZ...* fica fixo à direita da barra de fontes (não some quando os
@@ -286,7 +334,7 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 
 ## [2.3.3] - 2026-09-29
 
-### ✨ Adicionado
+### 🌟 Adicionado
 - **Google Earth histórico (N-09):** terceira fonte da janela principal (*Fonte de imagens* › *Google Earth histórico (por data)*), com o mesmo fluxo do CBERS e do GEE:
   - o zoom (15 a 20, ~4,8 a ~0,15 m) ocupa o lugar do satélite. **Listar Datas do Google Earth** preenche a tabela com cada data do histórico da área no período (como no Google Earth Pro), a **cobertura** e o **provedor** (Maxar, CNES/Airbus...);
   - **Miniatura** da data, carga de uma ou várias datas pela **fila**, grupo no TOC e **Substituir no TOC**. A seleção mostra a estimativa de tiles, tamanho e tempo;
@@ -401,7 +449,7 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 - **Configurações › Aplicar e garantir stretch** preserva a combinação de bandas de cada camada; antes redefinia para 1-2-3.
 - **Configurações:** salvar ou aplicar não apaga mais outras opções (Python 3 escolhido, pasta de saída, aceite dos Termos de Uso).
 
-### ♻️ Removido
+### 🗑️ Removido
 - Botões **Composição**, **Forçar RGB** e **Garantir Stretch** da janela principal: a carga já entra composta e com stretch conferido.
 
 ### 🧪 Testes

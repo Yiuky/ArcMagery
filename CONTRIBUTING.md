@@ -47,8 +47,9 @@ run_tests.bat                    :: backend (Python 3) + ArcMap/GUI (Python 2.7)
 set ARCMAGERY_LIVE=1             :: inclui testes com internet
 ```
 
-O GitHub Actions roda a suíte do backend a cada push. A suíte do ArcMap exige ArcGIS Desktop e roda só
-localmente: informe no PR se você a executou.
+O GitHub Actions roda a suíte do backend, a do QMagery (`tests\qgis\run_all.py`, sem os testes de interface)
+e a checagem de versões (`tools\check_versions.py`) a cada push. A suíte do ArcMap exige ArcGIS Desktop e
+roda só localmente: informe no PR se você a executou.
 
 ### Pull request
 

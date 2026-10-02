@@ -12,15 +12,15 @@ backend: busca as cenas da área, recorta na resolução nativa e carrega no pai
 | **Esri Wayback** | As versões da Esri World Imagery, com a data de captura |
 | **Google Earth / XYZ** | Google, Esri e Bing como camada XYZ ao vivo ou como GeoTIFF da área |
 
-> **Versão experimental.** O QMagery é novo: as versões saem como *nightly* (experimentais) até a
-> primeira estável. Projeto pessoal e independente, código aberto (licença MIT).
+> **Estável desde a 2.4.3.** As novidades saem antes como *nightly* (experimentais), para quem marcar
+> *Mostrar também os complementos experimentais*. Projeto pessoal e independente, código aberto (licença MIT).
 
 ## 1. Instalar
 
 ### Recomendado: pelo repositório de plugins (recebe as atualizações sozinho)
 
 1. No QGIS: **Complementos › Gerenciar e instalar complementos › Configurações**.
-2. Marque **Mostrar também os complementos experimentais** (enquanto não houver versão estável).
+2. Opcional: marque **Mostrar também os complementos experimentais** para receber também as nightlies.
 3. Em **Repositórios de complementos**, clique em **Adicionar...** e preencha:
    - Nome: `QMagery`
    - URL: `https://raw.githubusercontent.com/Yiuky/ArcMagery/main/qgis_plugin/plugins.xml`
@@ -57,7 +57,7 @@ Engine, a internet (INPE, GEODES, Esri) e a chave do GEODES. Nada ali impede o u
 dependem do item com aviso continuam funcionando.
 
 - **Componentes do Earth Engine ausentes:** clique em **Instalar componentes do Earth Engine** (cerca de
-  20 MB, sem `pip`, com os certificados do Windows; funciona atrás de proxy com inspeção SSL).
+  25 MB, sem `pip`, com os certificados do Windows; funciona atrás de proxy com inspeção SSL).
 - A verificação pode ser desligada em **⚙ Configurações** e rodada a qualquer momento em
   **Raster › QMagery › Verificar o ambiente...**.
 

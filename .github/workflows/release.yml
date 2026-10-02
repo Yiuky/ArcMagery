@@ -1,7 +1,8 @@
 # Publica a GitHub Release verificavel ao enviar uma tag vX.Y.Z:
 #   git tag v2.4.3 && git push origin v2.4.3
-# Experimental: o X.Y.Z da nightly e a PROXIMA versao (depois da 2.4.2: v2.4.3-nightly.AAAAMMDD),
-# porque 2.4.2-nightly.* ordena ANTES de 2.4.2 e nunca seria oferecida a quem esta na 2.4.2.
+# Experimental: o X.Y.Z da nightly e a PROXIMA versao (depois da 2.4.3: v2.4.4-nightly.AAAAMMDD, com a
+# data real da publicacao), porque 2.4.3-nightly.* ordena ANTES de 2.4.3 e nunca seria oferecida a quem
+# esta na 2.4.3.
 #
 # Publica: ArcMagery-<versao>.zip, SHA256SUMS.txt e QMagery-<versao>.zip (plugin do QGIS), com as notas
 # da versao no CHANGELOG.md. Depois atualiza qgis_plugin/plugins.xml no branch main: e o repositorio de

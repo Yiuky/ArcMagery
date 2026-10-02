@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Imagens de satélite no ArcGIS Desktop (ArcMap 10.8.x), direto no TOC e na resolução nativa</strong><br>
   Google Earth Engine · CBERS/Amazônia-1 (INPE) · SPOT 1–5 (CNES) · Google Earth (atual e histórico) · Esri Wayback · XYZ<br>
-  <em>Versão 2.4.2 · projeto pessoal e independente de Joberth Firmino Gambati</em>
+  <em>Versão 2.4.3 · projeto pessoal e independente de Joberth Firmino Gambati</em>
 </p>
 
 ---
@@ -241,7 +241,9 @@ quadrantes, baixa em paralelo e junta tudo num único GeoTIFF com GDAL, mantendo
 3. A tabela mostra:
    - **Data / Hora** da passagem;
    - **Nuvens (%)** sobre a cena;
-   - **Tile / P-R:** tile MGRS (Sentinel-2) ou órbita/ponto (Landsat);
+   - **Tile / P-R:** tile MGRS (Sentinel-2) ou órbita/ponto (Landsat). A busca mede no servidor quanto da
+     área cada cena cobre com imagem válida: cenas abaixo de 0,5% (ex.: na borda da faixa imageada) não
+     aparecem, e as parciais mostram a cobertura (ex.: `21LVD · 21% da AOI`);
    - **Nome da Cena** no acervo;
    - **Status:** se a cena já foi carregada.
 4. Selecione uma ou várias linhas (Ctrl / Shift) e use **Miniatura** para conferir antes de baixar.
@@ -310,8 +312,11 @@ recorte é sempre na grade nativa da cena.
   resolução nativas da cena.
 * Os valores são DN ou refletância de superfície, conforme a coleção. O multibanda mantém a ordem
   espectral (azul, verde, vermelho, NIR) e é exibido em cor natural.
-* No CBERS-2/2B o contorno publicado da cena é retangular; a tabela mostra "até X% da AOI" e o plugin
-  avisa se o recorte tiver imagem em menos de 50% da área.
+* Nas coleções de **Nível 2** e no **CBERS-2/2B**, o contorno publicado pelo INPE é só o retângulo da
+  passagem (e às vezes nem ele confere). Por isso a busca **mede a cobertura na própria imagem** (leitura
+  reduzida da janela da área) e descarta as cenas sem imagem na área; ela leva ~15 s nessas coleções, em
+  vez de ~2 s. Se a medição falhar (rede), a tabela mostra a estimativa como "até X% da AOI".
+* Depois do recorte, o plugin avisa se a imagem cobrir menos de 50% da área.
 
 ### 6.9 SPOT 1–5 (CNES) e a chave do GEODES
 
@@ -443,6 +448,12 @@ Com tudo certo, a janela principal abre sozinha em menos de 1 s. Com avisos, abr
   * **Canal experimental (nightly):** recebe antes as novidades e correções, que podem ter falhas. A versão
     aparece com o selo laranja **EXPERIMENTAL** no topo da janela. Para voltar, escolha *Estável* e
     clique em *Iniciar Atualização Online*.
+  * Ao abrir o assistente (e ao trocar de canal), ele mostra a versão disponível no canal comparada à
+    instalada, ou "Você já está na versão mais recente".
+  * Se a API do GitHub recusar a consulta (limite de 60 por hora por endereço, que se esgota numa rede em
+    que todos os computadores saem pelo mesmo IP), o atualizador usa o feed de Releases e o
+    `SHA256SUMS.txt`; o pacote continua conferido pelo SHA-256. Se tudo falhar, a mensagem diz o motivo
+    (limite do GitHub, certificado do proxy, conexão recusada) e onde baixar o ZIP para o Método 2.
 * **Método 2, arquivo ZIP:** instala um pacote `.zip` ou `.esriaddin` baixado manualmente. O conteúdo é
   verificado antes (integridade e caminhos maliciosos).
 * **Método 3, voltar para a versão anterior:** reinstala o backup salvo antes da última atualização (o
@@ -560,10 +571,12 @@ Revise os arquivos antes de anexá-los a uma issue pública: eles contêm caminh
 | `%TEMP%` | Arquivos temporários da sessão e o pacote de certificados para o GDAL |
 
 Endereços acessados (HTTPS): `earthengine.googleapis.com` e `oauth2.googleapis.com` (Earth Engine),
-`files.pythonhosted.org` (componentes do Earth Engine, só na instalação), `api.github.com` e `github.com`
-(atualizações), `data.inpe.br` (CBERS), `geodes-portal.cnes.fr` (SPOT), `server.arcgisonline.com`,
-`wayback.maptiles.arcgis.com` e `clarity.maptiles.arcgis.com` (Esri) e os servidores de tiles do Google e do
-Bing quando essas fontes são usadas.
+`files.pythonhosted.org` (componentes do Earth Engine, só na instalação), `api.github.com`, `github.com` e
+`release-assets.githubusercontent.com` (atualizações: consulta, feed e download dos pacotes da Release),
+`raw.githubusercontent.com` (repositório de plugins do QMagery), `data.inpe.br` (CBERS),
+`geodes-portal.cnes.fr` (SPOT), `server.arcgisonline.com`, `services.arcgisonline.com`,
+`wayback.maptiles.arcgis.com` e `clarity.maptiles.arcgis.com` (Esri), `khmdb.google.com` (Google Earth
+histórico) e os servidores de tiles do Google e do Bing quando essas fontes são usadas.
 
 ---
 

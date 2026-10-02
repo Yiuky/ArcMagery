@@ -29,7 +29,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Consistencia de versao (config.xml, gee_gui, gee_updater, README e metadata do QMagery)
+      - name: Consistencia de versao (config.xml, gee_gui, gee_updater, metadata do QMagery, CITATION e selos do README)
         run: python tools/check_versions.py
 
       - name: Suite do backend

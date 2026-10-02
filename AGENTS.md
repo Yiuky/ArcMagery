@@ -63,7 +63,8 @@ Python 3 do QGIS + %LOCALAPPDATA%\ArcMagery\pylibs\py3XY  <- backend/gee_core.py
 | `backend/spot_core.py` | 3 + GDAL + numpy | SPOT 1-5 via STAC do GEODES: busca (filtrar coleções por `query.dataset`; a data de aquisição é `start_datetime`), download com `X-API-Key` + MD5 + cache, georreferência pelo `Simplified_Location_Model` do L1A e **alinhamento à Esri** por correlação de fase |
 | `backend/gehist_core.py` | 3 | Google Earth histórico por data (catálogo *Time Machine*, protocolo Keyhole: dbRoot + quadtree protobuf + XOR), porta de um projeto pessoal anterior (DOWNLOADER_EARTH). **A grade é geográfica EPSG:4326, não Web Mercator** (`tilemath.keyhole_*`) |
 | `backend/parallel.py` | 3 | `imap_bounded` (no máximo `workers × 4` tiles em andamento: memória constante), threads de rede padrão (48, teto 64) e núcleos do GDAL (CPU − 2, teto 16). Todo download de tiles passa por aqui |
-| `backend/qgis_env.py` | 3 | Registra `<QGIS>\\bin` como diretório de DLLs antes do import do GDAL (o `sitecustomize` do QGIS pula isso se `OSGEO4W_ROOT` já existir) |
+| `backend/qgis_env.py` | 3 | Registra `<QGIS>\\bin` como diretório de DLLs antes do import do GDAL (o `sitecustomize` do QGIS pula isso se `OSGEO4W_ROOT` já existir) e, no QGIS ≤ 3.26 (Python 3.9), antes do `ssl`, cujo `libssl` fica em `<QGIS>\\bin`. **Primeiro import de todo módulo do backend** (B-09) |
+| `backend/sysenv.py` | 3 | Ambiente do processo: certificados do Windows em PEM (`windows_ca_bundle`), `configure_requests_ca` (certifi + Windows para o `earthengine-api` atrás de proxy com inspeção SSL) e limpeza de pastas temporárias antigas |
 | `qgis_plugin/qmagery/` | 3 (PyQGIS) | **QMagery**, o plugin do QGIS (seção 8). Usa o mesmo backend |
 | `tools/qgis_repo.py`, `qgis_plugin/plugins.xml` | 3 | Repositório de plugins do QGIS para o QMagery (gerado pelo workflow de Release) |
 | `tools/check_versions.py` | 3 | Confere a versão em todos os lugares (CI e Release) |
@@ -78,6 +79,9 @@ Python 3 do QGIS + %LOCALAPPDATA%\ArcMagery\pylibs\py3XY  <- backend/gee_core.py
   lança `IOError(9)`. Os módulos redirecionam com `_stream_is_usable`. Não remova isso.
 - **Caminhos com acento** (ex.: `C:\Users\João`): parâmetros vão ao backend num JSON UTF-8
   (`--params-file`), nunca como argumentos unicode no `Popen` do Python 2.
+- **Backend no QGIS ≤ 3.26 (Python 3.9):** `import qgis_env` é o PRIMEIRO import de todo módulo do backend,
+  antes de `ssl`/`urllib.request`; sem isso o `_ssl` não carrega e o HTTPS desliga em silêncio.
+  `tests/backend/test_qgis_dlls.py` monta o layout do QGIS 3.26 e importa cada módulo.
 - **Dependências Python 3:** não adicione pacotes que exijam `pip` na máquina do usuário. O backend deve
   rodar no Python do QGIS (GDAL, numpy, Pillow) + `pylibs`. Pacote novo = entrada nova no manifesto
   (roda pura ou abi3/cp310–cp314 win_amd64). `No module named 'ee'` vira `EarthEngineMissing` (JSON
@@ -140,9 +144,11 @@ set ARCMAGERY_GEE_PROJECT=<id>  :: + teste real no Earth Engine (requer autentic
 ## 6. Publicar uma versão
 
 1. Atualize `<Version>` em `arcgis_addin/config.xml`, `CURRENT_VERSION` em `gee_gui.py`, os
-   padrões `current_version=` em `gee_updater.py`, o selo do README e o `version=` do
-   `qgis_plugin/qmagery/metadata.txt` (mesma versão; na nightly, `-nightly.` vira `-beta.`, ver seção 8) e o
-   `experimental=` dele. `python tools/check_versions.py` confere tudo (o CI e a Release também).
+   padrões `current_version=` em `gee_updater.py` e o `version=` do `qgis_plugin/qmagery/metadata.txt`
+   (mesma versão; na nightly, `-nightly.` vira `-beta.`, ver seção 8) e o `experimental=` dele. Nas
+   **estáveis**, também o `version:` e o `date-released:` do `CITATION.cff` (na nightly ele fica na última
+   estável). Os selos do README (Estável e Nightly) são dinâmicos, lidos das Releases: não edite.
+   `python tools/check_versions.py` confere tudo (o CI e a Release também).
 2. Escreva a entrada no `CHANGELOG.md` e rode `run_tests.bat` e `tests\qgis\run_all.py` (idealmente com
    `ARCMAGERY_LIVE=1` e, para a interface do QMagery, com o `python-qgis-ltr.bat` do QGIS).
 3. `git tag v<versão>` e `git push origin v<versão>`. O workflow `.github/workflows/release.yml` roda as
@@ -153,9 +159,13 @@ set ARCMAGERY_GEE_PROJECT=<id>  :: + teste real no Earth Engine (requer autentic
    usuários pede confirmação para instalar do `main` sem verificação.
 4. Localmente, `python build_release.py` gera os mesmos artefatos em `dist/`, para conferência.
 5. **Versão experimental (nightly):** use `X.Y.Z-nightly.AAAAMMDD`, em que **X.Y.Z é a PRÓXIMA versão**
-   (depois da 2.4.1: `2.4.2-nightly.AAAAMMDD`; `2.4.1-nightly.*` ordena antes de `2.4.1` e nunca seria
-   oferecida a quem já está nela), nos mesmos lugares do passo 1, com o selo do README em laranja (`E67E22`; o shields.io escreve `-` como `--`) e o
-   título do CHANGELOG `## [X.Y.Z-nightly.AAAAMMDD] - data (experimental)`. A tag com sufixo vira *pre-release*
+   (depois da 2.4.3: `2.4.4-nightly.AAAAMMDD`; `2.4.3-nightly.*` ordena antes de `2.4.3` e nunca seria
+   oferecida a quem já está nela) e **AAAAMMDD é a data real da publicação** (horário de Brasília). Uma
+   nightly por dia: nunca use uma data futura como número de sequência (as 2.4.3-nightly.20261003 a
+   .20261006 fizeram isso e saíram todas em 02/10/2026); outra correção no mesmo dia vai na nightly do dia
+   seguinte ou numa estável. O sufixo precisa ser um número só (`tools/qgis_repo.version_key` não aceita
+   `.AAAAMMDD.N`). Atualize os mesmos lugares do passo 1, com o título do CHANGELOG
+   `## [X.Y.Z-nightly.AAAAMMDD] - data`. A tag com sufixo vira *pre-release*
    no workflow: o canal estável (`releases/latest`) nunca a instala; o canal experimental (lista de Releases)
    pega a mais nova entre estáveis e nightlies. Compare versões sempre com `gee_updater.version_key`, nunca
    com `parse_version` (que descarta o sufixo).
